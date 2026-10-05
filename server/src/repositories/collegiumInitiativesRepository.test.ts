@@ -32,27 +32,28 @@ test("collegium initiatives repository rejects a stale revision", async () => {
   assert.deepEqual(queries[0]?.parameters?.slice(-2), ["initiative-1", 2]);
 });
 
-test("collegium number series increments a locked yearly counter", async () => {
+test("collegium number series increments the yearly counter in one upsert", async () => {
   const queries: string[] = [];
   let stored = 41;
   const pool = {
-    async query(sql: string, parameters: unknown[] = []) {
+    async query(sql: string) {
       const normalized = sql.replace(/\s+/gu, " ").trim();
       queries.push(normalized);
+      if (normalized.startsWith("insert into collegium_number_sequences")) {
+        stored += 1;
+        return [{ affectedRows: 2 }, []];
+      }
       if (normalized.startsWith("select last_value")) {
-        assert.match(normalized, /for update$/u);
         return [[{ last_value: stored }], []];
       }
-      if (normalized.startsWith("update collegium_number_sequences")) {
-        stored = Number(parameters[0]);
-      }
-      return [{ affectedRows: 1 }, []];
+      throw new Error(`Unexpected SQL: ${normalized}`);
     },
   } as unknown as DatabasePool;
 
   assert.equal(await createCollegiumInitiativesRepository(pool).nextNumber("initiative", 2026), 42);
-  assert.equal(stored, 42);
-  assert.match(queries[0] ?? "", /^insert ignore into collegium_number_sequences/u);
+  // The exclusive lock comes from the upsert itself, never from a lock upgrade.
+  assert.match(queries[0] ?? "", /on duplicate key update last_value = last_value \+ 1$/u);
+  assert.equal(queries.some((sql) => /insert ignore|for update/u.test(sql)), false);
 });
 
 test("collegium people merge positions and detect the initiatives tab", async () => {

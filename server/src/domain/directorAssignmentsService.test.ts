@@ -4,9 +4,9 @@ import test from "node:test";
 import type { AssignmentRegistryId, DirectorAssignment, DirectorAssignmentInput, PersonnelEmployee } from "../contracts/directorAssignments.js";
 import type { DirectorAssignmentsRepository } from "../repositories/directorAssignmentsRepository.js";
 import type { ServerUserProfile } from "./auth.js";
-import { createDirectorAssignmentsService } from "./directorAssignmentsService.js";
+import { createDirectorAssignmentsService, type AssignmentInitiativeLinks } from "./directorAssignmentsService.js";
 
-function fixture(registryId: AssignmentRegistryId = "director") {
+function fixture(registryId: AssignmentRegistryId = "director", initiativeLinks?: AssignmentInitiativeLinks, events: string[] = []) {
   let records = new Map<string, DirectorAssignment>();
   let completions: DirectorAssignment[] = [];
   let revisions: DirectorAssignment[] = [];
@@ -22,15 +22,16 @@ function fixture(registryId: AssignmentRegistryId = "director") {
     read: async (id: string) => structuredClone(records.get(id)),
     listEmployees: async () => [structuredClone(employee)],
     listAssignableEmployees: async () => [structuredClone(employee)],
-    readAssignableEmployee: async (id: string) => id && employee.active && employee.userId ? structuredClone(employee) : undefined,
+    readAssignableEmployee: async (id: string) => { events.push("lock-employee"); return id && employee.active && employee.userId ? structuredClone(employee) : undefined; },
     readEmployee: async (id: string) => id ? structuredClone(employee) : undefined,
-    create: async (record: DirectorAssignment) => { record.number = "1"; records.set(record.id, structuredClone(record)); return structuredClone(record); },
+    create: async (record: DirectorAssignment) => { events.push("create"); record.number = "1"; records.set(record.id, structuredClone(record)); return structuredClone(record); },
     update: async (record: DirectorAssignment, previous: DirectorAssignment) => { revisions.push(structuredClone(previous)); records.set(record.id, structuredClone(record)); return structuredClone(record); },
     addCompletion: async (record: DirectorAssignment) => { completions.push(structuredClone(record)); },
     listCompletions: async () => completions.map((assignment, index) => ({ id: String(index), assignment: structuredClone(assignment) })),
   } as unknown as DirectorAssignmentsRepository;
   const service = createDirectorAssignmentsService({
     repository,
+    initiativeLinks,
     boardAssignments: {
       readById: async (id: string) => id === board.id ? structuredClone(board) : undefined,
       readByIdForUpdate: async (id: string) => { boardLocks++; return id === board.id ? structuredClone(board) : undefined; },
@@ -50,7 +51,7 @@ function fixture(registryId: AssignmentRegistryId = "director") {
   });
   const input: DirectorAssignmentInput = { assignedOn: "2026-09-01", kind: "Поручение", summary: "Представить отчёт", department: "", project: "", responsibleId: employee.id, coExecutorIds: [], recurrence: "monthly", activeFrom: "2026-09-01", activeTo: "2026-12-31", urgency: "", importance: "", note: "", progress: "", incomingNumber: "", sourceBoardAssignmentId: null,
     ...(registryId === "collegium" ? { meetingDate: "2026-09-10", protocolNumber: "7", decisionNumber: "2.1" } : {}) };
-  return { service, employee, profile, input, board, boardLocks: () => boardLocks, markUnclear(id: string) { records.get(id)!.needsClarification = true; }, makeLegacy(id: string) { records.get(id)!.responsibleId = "person-legacy"; }, unassign(id: string) { records.get(id)!.responsibleId = ""; }, failAudit() { auditFails = true; } };
+  return { service, employee, profile, input, board, boardLocks: () => boardLocks, markUnclear(id: string) { records.get(id)!.needsClarification = true; }, makeLegacy(id: string) { records.get(id)!.responsibleId = "person-legacy"; }, dropInitiativeLink(id: string) { delete records.get(id)!.sourceInitiativeId; }, unassign(id: string) { records.get(id)!.responsibleId = ""; }, failAudit() { auditFails = true; } };
 }
 
 async function submitAndAccept(service: ReturnType<typeof fixture>["service"], manager: ServerUserProfile, executor: ServerUserProfile, record: DirectorAssignment, comment = "Принято") {
@@ -550,4 +551,59 @@ test("registries do not share permissions or board links", async () => {
   const { meetingDate: _meetingDate, protocolNumber: _protocolNumber, decisionNumber: _decisionNumber, ...collegiumFields } = collegium.input;
   await assert.rejects(director.service.save(director.profile("director", true), { assignment: { ...director.input, protocolNumber: "7" }, comment: "Создано" }), /Неизвестные поля/u);
   await assert.rejects(collegium.service.save(chair, { assignment: collegiumFields, comment: "Создано" }), /заполнение/u);
+});
+
+test("collegium assignments link an initiative once, after locking it before the accounts", async () => {
+  const events: string[] = [];
+  const links: AssignmentInitiativeLinks = {
+    async lockForAssignment(_profile, initiativeId) {
+      events.push(`lock-initiative:${initiativeId}`);
+      if (initiativeId === "draft-initiative") throw new Error("Инициатива не одобрена");
+    },
+    async recordAssignmentCreated(_profile, initiativeId, assignment) {
+      events.push(`created:${initiativeId}:${assignment.number}`);
+    },
+  };
+  const { service, profile, input, dropInitiativeLink } = fixture("collegium", links, events);
+  const chair = profile("chair", true);
+
+  const linked = await service.save(chair, { assignment: { ...input, sourceInitiativeId: "initiative-1" }, comment: "По инициативе" });
+  assert.equal(linked.sourceInitiativeId, "initiative-1");
+  assert.deepEqual(events, ["lock-initiative:initiative-1", "lock-employee", "create", "created:initiative-1:1"]);
+
+  await assert.rejects(
+    service.save(chair, { assignment: { ...input, sourceInitiativeId: "draft-initiative" }, comment: "x" }),
+    /не одобрена/u,
+  );
+  // The link is immutable in both directions.
+  await assert.rejects(
+    service.save(chair, { assignment: { ...input, sourceInitiativeId: "initiative-2" }, comment: "x", revision: linked.revision }, linked.id),
+    /инициативу/u,
+  );
+  await assert.rejects(
+    service.save(chair, { assignment: { ...input, sourceInitiativeId: null }, comment: "x", revision: linked.revision }, linked.id),
+    /инициативу/u,
+  );
+
+  // Older assignments stored without the field stay editable without a link.
+  events.length = 0;
+  const plain = await service.save(chair, { assignment: input, comment: "Без инициативы" });
+  assert.equal(plain.sourceInitiativeId, null);
+  dropInitiativeLink(plain.id);
+  const edited = await service.save(chair, { assignment: { ...input, summary: "Уточнено" }, comment: "Правка", revision: plain.revision }, plain.id);
+  assert.equal(edited.summary, "Уточнено");
+  assert.equal(events.some((event) => event.startsWith("lock-initiative")), false);
+});
+
+test("director assignments never accept an initiative link", async () => {
+  const director = fixture("director");
+  await assert.rejects(
+    director.service.save(director.profile("director", true), { assignment: { ...director.input, sourceInitiativeId: "initiative-1" }, comment: "x" }),
+    /Неизвестные поля/u,
+  );
+  const collegium = fixture("collegium");
+  await assert.rejects(
+    collegium.service.save(collegium.profile("chair", true), { assignment: { ...collegium.input, sourceInitiativeId: "initiative-1" }, comment: "x" }),
+    /недоступна/u,
+  );
 });

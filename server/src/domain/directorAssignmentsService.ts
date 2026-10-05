@@ -24,9 +24,24 @@ export function directorAssignmentPermissions(profile: ServerUserProfile, regist
 
 export const directorAssignmentActions = ["record_progress", "submit_for_review", "return_for_revision", "complete"] as const;
 
-export function createDirectorAssignmentsService({ repository, boardAssignments, transaction, audit, now = () => new Date() }: {
+/**
+ * Задача 135: порт модуля инициатив. `lockForAssignment` проверяет доступ и
+ * статус инициативы под блокировкой до блокировки аккаунтов, а
+ * `recordAssignmentCreated` в той же транзакции переводит её в реализацию.
+ */
+export type AssignmentInitiativeLinks = {
+  lockForAssignment: (profile: ServerUserProfile, initiativeId: string) => Promise<void>;
+  recordAssignmentCreated: (
+    profile: ServerUserProfile,
+    initiativeId: string,
+    assignment: Pick<DirectorAssignment, "id" | "number">,
+  ) => Promise<void>;
+};
+
+export function createDirectorAssignmentsService({ repository, boardAssignments, initiativeLinks, transaction, audit, now = () => new Date() }: {
   repository: DirectorAssignmentsRepository;
   boardAssignments?: BoardAssignmentsRepository;
+  initiativeLinks?: AssignmentInitiativeLinks;
   transaction: DatabaseTransactionRunner;
   audit: AuditRepository;
   now?: () => Date;
@@ -201,6 +216,17 @@ export function createDirectorAssignmentsService({ repository, boardAssignments,
           const source = await requireBoardSource(profile, input.sourceBoardAssignmentId, true);
           if (source.status === "completed") throw new DirectorAssignmentError("Завершённое поручение СД нельзя перепоручить.", 409);
         }
+        // `?? null`: older collegium assignments have no field and must stay editable.
+        if (previous && (previous.sourceInitiativeId ?? null) !== (input.sourceInitiativeId ?? null)) {
+          throw new DirectorAssignmentError("Нельзя изменить инициативу у созданного поручения.", 409);
+        }
+        const sourceInitiativeId = previous ? null : input.sourceInitiativeId ?? null;
+        if (sourceInitiativeId !== null) {
+          if (!registry.canLinkInitiative || initiativeLinks === undefined) {
+            throw new DirectorAssignmentError("Связь с инициативой здесь недоступна.", 404);
+          }
+          await initiativeLinks.lockForAssignment(profile, sourceInitiativeId);
+        }
         const people = await resolveEmployees(input.responsibleId, input.coExecutorIds, previous?.responsibleId !== input.responsibleId);
         const scheduleUnchanged = previous && previous.recurrence === input.recurrence && previous.activeFrom === input.activeFrom && previous.activeTo === input.activeTo;
         const accepted = previous ? (await repository.listCompletions()).filter(item => item.assignment.id === previous.id) : [];
@@ -218,6 +244,9 @@ export function createDirectorAssignmentsService({ repository, boardAssignments,
           needsClarification: false, source: previous?.source ?? null,
         };
         const saved = previous ? await repository.update(assignment, previous) : await repository.create(assignment);
+        if (sourceInitiativeId !== null) {
+          await initiativeLinks!.recordAssignmentCreated(profile, sourceInitiativeId, saved);
+        }
         await recordAudit(profile, previous ? `Изменено поручение ${registry.ownerGenitive}` : `Создано поручение ${registry.ownerGenitive}`, saved.id);
         return saved;
       });

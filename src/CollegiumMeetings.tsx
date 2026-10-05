@@ -941,6 +941,7 @@ function ProtocolSection({
   const [text, setText] = useState(meeting.protocol.text);
   const isPlanned = meeting.status === "planned";
   const protocol = meeting.protocol;
+  const isStale = protocol.text !== "" && protocol.agendaVersion !== (meeting.agendaVersion ?? 0);
 
   if (!isPlanned) {
     return (
@@ -968,7 +969,7 @@ function ProtocolSection({
           <textarea
             className="collegium-protocol-editor"
             disabled={isSaving}
-            maxLength={60_000}
+            maxLength={30_000}
             placeholder="Сформируйте проект из повестки и решений, затем отредактируйте."
             rows={14}
             value={text}
@@ -1002,7 +1003,7 @@ function ProtocolSection({
             {canApprove ? (
               <button
                 className="primary-button"
-                disabled={isSaving || protocol.text.trim() === "" || text !== protocol.text}
+                disabled={isSaving || protocol.text.trim() === "" || text !== protocol.text || isStale}
                 type="button"
                 onClick={() => void run("protocol/approve", "POST", {}, "Протокол утверждён")}
               >
@@ -1010,6 +1011,11 @@ function ProtocolSection({
               </button>
             ) : null}
           </div>
+          {isStale ? (
+            <p className="form-message is-error" role="alert">
+              После формирования проекта изменились повестка или решения. Сформируйте проект заново.
+            </p>
+          ) : null}
           <p className="collegium-note">
             Утверждение применяет решения по всем вопросам повестки, присваивает протоколу номер
             заседания и закрывает его для изменений.

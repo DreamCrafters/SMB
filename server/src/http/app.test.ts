@@ -16107,6 +16107,7 @@ test("collegium initiatives API routes requests and maps module errors", async (
     },
     async update(_profile: ServerUserProfile, id: string) {
       calls.push(`update:${id}`);
+      if (id === "locked") throw Object.assign(new Error("Deadlock found"), { code: "ER_LOCK_DEADLOCK" });
       throw new CollegiumInitiativeError("Инициатива уже изменена. Обновите карточку.", 409);
     },
     async prepareFileUpload(_profile: ServerUserProfile, id: string, fileName: string | null) {
@@ -16159,6 +16160,12 @@ test("collegium initiatives API routes requests and maps module errors", async (
     assert.equal((await fetch(`${baseUrl}/api/collegium-initiatives/abc-1`, { method: "DELETE", headers })).status, 405);
     assert.equal((await fetch(`${baseUrl}/api/collegium-initiatives/a/b`, { headers })).status, 404);
     assert.deepEqual(calls, ["list", 'create:{"card":{"title":"Идея"}}', "read:abc-1", "update:abc-1"]);
+    // A concurrent write is a conflict, not a server failure.
+    const locked = await fetch(`${baseUrl}/api/collegium-initiatives/locked`, {
+      method: "PATCH", headers, body: JSON.stringify({ card: {}, revision: 1 }),
+    });
+    assert.equal(locked.status, 409);
+    assert.doesNotMatch(JSON.stringify(await locked.json()), /Deadlock/u);
     calls.length = 0;
 
     const binaryHeaders = { Cookie: headers.Cookie, "Content-Type": "application/octet-stream" };
@@ -16186,7 +16193,7 @@ test("collegium initiatives API routes requests and maps module errors", async (
     assert.equal(download.status, 200);
     assert.equal(download.headers.get("content-type"), "application/pdf");
     assert.equal(download.headers.get("x-content-type-options"), "nosniff");
-    assert.match(download.headers.get("content-disposition") ?? "", /^attachment; filename="Raschet-effekta\.pdf"|^attachment; filename="/u);
+    assert.match(download.headers.get("content-disposition") ?? "", /^attachment; filename="attachment\.pdf"; /u);
     assert.match(download.headers.get("content-disposition") ?? "", /filename\*=UTF-8''%D0%A0/u);
   } finally {
     server.close();

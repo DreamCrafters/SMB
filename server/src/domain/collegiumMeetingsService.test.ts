@@ -12,6 +12,8 @@ import { CollegiumInitiativeError } from "./collegiumInitiative.js";
 import { createCollegiumInitiativesService } from "./collegiumInitiativesService.js";
 import { createCollegiumMeetingsService } from "./collegiumMeetingsService.js";
 import { createCollegiumMemoryRepository } from "./testing/collegiumMemoryRepository.js";
+import type { DirectorAssignment } from "../contracts/directorAssignments.js";
+import { DirectorAssignmentError } from "./directorAssignment.js";
 
 const reference: CollegiumReference = {
   direction: [{ code: "production", label: "Производство" }],
@@ -79,6 +81,7 @@ function createHarness() {
   }));
   const memory = createCollegiumMemoryRepository({ reference, people });
   const auditEvents: AuditEventDraft[] = [];
+  const linkedAssignments: DirectorAssignment[] = [];
   const shared = {
     repository: memory.repository,
     transaction: { async run<T>(operation: () => Promise<T>) { return operation(); } },
@@ -88,7 +91,14 @@ function createHarness() {
     },
     now: () => new Date("2026-10-05T09:00:00.000Z"),
   };
-  const initiatives = createCollegiumInitiativesService(shared);
+  const initiatives = createCollegiumInitiativesService({
+    ...shared,
+    assignments: {
+      async listBySourceInitiative(initiativeId: string) {
+        return linkedAssignments.filter((assignment) => assignment.sourceInitiativeId === initiativeId);
+      },
+    },
+  });
   const meetings = createCollegiumMeetingsService(shared);
 
   async function readyInitiative(title: string) {
@@ -109,7 +119,34 @@ function createHarness() {
     });
   }
 
-  return { memory, initiatives, meetings, auditEvents, readyInitiative, createMeeting };
+  async function approvedInitiative(title: string, decision: "pilot" | "board_materials" = "pilot") {
+    const ready = await readyInitiative(title);
+    const meeting = await createMeeting();
+    let current = await meetings.addItem(secretary, meeting.id, { revision: 1, initiativeId: ready.id });
+    const itemId = current.items[0].id;
+    current = await meetings.startDiscussion(secretary, meeting.id, itemId, { revision: current.revision });
+    current = await meetings.setDecision(secretary, meeting.id, itemId, { revision: current.revision, decision });
+    current = await meetings.generateProtocol(secretary, meeting.id, { revision: current.revision });
+    await meetings.approveProtocol(chair, meeting.id, { revision: current.revision });
+    return memory.initiatives.get(ready.id)!;
+  }
+
+  function addAssignment(initiativeId: string, status: DirectorAssignment["status"], deadline = "2026-12-01") {
+    const assignment = {
+      id: `assignment-${linkedAssignments.length + 1}`,
+      number: `К-${linkedAssignments.length + 1}`,
+      summary: "Провести пилот",
+      status,
+      currentOccurrenceDate: deadline,
+      completedOn: status === "completed" ? "2026-11-20" : "",
+      responsible: { fullName: "ФИО author" },
+      sourceInitiativeId: initiativeId,
+    } as unknown as DirectorAssignment;
+    linkedAssignments.push(assignment);
+    return assignment;
+  }
+
+  return { memory, initiatives, meetings, auditEvents, readyInitiative, createMeeting, approvedInitiative, addAssignment, linkedAssignments };
 }
 
 test("meeting agenda snapshots the card and the protocol applies decisions", async () => {
@@ -324,4 +361,163 @@ test("meeting details reject unknown people and stale revisions", async () => {
     (error) => error instanceof CollegiumInitiativeError && error.status === 409,
   );
   assert.equal((await meetings.list(profile("viewer", "view"))).meetings.length, 1);
+});
+
+const owner = profile("owner", "participant");
+const assignmentController: ServerUserProfile = {
+  ...secretary,
+  activeAccess: {
+    ...secretary.activeAccess,
+    capabilities: [...secretary.activeAccess.capabilities, "business.manage_collegium_assignments"],
+  },
+};
+
+test("assignments move an approved initiative into implementation and back to the card", async () => {
+  const { memory, initiatives, approvedInitiative, addAssignment } = createHarness();
+  const approved = await approvedInitiative("Пилот обжига");
+  assert.equal(approved.status, "approved_pilot");
+  assert.equal((await initiatives.read(assignmentController, approved.id)).canCreateAssignments, true);
+  assert.equal((await initiatives.read(secretary, approved.id)).canCreateAssignments, false);
+  assert.equal((await initiatives.read(secretary, approved.id)).summaryStatus, "in_preparation");
+
+  await initiatives.assignmentLinks.lockForAssignment(assignmentController, approved.id);
+  const assignment = addAssignment(approved.id, "in_progress", "2026-10-01");
+  await initiatives.assignmentLinks.recordAssignmentCreated(assignmentController, approved.id, assignment);
+  const inProgress = memory.initiatives.get(approved.id)!;
+  assert.equal(inProgress.status, "in_progress");
+  assert.equal(memory.revisions.at(-1)?.revision.event?.action, "assignment_created");
+
+  const detail = await initiatives.read(secretary, approved.id);
+  assert.deepEqual(detail.linkedAssignments.map(({ number, isOverdue }) => [number, isOverdue]), [["К-1", true]]);
+  // An overdue linked assignment makes the whole initiative overdue.
+  assert.equal(detail.summaryStatus, "overdue");
+
+  const draft = await initiatives.create(author, { card: { title: "Черновик" } });
+  // The registry route maps only its own errors, so the port speaks its language.
+  await assert.rejects(
+    initiatives.assignmentLinks.lockForAssignment(assignmentController, draft.id),
+    (error) => error instanceof DirectorAssignmentError && error.status === 409,
+  );
+});
+
+test("effect confirmation needs an independent controller, a full result and closed assignments", async () => {
+  const { memory, initiatives, approvedInitiative, addAssignment, linkedAssignments } = createHarness();
+  const approved = await approvedInitiative("Подтверждение эффекта");
+  const assignment = addAssignment(approved.id, "in_progress");
+  await initiatives.assignmentLinks.recordAssignmentCreated(assignmentController, approved.id, assignment);
+  let current = memory.initiatives.get(approved.id)!;
+
+  // Owner and executor report; outsiders cannot.
+  await assert.rejects(
+    initiatives.recordResult(profile("chair", "participant"), approved.id, { revision: current.revision, description: "x" }),
+    (error) => error instanceof CollegiumInitiativeError && error.status === 403,
+  );
+  current = await initiatives.recordResult(author, approved.id, {
+    revision: current.revision,
+    description: "Потери снизились до 1,4 %",
+    actualEffectAmount: "950 000",
+    source: "",
+    conclusion: "partial",
+  });
+  assert.equal(current.workflow.result?.actualEffectAmount, "950000.00");
+  current = await initiatives.act(owner, approved.id, { action: "complete_work", revision: current.revision });
+  assert.equal(current.status, "result_confirmation");
+
+  // The executor never confirms its own effect.
+  await assert.rejects(
+    initiatives.act(author, approved.id, { action: "confirm_effect", revision: current.revision }),
+    (error) => error instanceof CollegiumInitiativeError && error.status === 403,
+  );
+  await assert.rejects(
+    initiatives.act(chair, approved.id, { action: "confirm_effect", revision: current.revision }),
+    /Незавершённые поручения: К-1; Источник подтверждения/u,
+  );
+  linkedAssignments[0] = { ...linkedAssignments[0], status: "completed" } as DirectorAssignment;
+  current = await initiatives.recordResult(author, approved.id, {
+    revision: current.revision,
+    description: "Потери снизились до 1,4 %",
+    actualEffectAmount: "950000",
+    source: "Отчёт ОТК за ноябрь",
+    conclusion: "partial",
+  });
+  current = await initiatives.act(chair, approved.id, { action: "confirm_effect", revision: current.revision });
+  assert.equal(current.status, "done_confirmed");
+  assert.equal(current.workflow.effectConfirmation?.result.source, "Отчёт ОТК за ноябрь");
+  assert.equal((await initiatives.read(secretary, approved.id)).summaryStatus, "effect_confirmed");
+
+  current = await initiatives.act(secretary, approved.id, { action: "close", revision: current.revision });
+  assert.equal(current.status, "closed");
+});
+
+test("the chair records the board decision and a board suspension resumes to referral", async () => {
+  const { initiatives, approvedInitiative } = createHarness();
+  const referred = await approvedInitiative("Модернизация печи", "board_materials");
+  assert.equal(referred.status, "board_referral");
+  await assert.rejects(
+    initiatives.act(secretary, referred.id, { action: "board_approve", revision: referred.revision }),
+    (error) => error instanceof CollegiumInitiativeError && error.status === 403,
+  );
+  const suspended = await initiatives.act(chair, referred.id, {
+    action: "board_suspend", revision: referred.revision, comment: "СД ждёт смету",
+  });
+  assert.equal(suspended.workflow.suspendedFrom, "board_referral");
+  const resumed = await initiatives.act(secretary, referred.id, { action: "resume", revision: suspended.revision });
+  assert.equal(resumed.status, "board_referral");
+  const approved = await initiatives.act(chair, referred.id, { action: "board_approve", revision: resumed.revision });
+  assert.equal(approved.status, "approved_implementation");
+});
+
+test("a protocol draft built before a decision changed cannot be approved", async () => {
+  const { memory, meetings, readyInitiative, createMeeting } = createHarness();
+  const meeting = await createMeeting();
+  const ready = await readyInitiative("Смена решения");
+  let current = await meetings.addItem(secretary, meeting.id, { revision: 1, initiativeId: ready.id });
+  const itemId = current.items[0].id;
+  current = await meetings.startDiscussion(secretary, meeting.id, itemId, { revision: current.revision });
+  current = await meetings.setDecision(secretary, meeting.id, itemId, { revision: current.revision, decision: "pilot" });
+  current = await meetings.generateProtocol(secretary, meeting.id, { revision: current.revision });
+  current = await meetings.setDecision(secretary, meeting.id, itemId, {
+    revision: current.revision, decision: "reject", comment: "Нецелесообразно",
+  });
+  await assert.rejects(
+    meetings.approveProtocol(chair, meeting.id, { revision: current.revision }),
+    /Сформируйте проект протокола заново/u,
+  );
+  assert.equal(memory.initiatives.get(ready.id)!.status, "in_discussion");
+  current = await meetings.generateProtocol(secretary, meeting.id, { revision: current.revision });
+  assert.match(current.protocol.text, /Решение: Отклонить\./u);
+  // Editing the text keeps the draft current.
+  current = await meetings.updateProtocol(secretary, meeting.id, { revision: current.revision, text: `${current.protocol.text}\nПодписи.` });
+  await meetings.approveProtocol(chair, meeting.id, { revision: current.revision });
+  assert.equal(memory.initiatives.get(ready.id)!.status, "rejected");
+});
+
+test("a chair who was the executor after admission cannot confirm the effect", async () => {
+  const { memory, initiatives, meetings, createMeeting, addAssignment } = createHarness();
+  const draft = await initiatives.create(author, {
+    card: { ...completeCard("Свой эффект"), executorId: "account:chair", effectControllerId: "account:secretary" },
+  });
+  await initiatives.act(author, draft.id, { action: "submit_for_review", revision: 1 });
+  const ready = await initiatives.act(chair, draft.id, { action: "admit", revision: 2 });
+  const meeting = await createMeeting();
+  let current = await meetings.addItem(secretary, meeting.id, { revision: 1, initiativeId: ready.id });
+  const itemId = current.items[0].id;
+  current = await meetings.startDiscussion(secretary, meeting.id, itemId, { revision: current.revision });
+  current = await meetings.setDecision(secretary, meeting.id, itemId, { revision: current.revision, decision: "implement" });
+  current = await meetings.generateProtocol(secretary, meeting.id, { revision: current.revision });
+  await meetings.approveProtocol(chair, meeting.id, { revision: current.revision });
+  const assignment = addAssignment(ready.id, "completed");
+  await initiatives.assignmentLinks.recordAssignmentCreated(assignmentController, ready.id, assignment);
+  let initiative = memory.initiatives.get(ready.id)!;
+  initiative = await initiatives.recordResult(chair, ready.id, {
+    revision: initiative.revision, description: "Сделано", actualEffectAmount: "100", source: "Отчёт", conclusion: "achieved",
+  });
+  initiative = await initiatives.act(chair, ready.id, { action: "complete_work", revision: initiative.revision });
+  // The chair passes the role check but was the executor, so independence fails.
+  await assert.rejects(
+    initiatives.act(chair, ready.id, { action: "confirm_effect", revision: initiative.revision }),
+    /не подтверждает собственный эффект/u,
+  );
+  const confirmed = await initiatives.act(secretary, ready.id, { action: "confirm_effect", revision: initiative.revision });
+  assert.equal(confirmed.status, "done_confirmed");
 });

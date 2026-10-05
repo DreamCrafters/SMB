@@ -983,10 +983,12 @@ export function createApiServer({
           return;
         }
         try {
-          const match = /^\/api\/collegium-initiatives(?:\/([a-zA-Z0-9-]{1,100})(?:\/(actions|comments|attachments)(?:\/([a-zA-Z0-9-]{1,100})(?:\/(resolve))?)?)?)?$/u.exec(url.pathname);
+          const match = /^\/api\/collegium-initiatives(?:\/([a-zA-Z0-9-]{1,100})(?:\/(actions|comments|attachments|result)(?:\/([a-zA-Z0-9-]{1,100})(?:\/(resolve))?)?)?)?$/u.exec(url.pathname);
           if (!match) throw new CollegiumInitiativeError("Страница не найдена.", 404);
           const [, id, section, itemId, itemAction] = match;
-          if (id && section === "actions" && !itemId && req.method === "POST") {
+          if (id && section === "result" && !itemId && req.method === "POST") {
+            sendJson(res, 200, { initiative: await collegiumInitiatives.recordResult(access.profile, id, await readJsonBody(req)) });
+          } else if (id && section === "actions" && !itemId && req.method === "POST") {
             sendJson(res, 200, { initiative: await collegiumInitiatives.act(access.profile, id, await readJsonBody(req)) });
           } else if (id && section === "comments" && !itemId && req.method === "POST") {
             sendJson(res, 201, { comment: await collegiumInitiatives.comment(access.profile, id, await readJsonBody(req)) });
@@ -1012,7 +1014,7 @@ export function createApiServer({
               content = await readBinaryBody(req, collegiumAttachmentLimits.maxFileBytes);
             } catch (error) {
               if (error instanceof RequestBodyTooLargeError) {
-                throw new CollegiumInitiativeError("Размер одного файла не должен превышать 10 МБ.", 413);
+                throw new CollegiumInitiativeError("Размер одного файла не должен превышать 7 МБ.", 413);
               }
               throw error;
             }
@@ -1031,6 +1033,10 @@ export function createApiServer({
           else if (id && req.method === "PATCH") sendJson(res, 200, { initiative: await collegiumInitiatives.update(access.profile, id, await readJsonBody(req)) });
           else throw new CollegiumInitiativeError("Действие недоступно.", 405);
         } catch (error) {
+          if (isDatabaseLockConflict(error)) {
+            sendJson(res, 409, { error: { code: "invalid_response", message: "Данные одновременно меняет другой пользователь. Повторите действие." } });
+            return;
+          }
           if (!(error instanceof CollegiumInitiativeError)) throw error;
           sendJson(res, error.status, { error: { code: error.status === 403 ? "access_denied" : "invalid_response", message: error.message } });
         }
@@ -1091,7 +1097,7 @@ export function createApiServer({
               content = await readBinaryBody(req, collegiumAttachmentLimits.maxFileBytes);
             } catch (error) {
               if (error instanceof RequestBodyTooLargeError) {
-                throw new CollegiumInitiativeError("Размер одного файла не должен превышать 10 МБ.", 413);
+                throw new CollegiumInitiativeError("Размер одного файла не должен превышать 7 МБ.", 413);
               }
               throw error;
             }
@@ -1105,6 +1111,10 @@ export function createApiServer({
             sendJson(res, 200, { ok: true });
           } else throw new CollegiumInitiativeError("Действие недоступно.", 405);
         } catch (error) {
+          if (isDatabaseLockConflict(error)) {
+            sendJson(res, 409, { error: { code: "invalid_response", message: "Данные одновременно меняет другой пользователь. Повторите действие." } });
+            return;
+          }
           if (!(error instanceof CollegiumInitiativeError)) throw error;
           sendJson(res, error.status, { error: { code: error.status === 403 ? "access_denied" : "invalid_response", message: error.message } });
         }
@@ -15325,22 +15335,30 @@ function sendXlsx(res: ServerResponse, content: Buffer, filename: string) {
   res.end(content);
 }
 
+/** InnoDB deadlock or lock wait: a concurrent write, not a server failure. */
+function isDatabaseLockConflict(error: unknown) {
+  const code = typeof error === "object" && error !== null ? (error as { code?: unknown }).code : undefined;
+  return code === "ER_LOCK_DEADLOCK" || code === "ER_LOCK_WAIT_TIMEOUT";
+}
+
 /** Вложения всегда скачиваются, а тип берётся по сигнатуре, сохранённой сервером. */
 function sendCollegiumAttachment(
   res: ServerResponse,
   file: { fileName: string; contentType: string; content: Buffer },
 ) {
-  const extension = /\.[a-z]{3,4}$/iu.exec(file.fileName)?.[0] ?? "";
-  const asciiFilename = file.fileName
+  // The ASCII fallback keeps the extension even when the whole name is Cyrillic.
+  const extension = /\.[a-z]{3,4}$/iu.exec(file.fileName)?.[0].toLowerCase() ?? "";
+  const asciiBase = file.fileName
+    .slice(0, file.fileName.length - extension.length)
     .normalize("NFKD")
-    .replace(/[^a-zA-Z0-9._ -]/gu, "")
+    .replace(/[^a-zA-Z0-9_ -]/gu, "")
     .trim()
     .replace(/\s+/gu, "-");
   res.writeHead(200, {
     "content-type": file.contentType,
     "content-length": String(file.content.length),
     "content-disposition":
-      `attachment; filename="${asciiFilename.replace(/^\.+/u, "") || `attachment${extension}`}"; filename*=UTF-8''${encodeURIComponent(file.fileName)}`,
+      `attachment; filename="${asciiBase || "attachment"}${extension}"; filename*=UTF-8''${encodeURIComponent(file.fileName)}`,
     "x-content-type-options": "nosniff",
     "cache-control": "no-store",
   });

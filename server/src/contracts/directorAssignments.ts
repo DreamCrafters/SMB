@@ -52,6 +52,7 @@ export const assignmentRegistries = {
     numberPrefix: "ГД",
     hasProtocol: false,
     canLinkBoardAssignment: true,
+    canLinkInitiative: false,
   },
   collegium: {
     id: "collegium",
@@ -68,6 +69,8 @@ export const assignmentRegistries = {
     numberPrefix: "К",
     hasProtocol: true,
     canLinkBoardAssignment: false,
+    // Задача 135: поручения из инициатив Коллегии ставятся только сюда.
+    canLinkInitiative: true,
   },
 } as const;
 export type AssignmentRegistryId = keyof typeof assignmentRegistries;
@@ -110,6 +113,8 @@ export type DirectorAssignmentInput = {
   progress: string;
   incomingNumber: string;
   sourceBoardAssignmentId: string | null;
+  /** Initiative of the collegium module; immutable after creation, absent in director assignments. */
+  sourceInitiativeId?: string | null;
   /** Collegium protocol reference; absent in director assignments. */
   meetingDate?: string;
   protocolNumber?: string;

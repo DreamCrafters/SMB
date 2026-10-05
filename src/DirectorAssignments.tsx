@@ -60,7 +60,8 @@ function inputFrom(row: DirectorAssignment, employees: PersonnelEmployee[], regi
     const userId = id.startsWith("account:") ? id.slice(8) : snapshot?.userId;
     return employees.find(employee => userId && employee.userId === userId)?.id ?? id;
   };
-  return { ...input, sourceBoardAssignmentId: row.sourceBoardAssignmentId, responsibleId: resolveId(input.responsibleId, row.responsible), coExecutorIds: [...new Set(row.coExecutorIds.map(id => resolveId(id, row.coExecutors.find(employee => employee.id === id))))] };
+  // The initiative link is immutable and absent on older rows: carry it as is, never as "".
+  return { ...input, sourceBoardAssignmentId: row.sourceBoardAssignmentId, ...(assignmentRegistries[registryId].canLinkInitiative ? { sourceInitiativeId: row.sourceInitiativeId ?? null } : {}), responsibleId: resolveId(input.responsibleId, row.responsible), coExecutorIds: [...new Set(row.coExecutorIds.map(id => resolveId(id, row.coExecutors.find(employee => employee.id === id))))] };
 }
 
 const sourceFieldLabels = ["Номер задачи", "Дата постановки", "Суть задачи", "Подразделение", "Проект", "Ответственный", "Соисполнители", "Исходный срок", "Срочность", "Важность", "Промежуточные этапы", "Фактическая дата", "Примечание", "Исходный статус", "Номер входящего", "Второй номер", "Длительность", "Осталось рабочих дней", "Перенос срока"];

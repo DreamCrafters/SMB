@@ -97,10 +97,10 @@ export function createCollegiumMemoryRepository({
       return attachments.get(attachmentId)?.content;
     },
     async readAttachmentUsage(owner: { id: string }) {
-      const live = [...attachments.values()].filter((entry) => entry.ownerId === owner.id && !entry.deleted);
+      const owned = [...attachments.values()].filter((entry) => entry.ownerId === owner.id);
       return {
-        items: live.length,
-        bytes: live.reduce((total, { attachment }) => total + (attachment.sizeBytes ?? 0), 0),
+        items: owned.filter((entry) => !entry.deleted).length,
+        bytes: owned.reduce((total, { attachment }) => total + (attachment.sizeBytes ?? 0), 0),
       };
     },
     async insertAttachment(owner: { id: string }, attachment: CollegiumAttachment, content?: Buffer) {

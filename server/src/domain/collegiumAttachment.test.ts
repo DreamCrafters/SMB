@@ -78,6 +78,11 @@ test("attachment names and links are validated before use", () => {
     { url: "https://drive.google.com/file/d/1", label: "Расчёт" },
   );
   assert.throws(() => readCollegiumAttachmentLink({ url: "javascript:alert(1)", label: "x" }), /http/u);
+  // 398 Cyrillic characters grow past 2000 once percent-encoded.
+  assert.throws(
+    () => readCollegiumAttachmentLink({ url: `https://disk.example/${"я".repeat(380)}`, label: "x" }),
+    /слишком длинная/u,
+  );
   assert.throws(() => readCollegiumAttachmentLink({ url: "https://x.ru", label: " " }), /Подпишите/u);
   assert.throws(() => readCollegiumAttachmentLink({ url: "https://x.ru", label: "x", extra: 1 }), /неизвестные/u);
 });

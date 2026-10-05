@@ -47,7 +47,8 @@ function buildMeeting(overrides = {}) {
       discussionStartedAt: "2026-10-12T07:10:00.000Z",
       decision: { decision: "pilot", comment: "Пилот на линии 2", responsibleIds: [], dueDate: "", kpi: "", dissent: "" },
     }],
-    protocol: { text: "ПРОТОКОЛ заседания Коллегии № КЗ-2026-01" },
+    agendaVersion: 3,
+    protocol: { text: "ПРОТОКОЛ заседания Коллегии № КЗ-2026-01", agendaVersion: 3 },
     createdByDisplayName: "Секретарь",
     createdAt: "2026-10-05T09:00:00.000Z",
     updatedAt: "2026-10-05T09:00:00.000Z",
@@ -79,7 +80,8 @@ test("chair approves the protocol of a planned meeting from its card", async () 
   installDomGlobals(dom.window);
   const React = await import("react");
   const { createRoot } = await import("react-dom/client");
-  let meeting = buildMeeting();
+  // First the draft predates a changed decision, then it is regenerated.
+  let meeting = buildMeeting({ agendaVersion: 4 });
   const posts = [];
   let initiativesChanged = 0;
 
@@ -119,6 +121,14 @@ test("chair approves the protocol of a planned meeting from its card", async () 
     await waitFor(React, () => container.querySelector(".collegium-meetings-table") !== null);
     await React.act(async () => findButtonByText(container, "КЗ-2026-01").click());
     await waitFor(React, () => container.textContent.includes("Проект протокола"));
+    assert.match(container.textContent, /Сформируйте проект заново/u);
+    assert.equal(findButtonByText(container, "Утвердить протокол").disabled, true);
+    meeting = buildMeeting();
+    await React.act(async () => findButtonByText(container, "К заседаниям").click());
+    await waitFor(React, () => container.querySelector(".collegium-meetings-table") !== null);
+    await React.act(async () => findButtonByText(container, "КЗ-2026-01").click());
+    await waitFor(React, () => container.textContent.includes("Проект протокола"));
+    assert.doesNotMatch(container.textContent, /Сформируйте проект заново/u);
     assert.match(container.textContent, /Проект решения: Провести пилот\. Пилот на линии 2/u);
     assert.match(container.textContent, /докладчик: Автор А\.А\./u);
 

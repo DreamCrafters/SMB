@@ -459,3 +459,26 @@ test("authors attach materials within limits and secretaries keep the history", 
     (error) => error instanceof CollegiumInitiativeError && error.status === 413,
   );
 });
+
+test("a never submitted idea stays private after withdrawal and cannot be suspended", async () => {
+  const { service } = createHarness();
+  const author = profile("author", "participant");
+  const viewer = profile("other", "view");
+  const draft = await service.create(author, { card: card() });
+  await assert.rejects(
+    service.act(profile("secretary", "secretary"), draft.id, { action: "suspend", revision: 1, comment: "x" }),
+    (error) => error instanceof CollegiumInitiativeError && error.status === 409,
+  );
+  await service.act(author, draft.id, { action: "withdraw", revision: 1, comment: "Неактуально" });
+  assert.deepEqual((await service.list(viewer)).initiatives, []);
+  await assert.rejects(
+    service.read(viewer, draft.id),
+    (error) => error instanceof CollegiumInitiativeError && error.status === 404,
+  );
+
+  // Once submitted, the idea stays visible even after a return to rework.
+  const submitted = await service.create(author, { card: card({ title: "Отправленная" }) });
+  const reviewed = await service.act(author, submitted.id, { action: "submit_for_review", revision: 1 });
+  assert.ok(reviewed.workflow.submittedAt);
+  assert.equal((await service.list(viewer)).initiatives.length, 1);
+});

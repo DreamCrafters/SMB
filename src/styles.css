@@ -9974,3 +9974,38 @@ p {
   background: var(--surface-subtle);
   color: var(--muted);
 }
+
+.collegium-implementation h4 {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--density-2);
+  align-items: center;
+}
+
+.collegium-result {
+  display: grid;
+  gap: var(--density-2);
+}
+
+.collegium-assignment-overdue > td {
+  background: var(--brick-soft);
+}
+
+.collegium-summary-overdue,
+.collegium-summary-effect_unconfirmed {
+  background: var(--brick-soft);
+  color: var(--brick);
+}
+
+.collegium-summary-effect_confirmed,
+.collegium-summary-in_pilot,
+.collegium-summary-in_implementation {
+  background: var(--emerald-soft);
+  color: var(--emerald);
+}
+
+.collegium-summary-awaiting_confirmation,
+.collegium-summary-suspended {
+  background: var(--amber-soft);
+  color: var(--amber);
+}

@@ -4663,6 +4663,29 @@ const migrations: Migration[] = [
       ) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci;`,
     ],
   },
+  {
+    /**
+     * Задача 135: явные значения по умолчанию для меток времени модуля. При
+     * `explicit_defaults_for_timestamp=OFF` MariaDB иначе добавляет первому
+     * TIMESTAMP `ON UPDATE CURRENT_TIMESTAMP`, и любая правка перезаписывала бы
+     * дату создания и порядок реестров.
+     */
+    id: "094_collegium_timestamp_defaults",
+    statements: [
+      `alter table collegium_initiatives
+        modify created_at timestamp(3) not null default current_timestamp(3),
+        modify updated_at timestamp(3) not null default current_timestamp(3);`,
+      `alter table collegium_initiative_revisions
+        modify created_at timestamp(3) not null default current_timestamp(3);`,
+      `alter table collegium_initiative_comments
+        modify created_at timestamp(3) not null default current_timestamp(3);`,
+      `alter table collegium_attachments
+        modify created_at timestamp(3) not null default current_timestamp(3);`,
+      `alter table collegium_meetings
+        modify created_at timestamp(3) not null default current_timestamp(3),
+        modify updated_at timestamp(3) not null default current_timestamp(3);`,
+    ],
+  },
 ];
 
 function removePositionJsonValue(

@@ -116,14 +116,17 @@ export function isOwnCollegiumInitiative(
     initiative.card.ownerId === accountId;
 }
 
-/** Черновики видят только автор, инициатор, владелец и секретарь. */
+/**
+ * Никогда не отправлявшуюся инициативу видят только автор, инициатор,
+ * владелец и секретарь — в том числе после её отзыва.
+ */
 export function canViewCollegiumInitiative(
   initiative: CollegiumInitiative,
   profile: ServerUserProfile,
   permissions = collegiumInitiativePermissions(profile),
 ) {
   if (!permissions.canView) return false;
-  if (initiative.status !== "draft" || permissions.canManage) return true;
+  if (initiative.workflow.submittedAt !== undefined || permissions.canManage) return true;
   return isOwnCollegiumInitiative(initiative, profile.userId);
 }
 

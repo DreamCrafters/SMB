@@ -8,11 +8,17 @@ import {
   type CollegiumInitiativeComment,
   type CollegiumInitiativeDetailResponse,
   type CollegiumInitiativeListResponse,
+  type CollegiumInitiativeResultInput,
   type CollegiumInitiativeSaveRequest,
   type CollegiumMeeting,
   type CollegiumMeetingDetailResponse,
   type CollegiumMeetingListResponse,
 } from "../contracts/collegiumInitiatives.js";
+import {
+  assignmentRegistries,
+  type DirectorAssignment,
+  type DirectorAssignmentInput,
+} from "../../server/src/contracts/directorAssignments.js";
 import { buildDevAccessHeaders } from "./devAccessSessionStorage.js";
 import { describeRemoteNetworkFailure, resolveApiEndpoint } from "./remoteServer.js";
 
@@ -219,6 +225,31 @@ export async function sendCollegiumMeetingRequest(
     body,
   );
   return result.meeting;
+}
+
+export async function recordCollegiumInitiativeResult(
+  id: string,
+  body: CollegiumInitiativeResultInput & { revision: number },
+) {
+  const result = await request<{ initiative: CollegiumInitiative }>(
+    `${collegiumInitiativesApiPath}/${encodeURIComponent(id)}/result`,
+    "POST",
+    body,
+  );
+  return result.initiative;
+}
+
+/** Поручение создаётся в реестре Коллегии; сервер связывает его с инициативой. */
+export async function createCollegiumAssignmentFromInitiative(
+  assignment: DirectorAssignmentInput,
+  comment: string,
+) {
+  const result = await request<{ assignment: DirectorAssignment }>(
+    assignmentRegistries.collegium.apiPath,
+    "POST",
+    { assignment, comment },
+  );
+  return result.assignment;
 }
 
 function readRequestError(payload: unknown, status: number, fallback: string) {

@@ -92,6 +92,10 @@ export function readCollegiumAttachmentLink(body: unknown) {
   if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
     throw new CollegiumInitiativeError("Укажите корректную ссылку http или https.");
   }
+  // The browser-normalized form (percent-encoded Cyrillic) is what gets stored.
+  if (parsed.toString().length > collegiumAttachmentLimits.maxUrlLength) {
+    throw new CollegiumInitiativeError("Ссылка слишком длинная.");
+  }
   if (label.length === 0 || label.length > collegiumAttachmentLimits.maxLabelLength) {
     throw new CollegiumInitiativeError("Подпишите ссылку.");
   }

@@ -142,7 +142,7 @@ export function AttachmentsSection({
       {canAttach ? (
         <div className="collegium-attachment-controls">
           <label className="collegium-field">
-            <span>Приложить файл (PDF, DOCX, XLSX, PNG, JPEG до 10 МБ)</span>
+            <span>Приложить файл (PDF, DOCX, XLSX, PNG, JPEG до 7 МБ)</span>
             <input
               accept=".pdf,.docx,.xlsx,.png,.jpg,.jpeg"
               disabled={isSaving || isFull}
@@ -152,7 +152,7 @@ export function AttachmentsSection({
                 event.currentTarget.value = "";
                 if (file === undefined) return;
                 if (file.size > collegiumAttachmentLimits.maxFileBytes) {
-                  setMessage("Размер одного файла не должен превышать 10 МБ.");
+                  setMessage("Размер одного файла не должен превышать 7 МБ.");
                   return;
                 }
                 void run(() => api.upload(file), "Файл приложен");

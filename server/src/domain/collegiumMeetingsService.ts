@@ -28,6 +28,7 @@ import { recordCollegiumInitiativeEvent } from "./collegiumInitiativeEvents.js";
 import { listCollegiumAdmissionGaps } from "./collegiumInitiativeWorkflow.js";
 import {
   buildCollegiumProtocolDraft,
+  maxCollegiumProtocolLength,
   readCollegiumAgendaItemRequest,
   readCollegiumItemDecision,
   readCollegiumMeetingDetails,
@@ -114,6 +115,10 @@ export function createCollegiumMeetingsService({
     const initiative = await repository.read(item.initiativeId, true);
     if (initiative === undefined) throw new CollegiumInitiativeError("Инициатива не найдена.", 404);
     return initiative;
+  }
+
+  function nextAgendaVersion(meeting: CollegiumMeeting) {
+    return { agendaVersion: (meeting.agendaVersion ?? 0) + 1 };
   }
 
   async function saveMeeting(meeting: CollegiumMeeting, changes: Partial<CollegiumMeeting>) {
@@ -267,7 +272,7 @@ export function createCollegiumMeetingsService({
       return transaction.run(async () => {
         const meeting = await requirePlannedMeeting(profile, id, expected);
         await verifyPeople([...details.participantIds, ...details.absentIds]);
-        const updated = await saveMeeting(meeting, details);
+        const updated = await saveMeeting(meeting, { ...details, ...nextAgendaVersion(meeting) });
         await recordAudit(profile, "collegium_meeting.update", updated, `Изменены реквизиты заседания ${meeting.number}`);
         return updated;
       });
@@ -307,7 +312,10 @@ export function createCollegiumMeetingsService({
           participantIds: request.participantIds,
           durationMinutes: request.durationMinutes,
         };
-        const updated = await saveMeeting(meeting, { items: [...meeting.items, item] });
+        const updated = await saveMeeting(meeting, {
+          items: [...meeting.items, item],
+          ...nextAgendaVersion(meeting),
+        });
         await recordCollegiumInitiativeEvent({
           repository,
           profile,
@@ -345,7 +353,7 @@ export function createCollegiumMeetingsService({
           }
           return entry.removedAt === undefined ? { ...entry, order: ++order } : entry;
         });
-        const updated = await saveMeeting(meeting, { items });
+        const updated = await saveMeeting(meeting, { items, ...nextAgendaVersion(meeting) });
         await releaseInitiative(profile, item, "remove_from_agenda", comment, at);
         await recordAudit(
           profile,
@@ -408,6 +416,7 @@ export function createCollegiumMeetingsService({
         await verifyPeople([...decision.responsibleIds, decision.rework?.responsibleId ?? ""].filter(Boolean));
         const updated = await saveMeeting(meeting, {
           items: meeting.items.map((entry) => entry.id === item.id ? { ...entry, decision } : entry),
+          ...nextAgendaVersion(meeting),
         });
         await recordAudit(
           profile,
@@ -425,8 +434,12 @@ export function createCollegiumMeetingsService({
       return transaction.run(async () => {
         const meeting = await requirePlannedMeeting(profile, id, revision);
         const { name } = await namesOf();
+        const text = buildCollegiumProtocolDraft(meeting, name);
+        if (text.length > maxCollegiumProtocolLength) {
+          throw new CollegiumInitiativeError("Проект протокола слишком длинный: сократите повестку или решения.", 409);
+        }
         const updated = await saveMeeting(meeting, {
-          protocol: { text: buildCollegiumProtocolDraft(meeting, name) },
+          protocol: { text, agendaVersion: meeting.agendaVersion ?? 0 },
         });
         await recordAudit(profile, "collegium_meeting.protocol_update", updated, `Сформирован проект протокола ${meeting.number}`);
         return updated;
@@ -437,7 +450,9 @@ export function createCollegiumMeetingsService({
       const { revision, text } = readCollegiumProtocolText(body);
       return transaction.run(async () => {
         const meeting = await requirePlannedMeeting(profile, id, revision);
-        const updated = await saveMeeting(meeting, { protocol: { text } });
+        const updated = await saveMeeting(meeting, {
+          protocol: { ...meeting.protocol, text },
+        });
         await recordAudit(profile, "collegium_meeting.protocol_update", updated, `Изменён проект протокола ${meeting.number}`);
         return updated;
       });
@@ -467,6 +482,14 @@ export function createCollegiumMeetingsService({
         }
         if (meeting.protocol.text.trim() === "") {
           throw new CollegiumInitiativeError("Сформируйте проект протокола.", 409);
+        }
+        // A draft built before the agenda or a decision changed would contradict
+        // the decisions applied below.
+        if (meeting.protocol.agendaVersion !== (meeting.agendaVersion ?? 0)) {
+          throw new CollegiumInitiativeError(
+            "После формирования проекта изменились повестка или решения. Сформируйте проект протокола заново.",
+            409,
+          );
         }
         const at = now();
         const ordered = [...items].sort((left, right) => left.initiativeId.localeCompare(right.initiativeId));
@@ -581,7 +604,7 @@ export function createCollegiumMeetingsService({
         throw new CollegiumInitiativeError("Материалы меняются только до утверждения протокола.", 409);
       }
       if (Number.isFinite(declaredBytes) && declaredBytes > collegiumAttachmentLimits.maxFileBytes) {
-        throw new CollegiumInitiativeError("Размер одного файла не должен превышать 10 МБ.", 413);
+        throw new CollegiumInitiativeError("Размер одного файла не должен превышать 7 МБ.", 413);
       }
       await assertCollegiumAttachmentRoom(
         repository,

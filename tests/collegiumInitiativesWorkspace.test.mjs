@@ -133,6 +133,10 @@ test("participant creates a draft and opens its card from the registry", async (
           canResolveComments: true,
           actions: stored.status === "draft" ? ["submit_for_review", "withdraw"] : [],
           missingAdmissionFields: ["Описание проблемы / возможности", "Ключевые риски"],
+          linkedAssignments: [],
+          summaryStatus: "not_started",
+          canCreateAssignments: false,
+          canRecordResult: false,
         }];
       }
       throw new Error(`Unexpected request: ${url.pathname}`);
@@ -207,6 +211,91 @@ test("participant creates a draft and opens its card from the registry", async (
     await React.act(async () => findButtonByText(container, "К реестру").click());
     await waitFor(React, () => container.querySelector(".collegium-initiatives-table") !== null);
     assert.ok(findButtonByText(container, "И-2026-0001"));
+  } finally {
+    await view.cleanup();
+  }
+});
+
+test("an approved initiative creates a linked collegium assignment with protocol details", async () => {
+  let stored = {
+    ...buildInitiative({
+      title: "Пилот обжига",
+      executorId: "account:owner",
+      plannedResult: "2026-12-01",
+      kpiCriterion: "Потери не выше 1,5 %",
+    }),
+    status: "approved_pilot",
+    revision: 6,
+    workflow: {
+      lastDecision: {
+        meetingId: "m-1", meetingNumber: "КЗ-2026-01", meetingDate: "2026-10-12",
+        protocolNumber: "КЗ-2026-01", itemOrder: 2, decision: "pilot",
+      },
+    },
+  };
+  const created = [];
+  const view = await renderWorkspace(
+    { canView: true, canParticipate: true, canManage: true, canApprove: false },
+    async (url, init, permissions) => {
+      if (url.pathname === "/api/collegium-assignments" && init.method === "POST") {
+        created.push(JSON.parse(String(init.body)));
+        stored = { ...stored, status: "in_progress", revision: 7 };
+        return [{ assignment: { id: "a-1", number: "К-15" } }, 201];
+      }
+      if (url.pathname === "/api/collegium-initiatives") {
+        return [{ initiatives: [stored], people, reference, permissions }];
+      }
+      if (url.pathname === "/api/collegium-initiatives/initiative-1") {
+        return [{
+          initiative: stored,
+          revisions: [],
+          comments: [],
+          attachments: [],
+          canAttach: false,
+          canEdit: false,
+          canComment: true,
+          canResolveComments: false,
+          actions: [],
+          missingAdmissionFields: [],
+          linkedAssignments: stored.status === "in_progress"
+            ? [{ id: "a-1", number: "К-15", summary: "Пилот", status: "in_progress", deadline: "2026-12-01", completedOn: "", responsibleName: "Петров П.П.", isOverdue: false }]
+            : [],
+          summaryStatus: stored.status === "in_progress" ? "in_pilot" : "in_preparation",
+          canCreateAssignments: true,
+          canRecordResult: stored.status === "in_progress",
+        }];
+      }
+      throw new Error(`Unexpected request: ${url.pathname}`);
+    },
+  );
+  const { dom, React, container } = view;
+  try {
+    await waitFor(React, () => container.querySelector(".collegium-initiatives-table") !== null);
+    await React.act(async () => findButtonByText(container, "И-2026-0001").click());
+    await waitFor(React, () => container.textContent.includes("Исполнение"));
+    assert.match(container.textContent, /протокол № КЗ-2026-01 от 12\.10\.2026, вопрос 2/u);
+    await React.act(async () => findButtonByText(container, "Создать поручение").click());
+    const form = container.querySelector(".collegium-implementation .collegium-action-form");
+    await React.act(async () => {
+      form.dispatchEvent(new dom.window.Event("submit", { bubbles: true, cancelable: true }));
+    });
+    await waitFor(React, () => container.textContent.includes("К-15"));
+    assert.equal(created.length, 1);
+    const { assignment, comment } = created[0];
+    assert.equal(comment, "Создано из инициативы И-2026-0001");
+    assert.equal(assignment.sourceInitiativeId, "initiative-1");
+    assert.equal(assignment.responsibleId, "account:owner");
+    assert.deepEqual(
+      [assignment.activeFrom, assignment.activeTo, assignment.recurrence],
+      ["2026-12-01", "2026-12-01", "once"],
+    );
+    assert.deepEqual(
+      [assignment.meetingDate, assignment.protocolNumber, assignment.decisionNumber],
+      ["2026-10-12", "КЗ-2026-01", "2"],
+    );
+    assert.match(assignment.note, /Потери не выше 1,5 %/u);
+    assert.match(container.textContent, /В пилоте/u);
+    assert.ok(findButtonByText(container, "Внести фактический результат"));
   } finally {
     await view.cleanup();
   }

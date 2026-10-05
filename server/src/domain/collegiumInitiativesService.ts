@@ -15,13 +15,18 @@ import {
   type CollegiumInitiativeDetailResponse,
   type CollegiumInitiativeListResponse,
   type CollegiumInitiativePermissions,
+  type CollegiumLinkedAssignment,
   type CollegiumPerson,
 } from "../contracts/collegiumInitiatives.js";
 import {
+  isResultReporter,
   listAvailableCollegiumActions,
   listCollegiumAdmissionGaps,
+  listCollegiumResultGaps,
   planCollegiumAction,
   readCollegiumActionRequest,
+  readCollegiumResultInput,
+  readCollegiumSummaryStatus,
 } from "./collegiumInitiativeWorkflow.js";
 import {
   assertCollegiumAttachmentRoom,
@@ -33,7 +38,9 @@ import { recordCollegiumInitiativeEvent } from "./collegiumInitiativeEvents.js";
 import type { DatabaseTransactionRunner } from "../db/transactionContext.js";
 import type { AuditRepository } from "../repositories/auditRepository.js";
 import type { CollegiumInitiativesRepository } from "../repositories/collegiumInitiativesRepository.js";
-import type { ServerUserProfile } from "./auth.js";
+import { hasProfileCapability, type ServerUserProfile } from "./auth.js";
+import type { DirectorAssignment } from "../contracts/directorAssignments.js";
+import { DirectorAssignmentError } from "./directorAssignment.js";
 import {
   canEditCollegiumInitiative,
   canViewCollegiumInitiative,
@@ -42,6 +49,7 @@ import {
   CollegiumInitiativeError,
   isOwnCollegiumInitiative,
   listChangedCollegiumFields,
+  readCollegiumAmount,
   readCollegiumInitiativeCardInput,
   readCollegiumOptionalText,
 } from "./collegiumInitiative.js";
@@ -50,13 +58,26 @@ const maxReasonLength = 500;
 const maxCommentLength = 2000;
 const maxDiscussionCommentLength = 4000;
 
+/** Поручения реестра Коллегии, созданные из инициативы (порт к реестру). */
+export type CollegiumLinkedAssignmentsSource = {
+  listBySourceInitiative: (initiativeId: string) => Promise<DirectorAssignment[]>;
+};
+
+const assignableStatuses: readonly CollegiumInitiative["status"][] = [
+  "approved_pilot",
+  "approved_implementation",
+  "in_progress",
+];
+
 export function createCollegiumInitiativesService({
   repository,
+  assignments,
   transaction,
   audit,
   now = () => new Date(),
 }: {
   repository: CollegiumInitiativesRepository;
+  assignments?: CollegiumLinkedAssignmentsSource;
   transaction: DatabaseTransactionRunner;
   audit: AuditRepository;
   now?: () => Date;
@@ -182,6 +203,59 @@ export function createCollegiumInitiativesService({
   const assertAttachmentRoom = (id: string, addedBytes: number) =>
     assertCollegiumAttachmentRoom(repository, { type: "initiative", id }, addedBytes);
 
+  async function listLinkedAssignments(initiativeId: string): Promise<CollegiumLinkedAssignment[]> {
+    const linked = await assignments?.listBySourceInitiative(initiativeId) ?? [];
+    return linked.map((assignment) => ({
+      id: assignment.id,
+      number: assignment.number,
+      summary: assignment.summary,
+      status: assignment.status,
+      deadline: assignment.currentOccurrenceDate,
+      completedOn: assignment.completedOn,
+      responsibleName: assignment.responsible?.fullName ?? "",
+      isOverdue: assignment.status !== "completed" && assignment.currentOccurrenceDate < today(),
+    }));
+  }
+
+  /**
+   * Подтверждать эффект нельзя тому, кто после допуска хоть раз был
+   * исполнителем или владельцем: исполнитель не подтверждает свой эффект.
+   */
+  async function assertIndependentConfirmer(initiative: CollegiumInitiative, userId: string) {
+    const accountId = collegiumAccountId(userId);
+    const revisions = await repository.listRevisions(initiative.id);
+    const admittedAt = Math.min(
+      ...revisions.filter((revision) => revision.event?.action === "admit").map((revision) => revision.revision),
+    );
+    const cards = [
+      initiative.card,
+      ...revisions.filter((revision) => revision.revision >= admittedAt).map((revision) => revision.card),
+    ];
+    if (cards.some((card) => card.executorId === accountId || card.ownerId === accountId)) {
+      throw new CollegiumInitiativeError("Исполнитель или владелец не подтверждает собственный эффект.", 403);
+    }
+  }
+
+  async function assertReadyForClosure(initiative: CollegiumInitiative) {
+    const gaps = listCollegiumResultGaps(initiative.workflow.result);
+    const open = (await listLinkedAssignments(initiative.id)).filter((assignment) => assignment.status !== "completed");
+    if (open.length > 0) {
+      gaps.unshift(`Незавершённые поручения: ${open.map((assignment) => assignment.number).join(", ")}`);
+    }
+    if (gaps.length > 0) {
+      throw new CollegiumInitiativeError(`Нельзя подтвердить эффект или закрыть: ${gaps.join("; ")}.`, 409);
+    }
+  }
+
+  function canRecordResult(
+    initiative: CollegiumInitiative,
+    profile: ServerUserProfile,
+    permissions: CollegiumInitiativePermissions,
+  ) {
+    return ["in_progress", "result_confirmation"].includes(initiative.status) &&
+      (permissions.canManage || (permissions.canParticipate && isResultReporter(initiative, profile.userId)));
+  }
+
   function canResolveComments(
     initiative: CollegiumInitiative,
     profile: ServerUserProfile,
@@ -213,11 +287,12 @@ export function createCollegiumInitiativesService({
       id: string,
     ): Promise<CollegiumInitiativeDetailResponse> {
       const { initiative, permissions } = await requireInitiative(profile, id);
-      const [revisions, comments, attachments, people] = await Promise.all([
+      const [revisions, comments, attachments, people, linkedAssignments] = await Promise.all([
         repository.listRevisions(id),
         repository.listComments(id),
         repository.listAttachments({ type: "initiative", id }),
         readRolePeople(initiative.card),
+        listLinkedAssignments(id),
       ]);
       return {
         initiative,
@@ -230,6 +305,11 @@ export function createCollegiumInitiativesService({
         canResolveComments: canResolveComments(initiative, profile, permissions),
         actions: listAvailableCollegiumActions(initiative, profile.userId, permissions),
         missingAdmissionFields: listCollegiumAdmissionGaps(initiative.card, people),
+        linkedAssignments,
+        summaryStatus: readCollegiumSummaryStatus(initiative, linkedAssignments),
+        canCreateAssignments: assignableStatuses.includes(initiative.status) &&
+          hasProfileCapability(profile, "business.manage_collegium_assignments"),
+        canRecordResult: canRecordResult(initiative, profile, permissions),
       };
     },
 
@@ -366,7 +446,25 @@ export function createCollegiumInitiativesService({
         }
         const changedAt = now();
         const workflow = { ...initiative.workflow };
-        if (request.action === "suspend") workflow.suspendedFrom = initiative.status;
+        if (request.action === "submit_for_review" && workflow.submittedAt === undefined) {
+          workflow.submittedAt = changedAt.toISOString();
+        }
+        if (request.action === "suspend" || request.action === "board_suspend") {
+          workflow.suspendedFrom = initiative.status;
+        }
+        if (request.action === "confirm_effect" || request.action === "reject_effect") {
+          await assertIndependentConfirmer(initiative, profile.userId);
+        }
+        if (request.action === "confirm_effect" || (request.action === "close" && initiative.status === "done_confirmed")) {
+          await assertReadyForClosure(initiative);
+        }
+        if (request.action === "confirm_effect") {
+          workflow.effectConfirmation = {
+            confirmedByDisplayName: profile.displayName,
+            confirmedAt: changedAt.toISOString(),
+            result: initiative.workflow.result!,
+          };
+        }
         if (request.action === "resume") delete workflow.suspendedFrom;
         if (request.rework !== undefined) {
           const responsible = await repository.readPerson(request.rework.responsibleId, true);
@@ -448,6 +546,96 @@ export function createCollegiumInitiativesService({
      * Проверка до чтения тела: права, статус и лимиты по заявленному размеру,
      * чтобы чужой или лишний файл не загружался на сервер целиком.
      */
+    async recordResult(profile: ServerUserProfile, id: string, body: unknown) {
+      const revision = typeof body === "object" && body !== null && !Array.isArray(body)
+        ? (body as Record<string, unknown>).revision
+        : undefined;
+      const result = readCollegiumResultInput(body, readCollegiumAmount);
+      return transaction.run(async () => {
+        const { initiative, permissions } = await requireInitiative(profile, id, true);
+        if (initiative.revision !== revision) {
+          throw new CollegiumInitiativeError("Инициатива уже изменена. Обновите карточку.", 409);
+        }
+        if (!canRecordResult(initiative, profile, permissions)) {
+          throw new CollegiumInitiativeError("Фактический результат вносят владелец, исполнитель или секретарь в ходе реализации.", 403);
+        }
+        const at = now();
+        const updated: CollegiumInitiative = {
+          ...initiative,
+          workflow: {
+            ...initiative.workflow,
+            result: { ...result, recordedByDisplayName: profile.displayName, recordedAt: at.toISOString() },
+          },
+          revision: initiative.revision + 1,
+          updatedAt: at.toISOString(),
+        };
+        await repository.update(updated, initiative.revision);
+        await repository.insertRevision(initiative.id, {
+          id: randomUUID(),
+          revision: updated.revision,
+          createdAt: at,
+          authorDisplayName: profile.displayName,
+          status: initiative.status,
+          changedFields: [],
+          reason: "Внесён фактический результат",
+          comment: result.description,
+          card: initiative.card,
+        });
+        await recordAudit(profile, "collegium_initiative.update", updated, `Фактический результат инициативы ${updated.number}`);
+        return updated;
+      });
+    },
+
+    /**
+     * Порт для реестра «Поручения Коллегии»: проверка и переход в реализацию.
+     * Ошибки отдаются в формате реестра, чтобы его маршрут вернул тот же статус.
+     */
+    assignmentLinks: {
+      async lockForAssignment(profile: ServerUserProfile, initiativeId: string) {
+        try {
+          const { initiative } = await requireInitiative(profile, initiativeId, true);
+          if (!assignableStatuses.includes(initiative.status)) {
+            throw new CollegiumInitiativeError(
+              "Поручения создаются по инициативам, одобренным к пилоту или внедрению.",
+              409,
+            );
+          }
+        } catch (error) {
+          if (error instanceof CollegiumInitiativeError) {
+            throw new DirectorAssignmentError(error.message, error.status);
+          }
+          throw error;
+        }
+      },
+      async recordAssignmentCreated(
+        profile: ServerUserProfile,
+        initiativeId: string,
+        assignment: { id: string; number: string },
+      ) {
+        const initiative = await repository.read(initiativeId, true);
+        if (initiative === undefined) throw new CollegiumInitiativeError("Инициатива не найдена.", 404);
+        if (initiative.status === "in_progress") return;
+        const updated = await recordCollegiumInitiativeEvent({
+          repository,
+          profile,
+          initiative,
+          toStatus: "in_progress",
+          workflow: initiative.workflow,
+          action: "assignment_created",
+          reason: `Создано поручение ${assignment.number}`,
+          comment: "",
+          at: now(),
+        });
+        await recordAudit(
+          profile,
+          "collegium_initiative.transition",
+          updated,
+          `Инициатива ${updated.number} в реализации`,
+          [{ label: "Поручение", value: assignment.number }],
+        );
+      },
+    },
+
     async prepareFileUpload(
       profile: ServerUserProfile,
       id: string,
@@ -457,7 +645,7 @@ export function createCollegiumInitiativesService({
       const fileName = readCollegiumAttachmentFileName(rawFileName);
       await requireAttachRights(profile, id, false);
       if (Number.isFinite(declaredBytes) && declaredBytes > collegiumAttachmentLimits.maxFileBytes) {
-        throw new CollegiumInitiativeError("Размер одного файла не должен превышать 10 МБ.", 413);
+        throw new CollegiumInitiativeError("Размер одного файла не должен превышать 7 МБ.", 413);
       }
       await assertAttachmentRoom(id, Number.isFinite(declaredBytes) ? declaredBytes : 0);
       return fileName;

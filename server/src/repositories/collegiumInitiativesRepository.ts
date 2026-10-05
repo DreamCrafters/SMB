@@ -98,6 +98,14 @@ export type CollegiumInitiativeRevisionInput = Omit<
 /** Mutations must run inside the application's audited transaction. */
 export function createCollegiumInitiativesRepository(pool: DatabasePool) {
   async function people(userId?: string, lock = false): Promise<CollegiumPerson[]> {
+    // Lock only the account row: locking the join would also lock every
+    // position row and serialize the module with position edits.
+    if (lock && userId !== undefined) {
+      await pool.query(
+        "select id from app_users where id = ? and status = 'active' for update",
+        [userId],
+      );
+    }
     const [rows] = await pool.query<PersonRow[]>(`
       select users.id as user_id, users.display_name, positions.display_name as position_name,
         positions.navigation_items
@@ -110,8 +118,8 @@ export function createCollegiumInitiativesRepository(pool: DatabasePool) {
       where users.status = 'active' and accesses.is_active = 1
         and accesses.scope_kind = 'organization'
         ${userId === undefined ? "" : "and users.id = ?"}
-      order by users.display_name, users.id, positions.sort_order, positions.id
-      ${lock ? "for update" : ""}`, userId === undefined ? [] : [userId]);
+      order by users.display_name, users.id, positions.sort_order, positions.id`,
+      userId === undefined ? [] : [userId]);
     const byUser = new Map<string, CollegiumPerson>();
     for (const row of rows) {
       const hasTab = readJsonList(row.navigation_items)
@@ -160,24 +168,23 @@ export function createCollegiumInitiativesRepository(pool: DatabasePool) {
     },
 
     /** Year counter of a number series; runs in the caller's transaction. */
+    /**
+     * One upsert takes the exclusive row lock at once: `insert ignore` followed
+     * by `select … for update` upgrades a shared lock and deadlocks under load.
+     */
     async nextNumber(kind: CollegiumNumberKind, year: number) {
       await pool.query(
-        `insert ignore into collegium_number_sequences (kind, year, last_value)
-         values (?, ?, 0)`,
+        `insert into collegium_number_sequences (kind, year, last_value)
+         values (?, ?, 1)
+         on duplicate key update last_value = last_value + 1`,
         [kind, year],
       );
       const [rows] = await pool.query<SequenceRow[]>(
         `select last_value from collegium_number_sequences
-         where kind = ? and year = ? for update`,
+         where kind = ? and year = ?`,
         [kind, year],
       );
-      const next = Number(rows[0]?.last_value ?? 0) + 1;
-      await pool.query(
-        `update collegium_number_sequences set last_value = ?
-         where kind = ? and year = ?`,
-        [next, kind, year],
-      );
-      return next;
+      return Number(rows[0]?.last_value ?? 1);
     },
 
     async list(): Promise<CollegiumInitiative[]> {
@@ -341,12 +348,17 @@ export function createCollegiumInitiativesRepository(pool: DatabasePool) {
       return rows[0]?.content;
     },
 
-    /** Count and bytes of live attachments; callers hold the owner row lock. */
+    /**
+     * Live items, but stored bytes including soft-deleted files: their content
+     * stays in the database, so an upload-and-delete loop cannot grow it.
+     * Callers hold the owner row lock.
+     */
     async readAttachmentUsage(owner: CollegiumAttachmentOwner) {
       const [rows] = await pool.query<(RowDataPacket & { items: number; bytes: number | null })[]>(
-        `select count(*) as items, coalesce(sum(size_bytes), 0) as bytes
+        `select coalesce(sum(deleted_at is null), 0) as items,
+          coalesce(sum(size_bytes), 0) as bytes
          from collegium_attachments
-         where owner_type = ? and owner_id = ? and deleted_at is null`,
+         where owner_type = ? and owner_id = ?`,
         [owner.type, owner.id],
       );
       return { items: Number(rows[0]?.items ?? 0), bytes: Number(rows[0]?.bytes ?? 0) };

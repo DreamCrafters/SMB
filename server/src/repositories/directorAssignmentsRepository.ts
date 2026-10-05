@@ -143,6 +143,14 @@ export function createDirectorAssignmentsRepository(pool: DatabasePool, registry
       );
       return rows.map(assignmentPayload);
     },
+    async listBySourceInitiative(initiativeId: string) {
+      const [rows] = await pool.query<JsonRow[]>(
+        `select payload from ${tables.assignments}
+         where json_unquote(json_extract(payload, '$.sourceInitiativeId')) = ?
+         order by sequence_id`, [initiativeId],
+      );
+      return rows.map(assignmentPayload);
+    },
     async listBoardAssignmentRevisions(boardAssignmentId: string) {
       const [rows] = await pool.query<JsonRow[]>(
         `select history.payload from ${tables.history} history

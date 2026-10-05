@@ -16,7 +16,8 @@ import { readReworkRequest } from "./collegiumInitiativeWorkflow.js";
 const maxPeople = 60;
 const maxResponsible = 10;
 const maxDurationMinutes = 240;
-const maxProtocolLength = 60_000;
+/** Cyrillic text in JSON stays under the 100 KB request body limit. */
+export const maxCollegiumProtocolLength = 30_000;
 const accountPattern = /^account:[A-Za-z0-9_-]{1,100}$/u;
 
 export function readCollegiumMeetingDetails(input: unknown): CollegiumMeetingDetailsInput {
@@ -127,7 +128,7 @@ export function readCollegiumProtocolText(input: unknown) {
   rejectUnknown(record, ["revision", "text"]);
   const text = typeof record.text === "string" ? record.text.replace(/\r\n/gu, "\n").trim() : "";
   if (text === "") throw new CollegiumInitiativeError("Текст протокола не может быть пустым.");
-  if (text.length > maxProtocolLength) {
+  if (text.length > maxCollegiumProtocolLength) {
     throw new CollegiumInitiativeError("Протокол слишком длинный.");
   }
   return { revision: readRevision(record.revision), text };

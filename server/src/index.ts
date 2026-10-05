@@ -115,6 +115,13 @@ const emailNotifications = createEmailNotificationService(config.emailNotificati
 const maxNotifications = createMaxNotificationService(config.maxNotifications, {}, config.appEnv);
 const directorAssignmentsRepository = createDirectorAssignmentsRepository(pool, "director");
 const collegiumAssignmentsRepository = createDirectorAssignmentsRepository(pool, "collegium");
+// Задача 135: инициативы читают свои поручения, реестр Коллегии проверяет инициативу.
+const collegiumInitiatives = createCollegiumInitiativesService({
+  repository: createCollegiumInitiativesRepository(pool),
+  assignments: collegiumAssignmentsRepository,
+  transaction: database.transaction,
+  audit: createAuditRepository(pool),
+});
 const notificationSettings = createNotificationSettingsRepository(pool);
 const server = createApiServer({
   config,
@@ -160,8 +167,8 @@ const server = createApiServer({
   laboratoryGreenProductQualityJournal:
     createLaboratoryGreenProductQualityJournalRepository(pool),
   directorAssignments: createDirectorAssignmentsService({ repository: directorAssignmentsRepository, boardAssignments: createBoardAssignmentsRepository(pool), transaction: database.transaction, audit: createAuditRepository(pool) }),
-  collegiumAssignments: createDirectorAssignmentsService({ repository: collegiumAssignmentsRepository, transaction: database.transaction, audit: createAuditRepository(pool) }),
-  collegiumInitiatives: createCollegiumInitiativesService({ repository: createCollegiumInitiativesRepository(pool), transaction: database.transaction, audit: createAuditRepository(pool) }),
+  collegiumAssignments: createDirectorAssignmentsService({ repository: collegiumAssignmentsRepository, initiativeLinks: collegiumInitiatives.assignmentLinks, transaction: database.transaction, audit: createAuditRepository(pool) }),
+  collegiumInitiatives,
   collegiumMeetings: createCollegiumMeetingsService({ repository: createCollegiumInitiativesRepository(pool), transaction: database.transaction, audit: createAuditRepository(pool) }),
   boardAssignments: createBoardAssignmentsRepository(pool),
   warehouse1c: warehouse1cReadOnlyPool === undefined

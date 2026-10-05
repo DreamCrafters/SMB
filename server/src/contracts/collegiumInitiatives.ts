@@ -323,6 +323,11 @@ export type CollegiumInitiativeDetailResponse = {
   actions: CollegiumInitiativeAction[];
   /** Подписи незаполненных полей фильтра допуска; пусто — карточка готова. */
   missingAdmissionFields: string[];
+  linkedAssignments: CollegiumLinkedAssignment[];
+  summaryStatus: CollegiumSummaryStatus;
+  /** Право отправки реестра Коллегии и подходящий статус инициативы. */
+  canCreateAssignments: boolean;
+  canRecordResult: boolean;
 };
 
 export type CollegiumInitiativeSaveRequest = {
@@ -380,6 +385,13 @@ export const collegiumInitiativeActions = [
   "suspend",
   "resume",
   "withdraw",
+  "board_approve",
+  "board_suspend",
+  "board_reject",
+  "complete_work",
+  "confirm_effect",
+  "reject_effect",
+  "close",
 ] as const;
 
 export type CollegiumInitiativeAction =
@@ -395,6 +407,13 @@ export const collegiumInitiativeActionLabels: Record<
   suspend: "Приостановить",
   resume: "Возобновить",
   withdraw: "Отозвать черновик",
+  board_approve: "СД одобрил внедрение",
+  board_suspend: "СД приостановил",
+  board_reject: "СД отклонил",
+  complete_work: "Работы завершены",
+  confirm_effect: "Подтвердить эффект",
+  reject_effect: "Эффект не подтверждён",
+  close: "Закрыть инициативу",
 };
 
 /** Действия, для которых комментарий обязателен (ТЗ 5.2). */
@@ -402,6 +421,9 @@ export const collegiumActionsRequiringComment: readonly CollegiumInitiativeActio
   "return_for_rework",
   "suspend",
   "withdraw",
+  "board_suspend",
+  "board_reject",
+  "reject_effect",
 ];
 
 export type CollegiumReworkRequest = {
@@ -420,7 +442,19 @@ export type CollegiumInitiativeActionRequest = {
 
 /** Служебное состояние маршрута, которое не входит в карточку. */
 export type CollegiumInitiativeWorkflow = {
+  /**
+   * Первая отправка на оценку. До неё инициатива — личный черновик автора,
+   * даже если её приостановили или отозвали.
+   */
+  submittedAt?: string;
   suspendedFrom?: CollegiumInitiativeStatus;
+  result?: CollegiumInitiativeResult;
+  /** Снимок фактического результата на момент подтверждения эффекта. */
+  effectConfirmation?: {
+    confirmedByDisplayName: string;
+    confirmedAt: string;
+    result: CollegiumInitiativeResult;
+  };
   /** Текущий вопрос повестки, пока инициатива `on_agenda`/`in_discussion`. */
   agenda?: { meetingId: string; meetingNumber: string; itemId: string };
   lastDecision?: CollegiumInitiativeLastDecision;
@@ -456,7 +490,12 @@ export type CollegiumInitiativeComment = {
 };
 
 export const collegiumAttachmentLimits = {
-  maxFileBytes: 10 * 1024 * 1024,
+  /**
+   * mysql2 передаёт файл в SQL шестнадцатеричной строкой вдвое длиннее
+   * содержимого: 7 МБ гарантированно укладываются в стандартный
+   * `max_allowed_packet` MariaDB 16 МБ при записи и в синхронизации БД.
+   */
+  maxFileBytes: 7 * 1024 * 1024,
   maxOwnerBytes: 50 * 1024 * 1024,
   maxOwnerItems: 20,
   maxUrlLength: 2000,
@@ -500,6 +539,7 @@ export const collegiumAgendaEvents = [
   "start_discussion",
   "meeting_decision",
   "meeting_cancelled",
+  "assignment_created",
 ] as const;
 
 export type CollegiumAgendaEvent = (typeof collegiumAgendaEvents)[number];
@@ -510,6 +550,7 @@ export const collegiumAgendaEventLabels: Record<CollegiumAgendaEvent, string> = 
   start_discussion: "Начато обсуждение",
   meeting_decision: "Решение Коллегии по протоколу",
   meeting_cancelled: "Заседание отменено",
+  assignment_created: "Создано поручение Коллегии",
 };
 
 /** Решения, которые Коллегия принимает по вопросу повестки. */
@@ -598,6 +639,8 @@ export type CollegiumMeetingItem = {
 
 export type CollegiumProtocol = {
   text: string;
+  /** Версия повестки, по которой сформирован проект; утверждается только актуальный. */
+  agendaVersion?: number;
   /** Номер протокола равен номеру заседания; присваивается при утверждении. */
   number?: string;
   approvedAt?: string;
@@ -610,6 +653,8 @@ export type CollegiumMeeting = CollegiumMeetingDetailsInput & {
   status: CollegiumMeetingStatus;
   revision: number;
   items: CollegiumMeetingItem[];
+  /** Растёт при любом изменении реквизитов, повестки или решений. */
+  agendaVersion?: number;
   protocol: CollegiumProtocol;
   cancelComment?: string;
   createdByDisplayName: string;
@@ -646,3 +691,62 @@ export type CollegiumInitiativeLastDecision = {
 };
 
 export const collegiumMeetingsApiPath = "/api/collegium-meetings";
+
+export const collegiumResultConclusions = ["achieved", "partial", "not_achieved"] as const;
+export type CollegiumResultConclusion = (typeof collegiumResultConclusions)[number];
+export const collegiumResultConclusionLabels: Record<CollegiumResultConclusion, string> = {
+  achieved: "Достигнут",
+  partial: "Частично достигнут",
+  not_achieved: "Не достигнут",
+};
+
+export type CollegiumInitiativeResultInput = {
+  description: string;
+  actualEffectAmount: string;
+  source: string;
+  conclusion: CollegiumResultConclusion | "";
+};
+
+export type CollegiumInitiativeResult = CollegiumInitiativeResultInput & {
+  recordedByDisplayName: string;
+  recordedAt: string;
+};
+
+/** Поручение реестра Коллегии, созданное из инициативы (обратная связь, ТЗ 10.4). */
+export type CollegiumLinkedAssignment = {
+  id: string;
+  number: string;
+  summary: string;
+  status: string;
+  deadline: string;
+  completedOn: string;
+  responsibleName: string;
+  isOverdue: boolean;
+};
+
+/** Сводный статус исполнения инициативы (ТЗ 10.4). */
+export const collegiumSummaryStatuses = [
+  "not_started",
+  "in_preparation",
+  "in_pilot",
+  "in_implementation",
+  "overdue",
+  "awaiting_confirmation",
+  "effect_confirmed",
+  "effect_unconfirmed",
+  "suspended",
+  "closed",
+] as const;
+export type CollegiumSummaryStatus = (typeof collegiumSummaryStatuses)[number];
+export const collegiumSummaryStatusLabels: Record<CollegiumSummaryStatus, string> = {
+  not_started: "Не начата",
+  in_preparation: "В подготовке",
+  in_pilot: "В пилоте",
+  in_implementation: "В реализации",
+  overdue: "Просрочена",
+  awaiting_confirmation: "Ожидает подтверждения",
+  effect_confirmed: "Эффект подтверждён",
+  effect_unconfirmed: "Эффект не подтверждён",
+  suspended: "Приостановлена",
+  closed: "Закрыта",
+};

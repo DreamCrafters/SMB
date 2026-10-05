@@ -1,5 +1,6 @@
 import {
   collegiumActionsRequiringComment,
+  collegiumResultConclusions,
   collegiumInitiativeActions,
   collegiumInitiativeFieldLabels,
   collegiumInitiativeRoleFields,
@@ -7,6 +8,9 @@ import {
   type CollegiumInitiativeAction,
   type CollegiumInitiativeActionRequest,
   type CollegiumInitiativeCard,
+  type CollegiumInitiativeResultInput,
+  type CollegiumLinkedAssignment,
+  type CollegiumSummaryStatus,
   type CollegiumInitiativePermissions,
   type CollegiumInitiativeStatus,
   type CollegiumPerson,
@@ -89,8 +93,8 @@ export function listCollegiumAdmissionGaps(
   return gaps;
 }
 
+// A draft is the author's own: it is withdrawn, not suspended.
 const activeStatuses: readonly CollegiumInitiativeStatus[] = [
-  "draft",
   "preliminary_review",
   "rework",
   "ready",
@@ -149,7 +153,55 @@ const actionRules: Record<CollegiumInitiativeAction, ActionRule> = {
       initiative.card.initiatorId === collegiumAccountId(userId),
     to: () => "closed",
   },
+  // The board's decision comes back through the chair.
+  board_approve: {
+    from: ["board_referral"],
+    isAllowed: (_initiative, _userId, permissions) => permissions.canApprove,
+    to: () => "approved_implementation",
+  },
+  board_suspend: {
+    from: ["board_referral"],
+    isAllowed: (_initiative, _userId, permissions) => permissions.canApprove,
+    to: () => "suspended",
+  },
+  board_reject: {
+    from: ["board_referral"],
+    isAllowed: (_initiative, _userId, permissions) => permissions.canApprove,
+    to: () => "rejected",
+  },
+  complete_work: {
+    from: ["in_progress"],
+    isAllowed: (initiative, userId, permissions) =>
+      permissions.canManage || (permissions.canParticipate && isResultReporter(initiative, userId)),
+    to: () => "result_confirmation",
+  },
+  // Who confirmed earlier as executor or owner is re-checked by the service on history.
+  confirm_effect: {
+    from: ["result_confirmation"],
+    isAllowed: (initiative, userId, permissions) =>
+      permissions.canApprove ||
+      (permissions.canView && initiative.card.effectControllerId === collegiumAccountId(userId)),
+    to: () => "done_confirmed",
+  },
+  reject_effect: {
+    from: ["result_confirmation"],
+    isAllowed: (initiative, userId, permissions) =>
+      permissions.canApprove ||
+      (permissions.canView && initiative.card.effectControllerId === collegiumAccountId(userId)),
+    to: () => "done_unconfirmed",
+  },
+  close: {
+    from: ["done_confirmed", "done_unconfirmed", "rejected"],
+    isAllowed: (_initiative, _userId, permissions) => permissions.canManage,
+    to: () => "closed",
+  },
 };
+
+/** Владелец и исполнитель отчитываются о результате инициативы. */
+export function isResultReporter(initiative: CollegiumInitiative, userId: string) {
+  const accountId = collegiumAccountId(userId);
+  return initiative.card.ownerId === accountId || initiative.card.executorId === accountId;
+}
 
 export function listAvailableCollegiumActions(
   initiative: CollegiumInitiative,
@@ -254,4 +306,65 @@ export function readReworkRequest(value: unknown, today: string): CollegiumRewor
     throw new CollegiumInitiativeError("Укажите критерий готовности к повторному рассмотрению.");
   }
   return { remarks, responsibleId, dueDate, readinessCriterion };
+}
+
+/** Сводный статус исполнения для карточки (ТЗ 10.4). */
+export function readCollegiumSummaryStatus(
+  initiative: CollegiumInitiative,
+  assignments: readonly CollegiumLinkedAssignment[],
+): CollegiumSummaryStatus {
+  switch (initiative.status) {
+    case "draft":
+      return "not_started";
+    case "suspended":
+      return "suspended";
+    case "rejected":
+    case "closed":
+      return "closed";
+    case "result_confirmation":
+      return "awaiting_confirmation";
+    case "done_confirmed":
+      return "effect_confirmed";
+    case "done_unconfirmed":
+      return "effect_unconfirmed";
+    case "approved_pilot":
+    case "approved_implementation":
+    case "in_progress":
+      if (assignments.some((assignment) => assignment.isOverdue)) return "overdue";
+      if (initiative.status !== "in_progress") return "in_preparation";
+      return initiative.workflow.lastDecision?.decision === "pilot" ? "in_pilot" : "in_implementation";
+    default:
+      return "in_preparation";
+  }
+}
+
+/** Фактический результат; подтверждение эффекта требует его полностью. */
+export function readCollegiumResultInput(input: unknown, readAmount: (value: string) => string): CollegiumInitiativeResultInput {
+  if (typeof input !== "object" || input === null || Array.isArray(input)) {
+    throw new CollegiumInitiativeError("Передайте фактический результат.");
+  }
+  const record = input as Record<string, unknown>;
+  if (Object.keys(record).some((key) =>
+    !["revision", "description", "actualEffectAmount", "source", "conclusion"].includes(key))) {
+    throw new CollegiumInitiativeError("Запрос содержит неизвестные поля.");
+  }
+  const conclusion = readCollegiumOptionalText(record.conclusion, 20, "Вывод");
+  if (conclusion !== "" && !(collegiumResultConclusions as readonly string[]).includes(conclusion)) {
+    throw new CollegiumInitiativeError("Выберите вывод о достижении результата.");
+  }
+  return {
+    description: readCollegiumOptionalText(record.description, 4000, "Фактический результат"),
+    actualEffectAmount: readAmount(readCollegiumOptionalText(record.actualEffectAmount, 40, "Фактический эффект")),
+    source: readCollegiumOptionalText(record.source, 1000, "Источник подтверждения"),
+    conclusion: conclusion as CollegiumInitiativeResultInput["conclusion"],
+  };
+}
+
+export function listCollegiumResultGaps(result: CollegiumInitiativeResultInput | undefined) {
+  return [
+    ["Фактический результат", result?.description],
+    ["Фактический финансовый эффект", result?.actualEffectAmount],
+    ["Источник подтверждения", result?.source],
+    ["Вывод: достигнут / частично / не достигнут", result?.conclusion],
+  ].filter(([, value]) => value === undefined || value === "").map(([label]) => label as string);
 }

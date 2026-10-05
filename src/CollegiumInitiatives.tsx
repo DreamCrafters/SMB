@@ -1,6 +1,10 @@
 import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
 import {
   collegiumActionsRequiringComment,
+  collegiumResultConclusionLabels,
+  collegiumResultConclusions,
+  collegiumSummaryStatusLabels,
+  type CollegiumResultConclusion,
   collegiumCommentKindLabels,
   collegiumCommentKinds,
   collegiumInitiativeActionLabels,
@@ -31,6 +35,8 @@ import { ManagedTable } from "./ManagedTable";
 import { TableCell, TableHeader } from "./TableCell";
 import {
   actOnCollegiumInitiative,
+  createCollegiumAssignmentFromInitiative,
+  recordCollegiumInitiativeResult,
   collegiumInitiativeAttachmentsApi,
   commentCollegiumInitiative,
   requestCollegiumInitiative,
@@ -412,6 +418,13 @@ function InitiativeCardView({
         onShowToast={onShowToast}
       />
 
+      <ImplementationSection
+        detail={detail.data}
+        people={data.people}
+        onChanged={reload}
+        onShowToast={onShowToast}
+      />
+
       <CardSection title="Идентификация">
         <CardValue label="Инициатор" value={person(card.initiatorId)} />
         <CardValue label="Дата создания" value={formatDateTime(initiative.createdAt)} />
@@ -747,6 +760,404 @@ function WorkflowPanel({
         </form>
       )}
     </section>
+  );
+}
+
+const assignmentStatusLabels: Record<string, string> = {
+  in_progress: "В работе",
+  under_review: "На проверке",
+  revision_requested: "На доработке",
+  completed: "Завершено",
+};
+
+const implementationStatuses: readonly CollegiumInitiativeStatus[] = [
+  "approved_pilot",
+  "approved_implementation",
+  "in_progress",
+  "result_confirmation",
+  "done_confirmed",
+  "done_unconfirmed",
+];
+
+/** Исполнение: поручения Коллегии, фактический результат и подтверждение эффекта. */
+function ImplementationSection({
+  detail,
+  people,
+  onChanged,
+  onShowToast,
+}: {
+  detail: CollegiumInitiativeDetailResponse;
+  people: CollegiumPerson[];
+  onChanged: () => void;
+  onShowToast: ShowToast;
+}) {
+  const { initiative, linkedAssignments, canCreateAssignments, canRecordResult, summaryStatus } = detail;
+  const result = initiative.workflow.result;
+  const confirmation = initiative.workflow.effectConfirmation;
+  const [isCreating, setIsCreating] = useState(false);
+  const [isEditingResult, setIsEditingResult] = useState(false);
+  if (
+    !implementationStatuses.includes(initiative.status) &&
+    linkedAssignments.length === 0 &&
+    result === undefined
+  ) {
+    return null;
+  }
+
+  return (
+    <section className="collegium-card-section collegium-implementation">
+      <h4>
+        {"Исполнение "}
+        <span className={`collegium-status collegium-summary-${summaryStatus}`}>
+          {collegiumSummaryStatusLabels[summaryStatus]}
+        </span>
+      </h4>
+      {initiative.workflow.lastDecision === undefined ? null : (
+        <p className="collegium-note">
+          {`Решение Коллегии: ${collegiumDecisionLabels[initiative.workflow.lastDecision.decision]}, протокол № ${initiative.workflow.lastDecision.protocolNumber} от ${formatDate(initiative.workflow.lastDecision.meetingDate)}, вопрос ${initiative.workflow.lastDecision.itemOrder}.`}
+        </p>
+      )}
+      {linkedAssignments.length === 0 ? (
+        <p className="collegium-empty-note">Поручений по инициативе пока нет.</p>
+      ) : (
+        <div className="table-scroll collegium-table-scroll">
+          <ManagedTable tableId="collegium.initiativeAssignments" className="data-table collegium-assignments-table">
+            <thead>
+              <tr>
+                <TableHeader>Номер</TableHeader>
+                <TableHeader>Поручение</TableHeader>
+                <TableHeader>Ответственный</TableHeader>
+                <TableHeader>Срок</TableHeader>
+                <TableHeader>Статус</TableHeader>
+              </tr>
+            </thead>
+            <tbody>
+              {linkedAssignments.map((assignment) => (
+                <tr className={assignment.isOverdue ? "collegium-assignment-overdue" : undefined} key={assignment.id}>
+                  <TableCell>{assignment.number}</TableCell>
+                  <TableCell>{assignment.summary}</TableCell>
+                  <TableCell>{assignment.responsibleName || "—"}</TableCell>
+                  <TableCell>{formatDate(assignment.deadline)}</TableCell>
+                  <TableCell>
+                    {assignment.status === "completed" && assignment.completedOn !== ""
+                      ? `${assignmentStatusLabels.completed} ${formatDate(assignment.completedOn)}`
+                      : `${assignmentStatusLabels[assignment.status] ?? assignment.status}${assignment.isOverdue ? ", просрочено" : ""}`}
+                  </TableCell>
+                </tr>
+              ))}
+            </tbody>
+          </ManagedTable>
+        </div>
+      )}
+      {canCreateAssignments ? (
+        isCreating ? (
+          <AssignmentFromInitiativeForm
+            detail={detail}
+            people={people}
+            onCancel={() => setIsCreating(false)}
+            onCreated={(number) => {
+              setIsCreating(false);
+              onShowToast("Поручение создано", `${number} · ${initiative.number}`, "success");
+              onChanged();
+            }}
+          />
+        ) : (
+          <div className="collegium-form-actions">
+            <button className="primary-button" type="button" onClick={() => setIsCreating(true)}>
+              Создать поручение
+            </button>
+          </div>
+        )
+      ) : null}
+
+      <div className="collegium-result">
+        <strong>Фактический результат</strong>
+        {result === undefined ? (
+          <p className="collegium-empty-note">Фактический результат ещё не внесён.</p>
+        ) : (
+          <dl className="collegium-card-grid">
+            <div className="collegium-card-value collegium-field-wide"><dt>Результат</dt><dd>{result.description || "—"}</dd></div>
+            <div className="collegium-card-value"><dt>Фактический эффект</dt><dd>{formatAmount(result.actualEffectAmount)}</dd></div>
+            <div className="collegium-card-value"><dt>Источник подтверждения</dt><dd>{result.source || "—"}</dd></div>
+            <div className="collegium-card-value">
+              <dt>Вывод</dt>
+              <dd>{result.conclusion === "" ? "—" : collegiumResultConclusionLabels[result.conclusion]}</dd>
+            </div>
+            <div className="collegium-card-value">
+              <dt>Внесён</dt>
+              <dd>{`${result.recordedByDisplayName}, ${formatDateTime(result.recordedAt)}`}</dd>
+            </div>
+          </dl>
+        )}
+        {confirmation === undefined ? null : (
+          <p className="collegium-admission-ready">
+            {`Эффект подтверждён: ${confirmation.confirmedByDisplayName}, ${formatDateTime(confirmation.confirmedAt)}.`}
+          </p>
+        )}
+        {canRecordResult && !isEditingResult ? (
+          <div className="collegium-form-actions">
+            <button className="secondary-button" type="button" onClick={() => setIsEditingResult(true)}>
+              {result === undefined ? "Внести фактический результат" : "Изменить фактический результат"}
+            </button>
+          </div>
+        ) : null}
+        {canRecordResult && isEditingResult ? (
+          <ResultForm
+            detail={detail}
+            onCancel={() => setIsEditingResult(false)}
+            onSaved={() => {
+              setIsEditingResult(false);
+              onShowToast("Результат сохранён", initiative.number, "success");
+              onChanged();
+            }}
+          />
+        ) : null}
+      </div>
+    </section>
+  );
+}
+
+function AssignmentFromInitiativeForm({
+  detail,
+  people,
+  onCancel,
+  onCreated,
+}: {
+  detail: CollegiumInitiativeDetailResponse;
+  people: CollegiumPerson[];
+  onCancel: () => void;
+  onCreated: (number: string) => void;
+}) {
+  const { initiative } = detail;
+  const card = initiative.card;
+  const decision = initiative.workflow.lastDecision;
+  const peopleIndex = usePeopleIndex(people);
+  const [summary, setSummary] = useState(`По инициативе ${initiative.number} «${card.title}»: `);
+  const [responsibleId, setResponsibleId] = useState(card.executorId);
+  const [deadline, setDeadline] = useState(card.plannedResult);
+  const [note, setNote] = useState([
+    card.kpiCriterion === "" ? "" : `Ожидаемый результат и KPI: ${card.kpiCriterion}.`,
+    card.executionControllerId === "" ? "" : `Контролёр исполнения: ${peopleIndex.name(card.executionControllerId)}.`,
+    card.effectControllerId === "" ? "" : `Контролёр эффекта: ${peopleIndex.name(card.effectControllerId)}.`,
+    card.internalResources === "" ? "" : `Ресурсы: ${card.internalResources}.`,
+  ].filter(Boolean).join(" "));
+  const [message, setMessage] = useState("");
+  const [isSaving, setIsSaving] = useState(false);
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (summary.trim() === "" || responsibleId === "" || deadline === "") {
+      setMessage("Укажите суть поручения, ответственного и срок.");
+      return;
+    }
+    const today = new Intl.DateTimeFormat("sv-SE", { timeZone: "Europe/Moscow" }).format(new Date());
+    setIsSaving(true);
+    setMessage("");
+    try {
+      const assignment = await createCollegiumAssignmentFromInitiative({
+        assignedOn: today,
+        kind: "Поручение",
+        summary: summary.trim(),
+        department: "",
+        project: initiative.number,
+        responsibleId,
+        coExecutorIds: [],
+        recurrence: "once",
+        activeFrom: deadline,
+        activeTo: deadline,
+        urgency: "",
+        importance: "",
+        note: note.trim(),
+        progress: "",
+        incomingNumber: "",
+        sourceBoardAssignmentId: null,
+        meetingDate: decision?.meetingDate ?? "",
+        protocolNumber: decision?.protocolNumber ?? "",
+        decisionNumber: decision === undefined ? "" : String(decision.itemOrder),
+        sourceInitiativeId: initiative.id,
+      }, `Создано из инициативы ${initiative.number}`);
+      onCreated(assignment.number);
+    } catch (error) {
+      setMessage(readShortUserMessage(error instanceof Error ? error.message : "", "Не удалось создать поручение."));
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  return (
+    <form className="collegium-action-form" noValidate onSubmit={submit}>
+      <strong>Поручение Коллегии по инициативе</strong>
+      <p className="collegium-note">
+        {decision === undefined
+          ? "Поручение будет создано в реестре «Поручения Коллегии»."
+          : `Протокол № ${decision.protocolNumber} от ${formatDate(decision.meetingDate)}, вопрос ${decision.itemOrder} — подставятся в поручение.`}
+      </p>
+      <div className="collegium-field-grid">
+        <label className="collegium-field collegium-field-wide">
+          <span>Суть поручения</span>
+          <textarea
+            disabled={isSaving}
+            maxLength={20000}
+            rows={3}
+            value={summary}
+            onChange={(event) => {
+              const value = event.currentTarget.value;
+              setSummary(value);
+            }}
+          />
+        </label>
+        <label className="collegium-field">
+          <span>Ответственный</span>
+          <select
+            disabled={isSaving}
+            value={responsibleId}
+            onChange={(event) => {
+              const value = event.currentTarget.value;
+              setResponsibleId(value);
+            }}
+          >
+            <option value="">Не выбран</option>
+            {people.map((person) => (
+              <option key={person.id} value={person.id}>{person.displayName}</option>
+            ))}
+          </select>
+        </label>
+        <label className="collegium-field">
+          <span>Срок</span>
+          <input
+            disabled={isSaving}
+            type="date"
+            value={deadline}
+            onChange={(event) => {
+              const value = event.currentTarget.value;
+              setDeadline(value);
+            }}
+          />
+        </label>
+        <label className="collegium-field collegium-field-wide">
+          <span>Примечание</span>
+          <textarea
+            disabled={isSaving}
+            maxLength={4000}
+            rows={2}
+            value={note}
+            onChange={(event) => {
+              const value = event.currentTarget.value;
+              setNote(value);
+            }}
+          />
+        </label>
+      </div>
+      {message === "" ? null : <p className="form-message is-error" role="alert">{message}</p>}
+      <div className="collegium-form-actions">
+        <button className="secondary-button" disabled={isSaving} type="button" onClick={onCancel}>Отмена</button>
+        <button className="primary-button" disabled={isSaving} type="submit">
+          {isSaving ? <LoadingIndicator label="Создаём…" variant="button" /> : "Создать поручение"}
+        </button>
+      </div>
+    </form>
+  );
+}
+
+function ResultForm({
+  detail,
+  onCancel,
+  onSaved,
+}: {
+  detail: CollegiumInitiativeDetailResponse;
+  onCancel: () => void;
+  onSaved: () => void;
+}) {
+  const { initiative } = detail;
+  const current = initiative.workflow.result;
+  const [description, setDescription] = useState(current?.description ?? "");
+  const [actualEffectAmount, setActualEffectAmount] = useState(formatAmountInput(current?.actualEffectAmount ?? ""));
+  const [source, setSource] = useState(current?.source ?? "");
+  const [conclusion, setConclusion] = useState<CollegiumResultConclusion | "">(current?.conclusion ?? "");
+  const [message, setMessage] = useState("");
+  const [isSaving, setIsSaving] = useState(false);
+
+  return (
+    <form
+      className="collegium-action-form"
+      noValidate
+      onSubmit={(event) => {
+        event.preventDefault();
+        setIsSaving(true);
+        setMessage("");
+        recordCollegiumInitiativeResult(initiative.id, {
+          revision: initiative.revision,
+          description: description.trim(),
+          actualEffectAmount: actualEffectAmount.trim(),
+          source: source.trim(),
+          conclusion,
+        }).then(onSaved, (error: unknown) => {
+          setMessage(readShortUserMessage(error instanceof Error ? error.message : "", "Не удалось сохранить результат."));
+        }).finally(() => setIsSaving(false));
+      }}
+    >
+      <div className="collegium-field-grid">
+        <label className="collegium-field collegium-field-wide">
+          <span>Фактический результат</span>
+          <textarea
+            disabled={isSaving}
+            maxLength={4000}
+            rows={3}
+            value={description}
+            onChange={(event) => {
+              const value = event.currentTarget.value;
+              setDescription(value);
+            }}
+          />
+        </label>
+        <label className="collegium-field">
+          <span>Фактический эффект, ₽</span>
+          <input
+            disabled={isSaving}
+            inputMode="decimal"
+            maxLength={40}
+            value={actualEffectAmount}
+            onChange={(event) => {
+              const value = event.currentTarget.value;
+              setActualEffectAmount(value);
+            }}
+          />
+        </label>
+        <label className="collegium-field">
+          <span>Источник подтверждения</span>
+          <input
+            disabled={isSaving}
+            maxLength={1000}
+            value={source}
+            onChange={(event) => {
+              const value = event.currentTarget.value;
+              setSource(value);
+            }}
+          />
+        </label>
+        <label className="collegium-field">
+          <span>Вывод</span>
+          <select
+            disabled={isSaving}
+            value={conclusion}
+            onChange={(event) => {
+              const value = event.currentTarget.value as CollegiumResultConclusion | "";
+              setConclusion(value);
+            }}
+          >
+            <option value="">Не выбран</option>
+            {collegiumResultConclusions.map((option) => (
+              <option key={option} value={option}>{collegiumResultConclusionLabels[option]}</option>
+            ))}
+          </select>
+        </label>
+      </div>
+      {message === "" ? null : <p className="form-message is-error" role="alert">{message}</p>}
+      <div className="collegium-form-actions">
+        <button className="secondary-button" disabled={isSaving} type="button" onClick={onCancel}>Отмена</button>
+        <button className="primary-button" disabled={isSaving} type="submit">Сохранить результат</button>
+      </div>
+    </form>
   );
 }
 

@@ -11,7 +11,7 @@ const protocolFields = ["meetingDate", "protocolNumber", "decisionNumber"] as co
 export function readDirectorAssignmentInput(value: unknown, registryId: AssignmentRegistryId = "director"): DirectorAssignmentInput {
   const registry = assignmentRegistries[registryId];
   const row = readDirectorRecord(value);
-  const fields: string[] = ["assignedOn", "kind", "summary", "department", "project", "responsibleId", "coExecutorIds", "recurrence", "activeFrom", "activeTo", "urgency", "importance", "note", "progress", "incomingNumber", "sourceBoardAssignmentId", ...(registry.hasProtocol ? protocolFields : [])];
+  const fields: string[] = ["assignedOn", "kind", "summary", "department", "project", "responsibleId", "coExecutorIds", "recurrence", "activeFrom", "activeTo", "urgency", "importance", "note", "progress", "incomingNumber", "sourceBoardAssignmentId", ...(registry.hasProtocol ? protocolFields : []), ...(registry.canLinkInitiative ? ["sourceInitiativeId"] : [])];
   if (Object.keys(row).some(key => !fields.includes(key))) throw new DirectorAssignmentError("Неизвестные поля поручения.");
   const text = (key: string, required = false, max = 300) => readDirectorText(row[key], required, max);
   const assignedOn = text("assignedOn", true, 10);
@@ -41,6 +41,10 @@ export function readDirectorAssignmentInput(value: unknown, registryId: Assignme
     note: text("note", false, 4000), progress: text("progress", false, 4000), incomingNumber: text("incomingNumber", false, 100),
     sourceBoardAssignmentId: row.sourceBoardAssignmentId === null ? null : text("sourceBoardAssignmentId", true, 100),
     ...protocol,
+    // Absent or null means no initiative; old collegium assignments have no field at all.
+    ...(registry.canLinkInitiative
+      ? { sourceInitiativeId: row.sourceInitiativeId === undefined || row.sourceInitiativeId === null ? null : text("sourceInitiativeId", true, 100) }
+      : {}),
   };
 }
 

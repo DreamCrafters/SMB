@@ -32,6 +32,7 @@ export const tableDefinitions = {
   "collegium.assignments": defineTable("Поручения Коллегии", ["number", "assignedOn", "summary", "meetingDate", "protocolNumber", "decisionNumber", "department", "project", "responsible", "coExecutors", "deadline", "urgency", "importance", "progress", "completedOn", "note", "status", "incomingNumber", "durationWorkdays", "remainingWorkdays", "postponedUntil"]),
   "collegium.initiatives": defineTable("Инициативы Коллегии", ["number", "title", "status", "direction", "initiator", "owner", "expectedEffect", "plannedResult", "updatedAt"]),
   "collegium.meetings": defineTable("Заседания Коллегии", ["number", "meetingDate", "format", "status", "items"]),
+  "collegium.initiativeAssignments": defineTable("Поручения по инициативе", ["number", "summary", "responsible", "deadline", "status"]),
   "collegium.initiativeRevisions": defineTable("Ревизии инициативы", ["revision", "createdAt", "author", "status", "changedFields", "reason", "comment"]),
   "director.personnel": defineTable("Сотрудники", ["fullName", "position", "department", "category", "user", "status"]),
   "production.plan": defineTable("План выработки", ["date", "forming", "sorting", "unformed", "chamotte"]),
