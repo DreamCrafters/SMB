@@ -8,6 +8,7 @@ import {
   collegiumInitiativeRoleFields,
   collegiumInitiativeStatusLabels,
   type CollegiumAttachment,
+  type CollegiumAttentionItem,
   type CollegiumCommentKind,
   type CollegiumInitiative,
   type CollegiumInitiativeCard,
@@ -431,6 +432,59 @@ export function createCollegiumInitiativesService({
       const detail = await readDetail(profile, id);
       const names = new Map((await repository.listPeople()).map((person) => [person.id, person.displayName]));
       return { detail, name: (accountId: string) => names.get(accountId) ?? "" };
+    },
+
+    /**
+     * «Требует моего действия»: только то, что сервер сейчас разрешит этому
+     * пользователю, включая проверку независимости при подтверждении эффекта.
+     */
+    async attention(profile: ServerUserProfile): Promise<CollegiumAttentionItem[]> {
+      const permissions = requireView(profile);
+      const [initiatives, linked] = await Promise.all([
+        repository.list(),
+        assignments?.listWithInitiativeLink() ?? Promise.resolve([]),
+      ]);
+      const accountId = collegiumAccountId(profile.userId);
+      const overdue = new Set(linked
+        .filter((assignment) => assignment.status !== "completed" && assignment.currentOccurrenceDate < today())
+        .map((assignment) => assignment.sourceInitiativeId ?? ""));
+      const items: CollegiumAttentionItem[] = [];
+      for (const initiative of initiatives) {
+        if (!canViewCollegiumInitiative(initiative, profile, permissions)) continue;
+        const actions = listAvailableCollegiumActions(initiative, profile.userId, permissions);
+        const add = (reason: string) => items.push({
+          initiativeId: initiative.id,
+          number: initiative.number,
+          title: initiative.card.title,
+          reason,
+        });
+        const rework = initiative.workflow.rework;
+        if (initiative.status === "draft" && actions.includes("submit_for_review") && isOwnCollegiumInitiative(initiative, profile.userId)) {
+          add("Черновик: дополните и отправьте на оценку");
+        } else if (initiative.status === "rework" && rework !== undefined && rework.responsibleId === accountId) {
+          add(`Доработка до ${rework.dueDate.split("-").reverse().join(".")}`);
+        } else if (initiative.status === "preliminary_review" && actions.includes("admit")) {
+          add("Ждёт допуска к рассмотрению Коллегией");
+        } else if (initiative.status === "ready" && permissions.canManage) {
+          add("Готова: включите в повестку заседания");
+        } else if (initiative.status === "board_referral" && actions.includes("board_approve")) {
+          add("Внесите решение Совета директоров");
+        } else if (initiative.status === "result_confirmation" && actions.includes("confirm_effect")) {
+          try {
+            await assertIndependentConfirmer(initiative, profile.userId);
+            add("Подтвердите фактический эффект");
+          } catch (error) {
+            if (!(error instanceof CollegiumInitiativeError)) throw error;
+          }
+        } else if (
+          initiative.status === "in_progress" &&
+          overdue.has(initiative.id) &&
+          (initiative.card.ownerId === accountId || initiative.card.executorId === accountId)
+        ) {
+          add("Просрочены поручения по инициативе");
+        }
+      }
+      return items;
     },
 
     /** Тот же отфильтрованный реестр для выгрузок XLSX и PDF. */

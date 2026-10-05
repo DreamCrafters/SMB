@@ -10031,3 +10031,33 @@ p {
   font-size: 11px;
   font-weight: 700;
 }
+
+.collegium-attention {
+  display: grid;
+  gap: var(--density-2);
+  border: 1px solid var(--line);
+  border-left: 4px solid var(--amber);
+  border-radius: var(--radius);
+  padding: var(--density-3);
+  background: var(--surface-raised);
+}
+
+.collegium-attention ul {
+  display: grid;
+  gap: var(--density-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.collegium-attention li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--density-2);
+  align-items: baseline;
+  font-size: 13px;
+}
+
+.collegium-attention li span {
+  color: var(--muted);
+}

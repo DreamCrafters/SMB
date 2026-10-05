@@ -65,7 +65,7 @@ test.after(async () => {
   await sharedVite?.close();
 });
 
-async function renderWorkspace(permissions, onRequest) {
+async function renderWorkspace(permissions, onRequest, attentionItems = []) {
   const dom = new JSDOM(
     '<!doctype html><html><body><div id="root"></div></body></html>',
     { url: "http://127.0.0.1:5173/" },
@@ -78,6 +78,7 @@ async function renderWorkspace(permissions, onRequest) {
   const { CollegiumInitiativesWorkspace } = await loadWorkspaceModule();
   globalThis.fetch = async (input, init = {}) => {
     const url = new URL(String(input), "http://127.0.0.1:5173/");
+    if (url.pathname === "/api/collegium-initiatives/attention") return jsonResponse({ items: attentionItems });
     return jsonResponse(...await onRequest(url, init, permissions));
   };
   const container = dom.window.document.querySelector("#root");
@@ -337,6 +338,37 @@ test("registry filters and exports are applied by the server", async () => {
     await React.act(async () => findButtonByText(container, "Выгрузить в Excel").click());
     await waitFor(React, () => container.textContent.includes("Выгрузка недоступна."));
     assert.deepEqual(downloads, ["?status=ready"]);
+  } finally {
+    await view.cleanup();
+  }
+});
+
+test("the attention panel lists server-computed actions and opens the card", async () => {
+  const stored = buildInitiative({ title: "Идея на оценке" });
+  const view = await renderWorkspace(
+    { canView: true, canParticipate: true, canManage: true, canApprove: true },
+    async (url, _init, permissions) => {
+      if (url.pathname === "/api/collegium-initiatives") {
+        return [{ initiatives: [stored], people, reference, permissions, meetings: [], overdueIds: [] }];
+      }
+      if (url.pathname === "/api/collegium-initiatives/initiative-1") {
+        return [{
+          initiative: stored, revisions: [], comments: [], attachments: [], canAttach: false, canEdit: false,
+          canComment: false, canResolveComments: false, actions: [], missingAdmissionFields: [],
+          linkedAssignments: [], summaryStatus: "in_preparation", canCreateAssignments: false, canRecordResult: false,
+        }];
+      }
+      throw new Error(`Unexpected request: ${url.pathname}`);
+    },
+    [{ initiativeId: "initiative-1", number: "И-2026-0001", title: "Идея на оценке", reason: "Ждёт допуска к рассмотрению Коллегией" }],
+  );
+  const { React, container } = view;
+  try {
+    await waitFor(React, () => container.querySelector(".collegium-attention") !== null);
+    assert.match(container.textContent, /Требует моего действия: 1/u);
+    assert.match(container.textContent, /Ждёт допуска к рассмотрению Коллегией/u);
+    await React.act(async () => findButtonByText(container, "И-2026-0001 «Идея на оценке»").click());
+    await waitFor(React, () => container.querySelector(".collegium-revisions-table") !== null);
   } finally {
     await view.cleanup();
   }

@@ -41,6 +41,7 @@ import {
   collegiumInitiativeCardPdfPath,
   collegiumRegistryExportPath,
   downloadCollegiumFile,
+  requestCollegiumAttention,
   createCollegiumAssignmentFromInitiative,
   recordCollegiumInitiativeResult,
   collegiumInitiativeAttachmentsApi,
@@ -59,6 +60,7 @@ import {
   formatDateTime,
   saveBlob,
   usePeopleIndex,
+  useServerData,
 } from "./CollegiumShared";
 
 type View =
@@ -166,6 +168,11 @@ export function CollegiumInitiativesWorkspace({
           onShowToast={onShowToast}
         />
       ) : view.kind === "registry" ? (
+        <>
+        <AttentionPanel
+          refreshVersion={refreshVersion}
+          onOpen={(id) => setView({ kind: "card", id })}
+        />
         <InitiativeRegistry
           data={data}
           filters={filters}
@@ -173,6 +180,7 @@ export function CollegiumInitiativesWorkspace({
           onCreate={() => setView({ kind: "form" })}
           onOpen={(id) => setView({ kind: "card", id })}
         />
+        </>
       ) : view.kind === "card" ? (
         <InitiativeCardView
           id={view.id}
@@ -193,6 +201,41 @@ export function CollegiumInitiativesWorkspace({
           onSaved={afterSave}
         />
       )}
+    </section>
+  );
+}
+
+/** «Требует моего действия»: уведомление в интерфейсе из server-owned правил. */
+function AttentionPanel({
+  refreshVersion,
+  onOpen,
+}: {
+  refreshVersion: number;
+  onOpen: (id: string) => void;
+}) {
+  const state = useServerData(
+    (signal) => requestCollegiumAttention(signal),
+    "Не удалось загрузить список действий.",
+    refreshVersion,
+  );
+  if (state.status !== "ready" || state.data.length === 0) {
+    return state.status === "error"
+      ? <p className="form-message is-error" role="alert">{state.message}</p>
+      : null;
+  }
+  return (
+    <section className="collegium-attention" aria-label="Требует моего действия">
+      <strong>{`Требует моего действия: ${state.data.length}`}</strong>
+      <ul>
+        {state.data.map((item) => (
+          <li key={item.initiativeId}>
+            <button className="board-assignment-link" type="button" onClick={() => onOpen(item.initiativeId)}>
+              {`${item.number} «${item.title}»`}
+            </button>
+            <span>{item.reason}</span>
+          </li>
+        ))}
+      </ul>
     </section>
   );
 }

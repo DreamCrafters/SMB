@@ -584,3 +584,22 @@ test("services queue notifications instead of sending them inside the transactio
   assert.match(protocol[0].lines.join("\n"), /Утвердить внедрение/u);
   assert.equal(memory.initiatives.get(ready.id)!.status, "approved_implementation");
 });
+
+test("attention lists only actions the server would accept for this user", async () => {
+  const { initiatives, readyInitiative } = createHarness();
+  const draft = await initiatives.create(author, { card: completeCard("Черновик автора") });
+  const ready = await readyInitiative("Готовая");
+  const submitted = await initiatives.create(author, { card: completeCard("На оценке") });
+  await initiatives.act(author, submitted.id, { action: "submit_for_review", revision: 1 });
+
+  const reasons = async (who: ServerUserProfile) =>
+    (await initiatives.attention(who)).map(({ initiativeId, reason }) => [initiativeId, reason]);
+  assert.deepEqual(await reasons(author), [[draft.id, "Черновик: дополните и отправьте на оценку"]]);
+  assert.deepEqual(await reasons(chair), [
+    [ready.id, "Готова: включите в повестку заседания"],
+    [submitted.id, "Ждёт допуска к рассмотрению Коллегией"],
+  ]);
+  // A secretary cannot admit, but schedules ready ideas.
+  assert.deepEqual(await reasons(secretary), [[ready.id, "Готова: включите в повестку заседания"]]);
+  assert.deepEqual(await reasons(profile("viewer", "view")), []);
+});

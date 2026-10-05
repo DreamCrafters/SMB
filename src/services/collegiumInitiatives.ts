@@ -2,6 +2,7 @@ import {
   collegiumInitiativesApiPath,
   collegiumMeetingsApiPath,
   type CollegiumAttachment,
+  type CollegiumAttentionItem,
   type CollegiumCommentKind,
   type CollegiumInitiative,
   type CollegiumInitiativeActionRequest,
@@ -87,6 +88,16 @@ export function requestCollegiumInitiatives(
     undefined,
     signal,
   );
+}
+
+export async function requestCollegiumAttention(signal?: AbortSignal) {
+  const result = await request<{ items: CollegiumAttentionItem[] }>(
+    `${collegiumInitiativesApiPath}/attention`,
+    "GET",
+    undefined,
+    signal,
+  );
+  return result.items;
 }
 
 /** Выгрузка или печатная форма: файл отдаёт сервер по тем же правам и фильтрам. */

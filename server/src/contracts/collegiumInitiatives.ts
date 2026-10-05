@@ -840,3 +840,11 @@ export const collegiumInitiativeFilterKeys = [
   "risk",
   "mine",
 ] as const satisfies readonly (keyof CollegiumInitiativeFilters)[];
+
+/** Пункт списка «Требует моего действия» (уведомление в интерфейсе, ТЗ 12.1). */
+export type CollegiumAttentionItem = {
+  initiativeId: string;
+  number: string;
+  title: string;
+  reason: string;
+};

@@ -1021,6 +1021,10 @@ export function createApiServer({
             });
             return;
           }
+          if (url.pathname === `${collegiumInitiativesApiPath}/attention` && req.method === "GET") {
+            sendJson(res, 200, { items: await collegiumInitiatives.attention(access.profile) });
+            return;
+          }
           const cardPdf = /^\/api\/collegium-initiatives\/([a-zA-Z0-9-]{1,100})\/card\.pdf$/u.exec(url.pathname);
           if (cardPdf && req.method === "GET") {
             const { detail, name } = await collegiumInitiatives.printCard(access.profile, cardPdf[1]);
