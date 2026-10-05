@@ -38,6 +38,7 @@ const detailExtras = {
   passportReasons: [{ code: "capex", label: "Требуется CAPEX" }],
   passportGaps: ["Затраты: CAPEX, разовые и постоянные OPEX"],
   canEditPassport: false,
+  effectDuplicates: [],
 };
 
 function buildInitiative(card) {
@@ -547,7 +548,7 @@ test("the owner fills the full passport of a pilot from the card", async () => {
       if (url.pathname === "/api/collegium-initiatives/initiative-1/passport" && init.method === "PUT") {
         const body = JSON.parse(init.body);
         puts.push(body);
-        stored = { ...stored, revision: 6, card: { ...stored.card, passport: { ...body.passport, schedule: [], milestones: [] } } };
+        stored = { ...stored, revision: 6, card: { ...stored.card, passport: { ...body.passport, schedule: [], milestones: [], effects: [] } } };
         return [{ initiative: stored }];
       }
       if (url.pathname === "/api/collegium-initiatives/initiative-1") return [detail()];
@@ -565,7 +566,7 @@ test("the owner fills the full passport of a pilot from the card", async () => {
     const form = container.querySelector(".collegium-passport-form");
     const field = (label) => Array.from(form.querySelectorAll("label")).find(
       (item) => item.querySelector(":scope > span")?.textContent === label,
-    ).querySelector("input, textarea");
+    ).querySelector("input, textarea, select");
     await React.act(async () => {
       for (const [label, value] of [["План пилота", "Две смены"], ["Стоп-условия пилота", "Брак выше 5 %"], ["Причина изменения (обязательно)", "Пилот одобрен"]]) {
         const input = field(label);
@@ -582,12 +583,26 @@ test("the owner fills the full passport of a pilot from the card", async () => {
       setNativeInputValue(roi, "25");
       roi.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
     });
+    await React.act(async () => findButtonByText(form, "Добавить эффект").click());
+    await React.act(async () => {
+      const amount = field("Плановый эффект в год, ₽");
+      setNativeInputValue(amount, "1 200 000");
+      amount.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+      const type = field("Вид эффекта");
+      setNativeInputValue(type, "cost_saving");
+      type.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
+    });
     await React.act(async () => findButtonByText(form, "Сохранить паспорт").click());
     await waitFor(React, () => puts.length === 1);
     assert.equal(puts[0].revision, 5);
     assert.equal(puts[0].reason, "Пилот одобрен");
     assert.equal(puts[0].passport.pilotPlan, "Две смены");
     assert.deepEqual(puts[0].passport.schedule, [{ month: "2026-11", cost: "", effect: "" }]);
+    // A new effect has no id: the server issues it.
+    assert.deepEqual(
+      [puts[0].passport.effects[0].id, puts[0].passport.effects[0].effectTypeCode, puts[0].passport.effects[0].annualAmount],
+      ["", "cost_saving", "1 200 000"],
+    );
     // An override without its explanation still goes to the server, which rejects it.
     assert.deepEqual(puts[0].passport.overrides, { roiPercent: { value: "25", explanation: "" } });
     await waitFor(React, () => container.querySelector(".collegium-passport") !== null);

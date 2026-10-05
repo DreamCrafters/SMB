@@ -292,6 +292,11 @@ function passportSections(
       [label.alternatives, passport.alternatives],
       ...collegiumPassportAmountFields.map((field): [string, string] => [label[field], money(passport[field])]),
       ...collegiumPassportScenarioFields.map((field): [string, string] => [label[field], signed(passport[field])]),
+      ["Плановые эффекты", (passport.effects ?? []).map((effect, index) => [
+        `${index + 1}. ${[effect.effectTypeLabel, effect.directionLabel, effect.kpiLabel, effect.siteLabel].filter(Boolean).join(", ")}`,
+        `${money(effect.annualAmount)} в год; база ${effect.baselineValue} (${effect.baselinePeriod})${effect.targetValue === "" ? "" : `, цель ${effect.targetValue}`}`,
+        `измерение с ${date(effect.measurementStart)}${effect.measurementEnd === "" ? "" : ` по ${date(effect.measurementEnd)}`}`,
+      ].join("; ")).join("\n")],
       [label.schedule, passport.schedule.map((row) =>
         `${row.month.split("-").reverse().join(".")}: затраты ${money(row.cost)}, эффект ${money(row.effect)}`).join("\n")],
       ...collegiumEconomicsOverrideFields.flatMap((field): Array<[string, string]> => {

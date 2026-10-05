@@ -356,11 +356,67 @@ export type CollegiumPassportScheduleRow = {
   effect: string;
 };
 
+export const collegiumConfirmationPeriods = ["week", "month", "quarter", "other"] as const;
+export type CollegiumConfirmationPeriod = (typeof collegiumConfirmationPeriods)[number];
+export const collegiumConfirmationPeriodLabels: Record<CollegiumConfirmationPeriod, string> = {
+  week: "неделя",
+  month: "месяц",
+  quarter: "квартал",
+  other: "иной период",
+};
+
+export const maxCollegiumPlannedEffects = 10;
+
+/**
+ * Плановый эффект (ТЗ 11.1–11.2). ID выдаёт сервер и сохраняет между ревизиями;
+ * справочные значения хранятся кодом и подписью.
+ */
+export type CollegiumPlannedEffectInput = {
+  /** Пусто — новый эффект, сервер выдаст ID. */
+  id: string;
+  effectTypeCode: string;
+  directionCode: string;
+  kpiCode: string;
+  siteCode: string;
+  baselineValue: string;
+  baselinePeriod: string;
+  targetValue: string;
+  /** Плановый эффект, ₽ в год. */
+  annualAmount: string;
+  method: string;
+  measurementStart: string;
+  /** Пусто — без даты окончания. */
+  measurementEnd: string;
+  confirmationPeriod: CollegiumConfirmationPeriod | "";
+  confirmationPeriodNote: string;
+  /** Пояснение «это не дубль» к найденному похожему эффекту. */
+  notDuplicateExplanation: string;
+};
+
+export type CollegiumPlannedEffect = CollegiumPlannedEffectInput & {
+  effectTypeLabel: string;
+  directionLabel: string;
+  kpiLabel: string;
+  kpiUnit: string;
+  siteLabel: string;
+};
+
+/** Похожий эффект другой инициативы (ТЗ 11.2): направление, KPI, участок, вид, период. */
+export type CollegiumEffectDuplicate = {
+  effectId: string;
+  initiativeId: string;
+  initiativeNumber: string;
+  initiativeTitle: string;
+  otherEffectId: string;
+};
+
 export type CollegiumPassport = Record<CollegiumPassportTextField, string> &
   Record<CollegiumPassportAmountField, string> &
   Record<CollegiumPassportScenarioField, string> & {
     schedule: CollegiumPassportScheduleRow[];
     milestones: Array<{ date: string; text: string }>;
+    /** Плановые эффекты; без них эффект экспресс-карты — неявный эффект `main`. */
+    effects: CollegiumPlannedEffect[];
     overrides: Partial<Record<CollegiumEconomicsOverrideField, { value: string; explanation: string }>>;
   };
 
@@ -395,7 +451,7 @@ export const collegiumPassportFieldLabels: Record<
 
 export type CollegiumPassportSaveRequest = {
   revision: number;
-  passport: CollegiumPassport;
+  passport: Omit<CollegiumPassport, "effects"> & { effects: CollegiumPlannedEffectInput[] };
   reason?: string;
   comment?: string;
 };
@@ -527,6 +583,8 @@ export type CollegiumInitiativeDetailResponse = {
   /** Незаполненные разделы паспорта по причинам; пусто — паспорт достаточен. */
   passportGaps: string[];
   canEditPassport: boolean;
+  /** Похожие эффекты видимых инициатив. */
+  effectDuplicates: CollegiumEffectDuplicate[];
 };
 
 export type CollegiumInitiativeSaveRequest = {

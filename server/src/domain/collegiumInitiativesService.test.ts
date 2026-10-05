@@ -602,3 +602,35 @@ test("CAPEX requires the full passport before admission; the card edit keeps it"
   assert.equal(listed?.card.passport, undefined);
   assert.deepEqual((await service.list(chair)).passportRequiredIds, [draft.id]);
 });
+
+test("a possible double count needs an explanation and never reveals hidden drafts", async () => {
+  const { service } = createHarness();
+  const author = profile("author", "participant");
+  const secretary = profile("secretary", "secretary");
+  const effect = {
+    id: "", effectTypeCode: "cost_saving", directionCode: "production", kpiCode: "", siteCode: "",
+    baselineValue: "3 %", baselinePeriod: "2026", targetValue: "", annualAmount: "100 000", method: "",
+    measurementStart: "2026-11-01", measurementEnd: "", confirmationPeriod: "", confirmationPeriodNote: "",
+    notDuplicateExplanation: "",
+  };
+  // The secretary's never-submitted draft is invisible to the author.
+  const hidden = await service.create(secretary, { card: { title: "Черновик секретаря" } });
+  await service.savePassport(secretary, hidden.id, { revision: hidden.revision, passport: { effects: [effect] } });
+  const mine = await service.create(author, { card: { title: "Моя идея" } });
+  const saved = await service.savePassport(author, mine.id, { revision: mine.revision, passport: { effects: [effect] } });
+  assert.match(saved.card.passport?.effects[0].id ?? "", /^[0-9a-f-]{36}$/u);
+  assert.deepEqual((await service.read(author, mine.id)).effectDuplicates, []);
+
+  // The secretary sees both, so the same save is a possible duplicate.
+  const savedEffect = { ...effect, id: saved.card.passport!.effects[0].id };
+  await assert.rejects(
+    service.savePassport(secretary, mine.id, { revision: saved.revision, passport: { effects: [{ ...savedEffect, annualAmount: "200 000" }] } }),
+    (error) => error instanceof CollegiumInitiativeError && error.status === 409 && error.message.includes(hidden.number),
+  );
+  const explained = await service.savePassport(secretary, mine.id, {
+    revision: saved.revision,
+    passport: { effects: [{ ...savedEffect, annualAmount: "200 000", notDuplicateExplanation: "Другой цех" }] },
+  });
+  assert.equal(explained.card.passport?.effects[0].id, savedEffect.id);
+  assert.deepEqual((await service.read(secretary, mine.id)).effectDuplicates.map(({ initiativeId }) => initiativeId), [hidden.id]);
+});

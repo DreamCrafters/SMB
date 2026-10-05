@@ -16,7 +16,12 @@ import {
   listCollegiumPassportReasons,
   unsetCollegiumSettings,
 } from "./collegiumEconomics.js";
-import { canEditCollegiumPassport, readCollegiumPassportInput } from "./collegiumPassport.js";
+import {
+  canEditCollegiumPassport,
+  findCollegiumEffectDuplicates,
+  listCollegiumPlannedEffects,
+  readCollegiumPassportInput,
+} from "./collegiumPassport.js";
 
 function emptyPassport(overrides: Partial<CollegiumPassport> = {}): CollegiumPassport {
   return readCollegiumPassportInput({ ...overrides });
@@ -158,4 +163,78 @@ test("passport gaps follow the reasons", () => {
     "Договоры, закупки, согласования, разрешения, сертификация, испытания",
     "Сценарии: консервативный, базовый и оптимистичный",
   ]);
+});
+
+const effectReference = {
+  direction: [{ code: "production", label: "Производство" }],
+  effect_type: [{ code: "cost_saving", label: "Экономия затрат" }, { code: "old", label: "Старый вид", archived: true }],
+  risk_level: [],
+  site: [{ code: "kiln2", label: "Печь 2" }],
+  kpi: [{ code: "loss", label: "Потери при выпуске", unit: "%" }],
+};
+
+function effect(overrides: Record<string, unknown> = {}) {
+  return {
+    id: "", effectTypeCode: "cost_saving", directionCode: "production", kpiCode: "loss", siteCode: "kiln2",
+    baselineValue: "3 %", baselinePeriod: "2026, январь–август", targetValue: "1,5 %", annualAmount: "1 200 000",
+    method: "", measurementStart: "2026-11-01", measurementEnd: "", confirmationPeriod: "quarter",
+    confirmationPeriodNote: "", notDuplicateExplanation: "",
+    ...overrides,
+  };
+}
+
+test("planned effects get server ids, labels and keep their identity", () => {
+  let counter = 0;
+  const newId = () => `effect-${(counter += 1)}`;
+  const first = readCollegiumPassportInput({ effects: [effect(), effect({ siteCode: "" })] }, { reference: effectReference, newId });
+  assert.deepEqual(first.effects.map(({ id }) => id), ["effect-1", "effect-2"]);
+  assert.deepEqual(
+    [first.effects[0].kpiLabel, first.effects[0].kpiUnit, first.effects[0].siteLabel, first.effects[0].annualAmount],
+    ["Потери при выпуске", "%", "Печь 2", "1200000.00"],
+  );
+  // A saved id is kept; an unknown one is a stale form.
+  const second = readCollegiumPassportInput({ effects: [effect({ id: "effect-2", annualAmount: "5" })] }, { reference: effectReference, previous: first, newId });
+  assert.deepEqual(second.effects.map(({ id, annualAmount }) => [id, annualAmount]), [["effect-2", "5.00"]]);
+  assert.throws(
+    () => readCollegiumPassportInput({ effects: [effect({ id: "forged" })] }, { reference: effectReference, previous: first }),
+    /не найден/u,
+  );
+  const rejects = (row: Record<string, unknown>, pattern: RegExp) =>
+    assert.throws(() => readCollegiumPassportInput({ effects: [effect(row)] }, { reference: effectReference }), pattern);
+  rejects({ baselinePeriod: "" }, /базовую линию/u);
+  rejects({ kpiCode: "space" }, /KPI/u);
+  rejects({ effectTypeCode: "old" }, /вид эффекта/u);
+  rejects({ measurementEnd: "2026-10-01" }, /период измерения/u);
+  rejects({ confirmationPeriod: "year" }, /период подтверждения/u);
+  rejects({ extra: "x" }, /плановый эффект 1/u);
+  assert.throws(() => readCollegiumPassportInput({ effects: Array.from({ length: 11 }, () => effect()) }, { reference: effectReference }), /10/u);
+});
+
+test("effects without a description fall back to the express card effect", () => {
+  assert.deepEqual(listCollegiumPlannedEffects(initiative("in_progress")), [{ id: "main", label: "Эффект экспресс-карты" }]);
+  const passport = readCollegiumPassportInput({ effects: [effect()] }, { reference: effectReference, newId: () => "e-1" });
+  assert.deepEqual(listCollegiumPlannedEffects(initiative("in_progress", { passport })), [
+    { id: "e-1", label: "Экономия затрат, Потери при выпуске, Печь 2" },
+  ]);
+});
+
+test("a duplicate is the same type, direction, KPI and site over an overlapping period", () => {
+  const withEffects = (id: string, status: CollegiumInitiative["status"], rows: Array<Record<string, unknown>>) => ({
+    ...initiative(status, {
+      title: `Инициатива ${id}`,
+      passport: readCollegiumPassportInput({ effects: rows }, { reference: effectReference, newId: () => `${id}-effect` }),
+    }),
+    id,
+    number: `И-2026-${id}`,
+  });
+  const mine = withEffects("1", "ready", [effect({ measurementStart: "2026-11-01", measurementEnd: "2027-10-31" })]);
+  const overlapping = withEffects("2", "in_progress", [effect({ measurementStart: "2027-10-31" })]);
+  const later = withEffects("3", "in_progress", [effect({ measurementStart: "2027-11-01" })]);
+  const otherSite = withEffects("4", "done_confirmed", [effect({ siteCode: "" })]);
+  const rejected = withEffects("5", "rejected", [effect()]);
+  assert.deepEqual(
+    findCollegiumEffectDuplicates(mine, [mine, overlapping, later, otherSite, rejected])
+      .map(({ initiativeNumber, effectId, otherEffectId }) => [initiativeNumber, effectId, otherEffectId]),
+    [["И-2026-2", "1-effect", "2-effect"]],
+  );
 });

@@ -10038,6 +10038,20 @@ p {
   font-size: 12px;
 }
 
+.collegium-effect {
+  display: grid;
+  grid-column: 1 / -1;
+  gap: var(--density-2);
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: var(--density-3);
+}
+
+.collegium-effect > button {
+  justify-self: start;
+}
+
 .collegium-passport-head {
   display: flex;
   flex-wrap: wrap;

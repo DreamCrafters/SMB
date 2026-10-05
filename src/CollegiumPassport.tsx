@@ -1,5 +1,7 @@
 import { useState, type FormEvent } from "react";
 import {
+  collegiumConfirmationPeriodLabels,
+  collegiumConfirmationPeriods,
   collegiumEconomicsOverrideFields,
   collegiumEconomicsOverrideLabels,
   collegiumPassportAmountFields,
@@ -7,11 +9,14 @@ import {
   collegiumPassportScenarioFields,
   collegiumPassportTextFields,
   maxCollegiumMilestones,
+  maxCollegiumPlannedEffects,
   maxCollegiumScheduleRows,
   type CollegiumEconomicsOverrideField,
   type CollegiumInitiative,
   type CollegiumInitiativeDetailResponse,
   type CollegiumPassport,
+  type CollegiumPlannedEffectInput,
+  type CollegiumReference,
 } from "./contracts/collegiumInitiatives";
 import { CardSection, CardValue, FormSection, formatAmount, formatDate } from "./CollegiumShared";
 import { saveCollegiumPassport } from "./services/collegiumInitiatives";
@@ -79,6 +84,21 @@ export function PassportSection({ detail, onEdit }: {
           <ul>{detail.passportGaps.map((gap) => <li key={gap}>{gap}</li>)}</ul>
         </div>
       )}
+      {detail.effectDuplicates.length === 0 ? null : (
+        <div className="collegium-admission-gaps" role="status">
+          <strong>Возможный двойной учёт эффекта:</strong>
+          <ul>
+            {detail.effectDuplicates.map((duplicate) => (
+              <li key={`${duplicate.effectId}:${duplicate.otherEffectId}`}>
+                {`${duplicate.initiativeNumber} «${duplicate.initiativeTitle}»${
+                  passport?.effects.find((effect) => effect.id === duplicate.effectId)?.notDuplicateExplanation
+                    ? ` — не дубль: ${passport.effects.find((effect) => effect.id === duplicate.effectId)!.notDuplicateExplanation}`
+                    : ""}`}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
       {passport === undefined ? (
         <p className="collegium-empty-note">Паспорт ещё не заполнен.</p>
       ) : (
@@ -99,6 +119,14 @@ export function PassportSection({ detail, onEdit }: {
             wide
           />
           <CardValue
+            label="Плановые эффекты"
+            value={passport.effects.map((effect, index) => `${index + 1}. ${[
+              effect.effectTypeLabel, effect.directionLabel, effect.kpiLabel, effect.siteLabel,
+            ].filter(Boolean).join(", ")}: ${formatAmount(effect.annualAmount)} в год, база ${effect.baselineValue} (${effect.baselinePeriod})${
+              effect.targetValue === "" ? "" : `, цель ${effect.targetValue}`}`).join("; ")}
+            wide
+          />
+          <CardValue
             label={collegiumPassportFieldLabels.milestones}
             value={passport.milestones.map((item) => `${formatDate(item.date)} — ${item.text}`).join("; ")}
             wide
@@ -109,8 +137,15 @@ export function PassportSection({ detail, onEdit }: {
   );
 }
 
-type PassportFormState = Omit<CollegiumPassport, "overrides"> & {
+type PassportFormState = Omit<CollegiumPassport, "overrides" | "effects"> & {
   overrides: Record<CollegiumEconomicsOverrideField, { value: string; explanation: string }>;
+  effects: CollegiumPlannedEffectInput[];
+};
+
+const emptyEffect: CollegiumPlannedEffectInput = {
+  id: "", effectTypeCode: "", directionCode: "", kpiCode: "", siteCode: "", baselineValue: "", baselinePeriod: "",
+  targetValue: "", annualAmount: "", method: "", measurementStart: "", measurementEnd: "", confirmationPeriod: "",
+  confirmationPeriodNote: "", notDuplicateExplanation: "",
 };
 
 function toInput(value: string) {
@@ -126,6 +161,10 @@ function formFromPassport(passport: CollegiumPassport | undefined): PassportForm
     ...amounts,
     schedule: (passport?.schedule ?? []).map((row) => ({ month: row.month, cost: toInput(row.cost), effect: toInput(row.effect) })),
     milestones: passport?.milestones ?? [],
+    effects: (passport?.effects ?? []).map((effect) => ({
+      ...Object.fromEntries(Object.keys(emptyEffect).map((key) => [key, effect[key as keyof CollegiumPlannedEffectInput]])),
+      annualAmount: toInput(effect.annualAmount),
+    }) as CollegiumPlannedEffectInput),
     overrides: Object.fromEntries(collegiumEconomicsOverrideFields.map((field) => [field, {
       value: toInput(passport?.overrides[field]?.value ?? ""),
       explanation: passport?.overrides[field]?.explanation ?? "",
@@ -142,8 +181,9 @@ function nextMonth(month: string | undefined) {
 }
 
 /** Форма полного паспорта; все проверки и расчёты — на сервере. */
-export function PassportForm({ initiative, onCancel, onSaved }: {
+export function PassportForm({ initiative, reference, onCancel, onSaved }: {
   initiative: CollegiumInitiative;
+  reference: CollegiumReference;
   onCancel: () => void;
   onSaved: (initiative: CollegiumInitiative) => void;
 }) {
@@ -318,6 +358,96 @@ export function PassportForm({ initiative, onCancel, onSaved }: {
             onClick={() => set("milestones", [...form.milestones, { date: "", text: "" }])}
           >
             Добавить контрольную точку
+          </button>
+        </div>
+      </FormSection>
+
+      <FormSection title="Плановые эффекты (ТЗ 11.1–11.2)">
+        {form.effects.map((effect, index) => {
+          const saved = initiative.card.passport?.effects.find((item) => item.id === effect.id);
+          const setEffect = (patch: Partial<CollegiumPlannedEffectInput>) =>
+            set("effects", form.effects.map((item, position) => (position === index ? { ...item, ...patch } : item)));
+          const select = (
+            kind: "effect_type" | "direction" | "kpi" | "site",
+            field: "effectTypeCode" | "directionCode" | "kpiCode" | "siteCode",
+            label: string,
+          ) => (
+            <label className="collegium-field">
+              <span>{label}</span>
+              <select disabled={isSaving} value={effect[field]} onChange={(event) => setEffect({ [field]: event.currentTarget.value })}>
+                <option value="">Не выбрано</option>
+                {reference[kind]
+                  .filter((option) => option.archived !== true || saved?.[field] === option.code)
+                  .map((option) => (
+                    <option key={option.code} value={option.code}>
+                      {`${option.label}${option.unit ? `, ${option.unit}` : ""}${option.archived === true ? " (архив)" : ""}`}
+                    </option>
+                  ))}
+              </select>
+            </label>
+          );
+          const field = (key: keyof CollegiumPlannedEffectInput, label: string, type?: "date" | "decimal", wide = false) => (
+            <label className={`collegium-field${wide ? " collegium-field-wide" : ""}`}>
+              <span>{label}</span>
+              <input
+                disabled={isSaving}
+                inputMode={type === "decimal" ? "decimal" : undefined}
+                type={type === "date" ? "date" : "text"}
+                value={effect[key]}
+                onChange={(event) => setEffect({ [key]: event.currentTarget.value })}
+              />
+            </label>
+          );
+          return (
+            <fieldset className="collegium-effect" key={effect.id || `new-${index}`}>
+              <legend>{`Эффект ${index + 1}`}</legend>
+              <div className="collegium-field-grid">
+                {select("effect_type", "effectTypeCode", "Вид эффекта")}
+                {select("direction", "directionCode", "Направление")}
+                {select("kpi", "kpiCode", "KPI")}
+                {select("site", "siteCode", "Участок")}
+                {field("baselineValue", "Базовое значение")}
+                {field("baselinePeriod", "Период базовой линии")}
+                {field("targetValue", "Целевое значение")}
+                {field("annualAmount", "Плановый эффект в год, ₽", "decimal")}
+                {field("measurementStart", "Начало измерения", "date")}
+                {field("measurementEnd", "Конец измерения", "date")}
+                <label className="collegium-field">
+                  <span>Период подтверждения</span>
+                  <select
+                    disabled={isSaving}
+                    value={effect.confirmationPeriod}
+                    onChange={(event) => setEffect({ confirmationPeriod: event.currentTarget.value as CollegiumPlannedEffectInput["confirmationPeriod"] })}
+                  >
+                    <option value="">Не выбрано</option>
+                    {collegiumConfirmationPeriods.map((option) => (
+                      <option key={option} value={option}>{collegiumConfirmationPeriodLabels[option]}</option>
+                    ))}
+                  </select>
+                </label>
+                {field("confirmationPeriodNote", "Уточнение периода")}
+                {field("method", "Методика расчёта", undefined, true)}
+                {field("notDuplicateExplanation", "Почему это не дубль (если система нашла похожий эффект)", undefined, true)}
+              </div>
+              <button
+                className="secondary-button"
+                disabled={isSaving}
+                type="button"
+                onClick={() => set("effects", form.effects.filter((_, position) => position !== index))}
+              >
+                Удалить эффект
+              </button>
+            </fieldset>
+          );
+        })}
+        <div>
+          <button
+            className="secondary-button"
+            disabled={isSaving || form.effects.length >= maxCollegiumPlannedEffects}
+            type="button"
+            onClick={() => set("effects", [...form.effects, { ...emptyEffect }])}
+          >
+            Добавить эффект
           </button>
         </div>
       </FormSection>

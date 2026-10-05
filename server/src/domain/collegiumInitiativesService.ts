@@ -48,7 +48,11 @@ import {
   listCollegiumPassportReasons,
   unsetCollegiumSettings,
 } from "./collegiumEconomics.js";
-import { canEditCollegiumPassport, readCollegiumPassportInput } from "./collegiumPassport.js";
+import {
+  canEditCollegiumPassport,
+  findCollegiumEffectDuplicates,
+  readCollegiumPassportInput,
+} from "./collegiumPassport.js";
 import {
   buildAssignmentCreatedNotification,
   buildHiddenRoleNotifications,
@@ -155,6 +159,17 @@ export function createCollegiumInitiativesService({
     const economics = calculateCollegiumEconomics(initiative.card, moduleSettings.discountRatePercent).economics;
     const reasons = listCollegiumPassportReasons(initiative, moduleSettings, reference);
     return { economics, reasons, gaps: listCollegiumPassportGaps(initiative, reasons, economics) };
+  }
+
+  async function findVisibleDuplicates(
+    profile: ServerUserProfile,
+    permissions: CollegiumInitiativePermissions,
+    initiative: CollegiumInitiative,
+  ) {
+    if ((initiative.card.passport?.effects.length ?? 0) === 0) return [];
+    const others = (await repository.list()).filter((other) =>
+      canViewCollegiumInitiative(other, profile, permissions));
+    return findCollegiumEffectDuplicates(initiative, others);
   }
 
   function requirePassport(gaps: readonly string[]) {
@@ -409,6 +424,7 @@ export function createCollegiumInitiativesService({
       passportReasons: passport.reasons,
       passportGaps: passport.gaps,
       canEditPassport: canEditCollegiumPassport(initiative, profile, permissions),
+      effectDuplicates: await findVisibleDuplicates(profile, permissions, initiative),
     };
   }
 
@@ -685,7 +701,7 @@ export function createCollegiumInitiativesService({
       if (request.revision === undefined) {
         throw new CollegiumInitiativeError("Передайте ревизию изменяемой карточки.");
       }
-      const passport = readCollegiumPassportInput(request.passport);
+      const reference = await repository.listReference();
       return transaction.run(async () => {
         const { initiative, permissions } = await requireInitiative(profile, id, true);
         if (!canEditCollegiumPassport(initiative, profile, permissions)) {
@@ -693,6 +709,21 @@ export function createCollegiumInitiativesService({
         }
         if (initiative.revision !== request.revision) {
           throw new CollegiumInitiativeError("Инициатива уже изменена. Обновите карточку.", 409);
+        }
+        const passport = readCollegiumPassportInput(request.passport, {
+          reference,
+          previous: initiative.card.passport,
+        });
+        // A possible double count is saved only with an explanation (ТЗ 11.2).
+        const unexplained = (await findVisibleDuplicates(profile, permissions, { ...initiative, card: { ...initiative.card, passport } }))
+          .filter((duplicate) =>
+            passport.effects.find((effect) => effect.id === duplicate.effectId)?.notDuplicateExplanation === "");
+        if (unexplained.length > 0) {
+          const numbers = [...new Set(unexplained.map((duplicate) => duplicate.initiativeNumber))];
+          throw new CollegiumInitiativeError(
+            `Похожий эффект уже учтён в инициативах ${numbers.join(", ")}. Отметьте, почему это не дубль.`,
+            409,
+          );
         }
         if (JSON.stringify(initiative.card.passport ?? null) === JSON.stringify(passport)) return initiative;
         if (initiative.status !== "draft" && request.reason === "") {

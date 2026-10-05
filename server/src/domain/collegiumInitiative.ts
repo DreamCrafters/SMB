@@ -378,6 +378,8 @@ export function normalizeCollegiumCard(card: CollegiumInitiativeCard): Collegium
     changesTechnology: flag(raw.changesTechnology),
     newProductOrMarket: flag(raw.newProductOrMarket),
     boardDecisionRequired: flag(raw.boardDecisionRequired),
+    // Passports saved before planned effects existed have none.
+    ...(card.passport === undefined ? {} : { passport: { ...card.passport, effects: card.passport.effects ?? [] } }),
     risks: Array.isArray(raw.risks)
       ? raw.risks.flatMap((risk: unknown): CollegiumRisk[] => {
           if (typeof risk === "string") return [{ text: risk, levelCode: "", levelLabel: "" }];

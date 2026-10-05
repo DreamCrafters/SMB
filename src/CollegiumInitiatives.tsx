@@ -75,6 +75,8 @@ import {
   useServerData,
 } from "./CollegiumShared";
 
+type CollegiumListReference = CollegiumInitiativeListResponse["reference"];
+
 type View =
   | { kind: "registry" }
   | { kind: "card"; id: string }
@@ -220,6 +222,7 @@ export function CollegiumInitiativesWorkspace({
       ) : view.kind === "passport" ? (
         <PassportFormView
           id={view.id}
+          reference={data.reference}
           onCancel={() => setView({ kind: "card", id: view.id })}
           onSaved={(initiative) => {
             onShowToast("Паспорт сохранён", `${initiative.number} · ${initiative.card.title}`, "success");
@@ -2065,15 +2068,16 @@ function InitiativeForm({
   );
 }
 
-function PassportFormView({ id, onCancel, onSaved }: {
+function PassportFormView({ id, reference, onCancel, onSaved }: {
   id: string;
+  reference: CollegiumListReference;
   onCancel: () => void;
   onSaved: (initiative: CollegiumInitiative) => void;
 }) {
   const detail = useInitiativeDetail(id, 0);
   if (detail.status === "loading") return <LoadingIndicator label="Загружаем паспорт…" variant="inline" />;
   if (detail.status === "error") return <p className="form-message is-error" role="alert">{detail.message}</p>;
-  return <PassportForm initiative={detail.data.initiative} onCancel={onCancel} onSaved={onSaved} />;
+  return <PassportForm initiative={detail.data.initiative} reference={reference} onCancel={onCancel} onSaved={onSaved} />;
 }
 
 function useInitiativeDetail(id: string | undefined, refreshVersion: number) {
