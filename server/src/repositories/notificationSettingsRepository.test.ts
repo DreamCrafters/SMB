@@ -406,15 +406,9 @@ test("own email update changes only the email and reports the previous address",
     async getConnection() {
       return connection;
     },
-    async query(sql: string, parameters: unknown[] = []) {
-      assert.match(sql, /status <> 'archived'/u);
-      assert.deepEqual(parameters, ["dispatcher-user"]);
-      return [[{ email: " ", max_user_id: "101" }], []];
-    },
   } as unknown as DatabasePool;
   const repository = createNotificationSettingsRepository(pool);
 
-  assert.deepEqual(await repository.readEmail("dispatcher-user"), {});
   assert.deepEqual(
     await repository.updateEmail({
       userId: "dispatcher-user",

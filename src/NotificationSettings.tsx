@@ -10,6 +10,7 @@ import type {
   UserNotificationSettings,
 } from "./contracts/notificationSettings";
 import { LoadingIndicator } from "./LoadingIndicator";
+import { NotificationEmailButton } from "./NotificationEmailDialog";
 import type { ShowToast } from "./services/toastStack";
 import {
   requestAdminNotificationSettings,
@@ -167,9 +168,22 @@ export function NotificationSettingsWorkspace({
           Администратор пока не включил доступные для настройки уведомления.
         </p>
       )}
-      {settings.email === undefined ? (
-        <p className="notification-settings-note">В учётной записи не указан Email.</p>
-      ) : null}
+      <div className="notification-settings-note notification-settings-email">
+        <p>
+          {settings.email === undefined
+            ? "Е-мейл для рассылки не указан."
+            : <>Е-мейл для рассылки: <strong>{settings.email}</strong></>}
+        </p>
+        <NotificationEmailButton
+          email={settings.email}
+          onSaved={(email) => {
+            setState((current) => current.status === "ready"
+              ? { status: "ready", settings: { ...current.settings, email } }
+              : current);
+          }}
+          onShowToast={onShowToast}
+        />
+      </div>
       {settings.maxUserId === undefined ? (
         <div className="notification-settings-note notification-settings-max-help">
           <p>Чтобы подключить MAX:</p>

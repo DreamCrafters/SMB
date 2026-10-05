@@ -8424,10 +8424,11 @@ async function recordAuditEvent(
 }
 
 /**
- * Задача 130: Email для рассылок указывает сам пользователь, поэтому endpoint
- * требует только вход, а не вкладку `Настройки`. Работает с учётной записью
- * текущего запроса: при предпросмотре конкретного аккаунта — с целевой, а
- * журнал сохраняет настоящего администратора. Сам адрес в аудит не пишется.
+ * Задача 130: Email для рассылок пользователь указывает сам во вкладке
+ * `Настройки`, поэтому endpoint требует её capability. Работает с учётной
+ * записью текущего запроса: при предпросмотре конкретного аккаунта — с
+ * целевой, а журнал сохраняет настоящего администратора. Сам адрес в аудит
+ * не пишется.
  */
 async function handleOwnNotificationEmailRequest({
   req,
@@ -8450,17 +8451,19 @@ async function handleOwnNotificationEmailRequest({
   audit: AuditRepository;
   databaseTransaction: DatabaseTransactionRunner;
 }) {
-  if (req.method !== "GET" && req.method !== "PATCH") {
+  if (req.method !== "PATCH") {
     sendJson(res, 405, {
-      error: { code: "access_denied", message: "Для Email рассылок используются GET и PATCH." },
+      error: { code: "access_denied", message: "Для изменения Email рассылок используется PATCH." },
     });
     return;
   }
-  const access = await requireAuthentication(req, res, {
+  const access = await requireCapability(req, res, {
     config,
     devSessions,
     authService,
     accounts,
+    capability: "business.manage_notification_settings",
+    message: "Настройки рассылок недоступны.",
   });
   if (access === undefined) return;
 
@@ -8472,18 +8475,6 @@ async function handleOwnNotificationEmailRequest({
   }
 
   const userId = access.profile.userId;
-  if (req.method === "GET") {
-    const contact = await notificationSettings.readEmail(userId);
-    if (contact === undefined) {
-      sendJson(res, 404, {
-        error: { code: "not_found", message: "Учётная запись не найдена." },
-      });
-      return;
-    }
-    sendJson(res, 200, contact);
-    return;
-  }
-
   const validation = validateOwnNotificationEmailRequest(
     await readJsonBody(req),
   );

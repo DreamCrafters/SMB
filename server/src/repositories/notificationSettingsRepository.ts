@@ -86,7 +86,6 @@ export type NotificationSettingsRepository = {
     email?: string;
     maxUserId?: string;
   }) => Promise<boolean>;
-  readEmail: (userId: string) => Promise<{ email?: string } | undefined>;
   updateEmail: (input: {
     userId: string;
     email: string;
@@ -541,20 +540,6 @@ export function createNotificationSettingsRepository(
     }
   }
 
-  async function readEmail(userId: string) {
-    const [rows] = await pool.query<ContactRow[]>(
-      `select users.email, users.max_user_id
-       from app_users users
-       where users.id = ? and users.status <> 'archived'
-       limit 1`,
-      [userId],
-    );
-    const row = rows[0];
-    if (row === undefined) return undefined;
-    const email = normalizeOptional(row.email);
-    return email === undefined ? {} : { email };
-  }
-
   async function updateEmail({
     userId,
     email,
@@ -642,7 +627,6 @@ export function createNotificationSettingsRepository(
     setPositionPermission,
     setUserChannels,
     updateContacts,
-    readEmail,
     updateEmail,
     listDeliveryRecipients,
     claimLoginDelivery,

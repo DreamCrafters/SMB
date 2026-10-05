@@ -17,7 +17,7 @@ const DOM_GLOBAL_NAMES = [
   "IS_REACT_ACT_ENVIRONMENT",
 ];
 
-test("every account adds and corrects its notification email from the side rail", async () => {
+test("settings tab adds and corrects the notification email", async () => {
   const dom = new JSDOM(
     '<!doctype html><html><body><div id="root"></div></body></html>',
     { url: "http://127.0.0.1:5173/" },
@@ -35,39 +35,61 @@ test("every account adds and corrects its notification email from the side rail"
   let storedEmail;
   const patches = [];
   const toasts = [];
-  let openCount = 0;
 
   try {
-    const { NotificationEmailButton } = await vite.ssrLoadModule(
-      "/src/NotificationEmailDialog.tsx",
+    const { NotificationSettingsWorkspace } = await vite.ssrLoadModule(
+      "/src/NotificationSettings.tsx",
     );
     globalThis.fetch = async (input, init = {}) => {
       const url = new URL(String(input), "http://127.0.0.1:5173/");
-      if (url.pathname !== "/api/notification-email") {
-        throw new Error(`Unexpected request: ${url.pathname}`);
+      if (url.pathname === "/api/notification-settings") {
+        return jsonResponse({
+          settings: {
+            userId: "dispatcher-user",
+            displayName: "Иванова Анна",
+            position: "dispatcher",
+            positionDisplayName: "Диспетчер",
+            isProtected: false,
+            ...(storedEmail === undefined ? {} : { email: storedEmail }),
+            settings: [{
+              type: "incidents",
+              label: "Инциденты",
+              adminEnabled: true,
+              emailEnabled: false,
+              maxEnabled: false,
+            }],
+          },
+        });
       }
-      if ((init.method ?? "GET") === "PATCH") {
+      if (
+        url.pathname === "/api/notification-email" &&
+        init.method === "PATCH"
+      ) {
         const body = JSON.parse(String(init.body));
         patches.push(body);
-        storedEmail = body.email;
-        return jsonResponse({ email: body.email });
+        storedEmail = body.email.trim();
+        return jsonResponse({ email: storedEmail });
       }
-      return jsonResponse(storedEmail === undefined ? {} : { email: storedEmail });
+      throw new Error(`Unexpected request: ${url.pathname}`);
     };
 
     const container = dom.window.document.querySelector("#root");
     const root = createRoot(container);
     await React.act(async () => {
-      root.render(React.createElement(NotificationEmailButton, {
-        onOpen: () => {
-          openCount += 1;
-        },
+      root.render(React.createElement(NotificationSettingsWorkspace, {
         onShowToast: (title, message, tone) => {
           toasts.push({ title, message, tone });
         },
       }));
     });
     const body = dom.window.document.body;
+    await waitFor(React, () =>
+      container.querySelector(".notification-email-button") !== null
+    );
+    const emailCheckbox = () =>
+      container.querySelector('input[aria-label="Email: Инциденты"]');
+    assert.equal(emailCheckbox().disabled, true);
+    assert.match(container.textContent, /Е-мейл для рассылки не указан/u);
     const openButton = findButtonByText(
       container,
       "Добавить/изменить е-мейл для рассылки",
@@ -75,9 +97,7 @@ test("every account adds and corrects its notification email from the side rail"
 
     // No email yet: an empty field and a hint to add one.
     await React.act(async () => openButton.click());
-    await waitFor(React, () => body.querySelector("input[type=email]") !== null);
-    assert.equal(openCount, 1);
-    let input = body.querySelector("input[type=email]");
+    let input = body.querySelector(".notification-email-dialog input");
     assert.equal(input.value, "");
     assert.match(body.textContent, /Укажите е-мейл/u);
 
@@ -109,11 +129,16 @@ test("every account adds and corrects its notification email from the side rail"
       message: "Рассылки будут приходить на shift@example.com.",
       tone: "success",
     }]);
+    assert.match(container.textContent, /Е-мейл для рассылки: shift@example\.com/u);
+    assert.equal(
+      emailCheckbox().disabled,
+      false,
+      "A saved email must unlock the Email channel at once.",
+    );
 
     // Saved email: the field shows the current address to correct.
     await React.act(async () => openButton.click());
-    await waitFor(React, () => body.querySelector("input[type=email]") !== null);
-    input = body.querySelector("input[type=email]");
+    input = body.querySelector(".notification-email-dialog input");
     assert.equal(input.value, "shift@example.com");
     assert.match(body.textContent, /приходят на этот адрес/u);
 

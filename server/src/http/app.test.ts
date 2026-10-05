@@ -12789,9 +12789,6 @@ test("notification settings API returns login reminders and persists server-owne
     async updateContacts() {
       return true;
     },
-    async readEmail() {
-      return { email: "director@example.com" };
-    },
     async updateEmail() {
       return { previousEmail: "director@example.com" };
     },
@@ -13046,13 +13043,24 @@ test("notification settings API returns login reminders and persists server-owne
   }
 });
 
-test("every signed-in account reads and changes its own notification email", async () => {
+test("settings tab changes the account's own notification email", async () => {
   const profile = buildProductionProfile("business_owner");
   profile.userId = "dispatcher-user";
   profile.activeAccess.position = "dispatcher";
   profile.activeAccess.positionDisplayName = "Диспетчер";
-  profile.activeAccess.navigationItems = ["business.dispatcher_form"];
-  profile.activeAccess.capabilities = [];
+  profile.activeAccess.navigationItems = [
+    "business.dispatcher_form",
+    "business.settings",
+  ];
+  profile.activeAccess.capabilities = [
+    "business.manage_notification_settings",
+  ];
+  const profileWithoutSettings = buildProductionProfile("business_owner");
+  profileWithoutSettings.userId = "operator-user";
+  profileWithoutSettings.activeAccess.navigationItems = [
+    "business.dispatcher_form",
+  ];
+  profileWithoutSettings.activeAccess.capabilities = [];
   let storedEmail: string | undefined;
   const emailUpdates: unknown[] = [];
   const auditEvents: Parameters<AuditRepository["record"]>[0][] = [];
@@ -13072,10 +13080,6 @@ test("every signed-in account reads and changes its own notification email", asy
     async updateContacts() {
       throw new Error("not used");
     },
-    async readEmail(userId) {
-      if (userId !== profile.userId) return undefined;
-      return storedEmail === undefined ? {} : { email: storedEmail };
-    },
     async updateEmail(input) {
       emailUpdates.push(input);
       const previousEmail = storedEmail;
@@ -13092,7 +13096,19 @@ test("every signed-in account reads and changes its own notification email", asy
   const server = createApiServer({
     config: productionConfig,
     dispatcherSubmissions,
-    authService: buildAuthService({ profile }),
+    authService: {
+      ...buildAuthService({ profile }),
+      async readSession(sessionId: string) {
+        const expiresAt = "2026-07-10T00:00:00.000Z";
+        if (sessionId === "prod-session") {
+          return { sessionId, expiresAt, profile };
+        }
+        if (sessionId === "no-settings-session") {
+          return { sessionId, expiresAt, profile: profileWithoutSettings };
+        }
+        return undefined;
+      },
+    },
     notificationSettings,
     audit: {
       async record(event) {
@@ -13118,14 +13134,28 @@ test("every signed-in account reads and changes its own notification email", asy
   };
 
   try {
-    const anonymousResponse = await fetch(`${baseUrl}/api/notification-email`);
+    const anonymousResponse = await fetch(`${baseUrl}/api/notification-email`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: "a@example.com" }),
+    });
     assert.equal(anonymousResponse.status, 401);
-
-    const emptyResponse = await fetch(`${baseUrl}/api/notification-email`, {
+    const withoutSettingsResponse = await fetch(
+      `${baseUrl}/api/notification-email`,
+      {
+        method: "PATCH",
+        headers: {
+          ...headers,
+          Cookie: `${productionConfig.session.cookieName}=no-settings-session`,
+        },
+        body: JSON.stringify({ email: "a@example.com" }),
+      },
+    );
+    assert.equal(withoutSettingsResponse.status, 403);
+    const getResponse = await fetch(`${baseUrl}/api/notification-email`, {
       headers,
     });
-    assert.equal(emptyResponse.status, 200);
-    assert.deepEqual(await emptyResponse.json(), {});
+    assert.equal(getResponse.status, 405);
 
     const invalidResponse = await fetch(`${baseUrl}/api/notification-email`, {
       method: "PATCH",
@@ -13168,11 +13198,7 @@ test("every signed-in account reads and changes its own notification email", asy
       body: JSON.stringify({ email: "shift@example.com" }),
     });
     assert.equal(unchangedResponse.status, 200);
-
-    const readResponse = await fetch(`${baseUrl}/api/notification-email`, {
-      headers,
-    });
-    assert.deepEqual(await readResponse.json(), { email: "shift@example.com" });
+    assert.equal(storedEmail, "shift@example.com");
     assert.deepEqual(emailUpdates, [
       { userId: profile.userId, email: "dispatcher@example.com" },
       { userId: profile.userId, email: "shift@example.com" },
