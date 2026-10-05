@@ -101,6 +101,14 @@ export function readXlsxWorkbook(file: Buffer): XlsxSheet[] {
 
 type ZipArchive = Map<string, () => Buffer>;
 
+/**
+ * Имена записей ZIP без распаковки: вложения инициатив проверяют по каталогу,
+ * что DOCX/XLSX — настоящие документы Office без макросов.
+ */
+export function listZipEntryNames(file: Buffer): string[] {
+  return [...readZipArchive(file).keys()];
+}
+
 function readZipArchive(file: Buffer): ZipArchive {
   const directoryEnd = findEndOfCentralDirectory(file);
 

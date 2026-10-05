@@ -5,7 +5,7 @@ import { renderBoardAssignmentsPdf } from "../integrations/boardAssignmentsPdf.j
 import { renderDirectorAssignmentsPdf } from "../integrations/directorAssignmentsPdf.js";
 import { assignmentInboxNavigationItem, assignmentInboxSourceOptions, assignmentRegistries, isAssignmentInboxAccess, type AssignmentRegistryId } from "../contracts/directorAssignments.js";
 import type { DirectorAssignmentsService } from "../domain/directorAssignmentsService.js";
-import { collegiumInitiativeAccessOptions, collegiumInitiativesApiPath, collegiumInitiativesNavigationItem, isCollegiumInitiativeAccess } from "../contracts/collegiumInitiatives.js";
+import { collegiumAttachmentLimits, collegiumInitiativeAccessOptions, collegiumInitiativesApiPath, collegiumInitiativesNavigationItem, isCollegiumInitiativeAccess } from "../contracts/collegiumInitiatives.js";
 import type { CollegiumInitiativesService } from "../domain/collegiumInitiativesService.js";
 import { CollegiumInitiativeError } from "../domain/collegiumInitiative.js";
 import { DirectorAssignmentError } from "../domain/directorAssignment.js";
@@ -980,10 +980,49 @@ export function createApiServer({
           return;
         }
         try {
-          const match = /^\/api\/collegium-initiatives(?:\/([a-zA-Z0-9-]{1,100}))?$/u.exec(url.pathname);
+          const match = /^\/api\/collegium-initiatives(?:\/([a-zA-Z0-9-]{1,100})(?:\/(actions|comments|attachments)(?:\/([a-zA-Z0-9-]{1,100})(?:\/(resolve))?)?)?)?$/u.exec(url.pathname);
           if (!match) throw new CollegiumInitiativeError("Страница не найдена.", 404);
-          const id = match[1];
-          if (!id && req.method === "GET") sendJson(res, 200, await collegiumInitiatives.list(access.profile));
+          const [, id, section, itemId, itemAction] = match;
+          if (id && section === "actions" && !itemId && req.method === "POST") {
+            sendJson(res, 200, { initiative: await collegiumInitiatives.act(access.profile, id, await readJsonBody(req)) });
+          } else if (id && section === "comments" && !itemId && req.method === "POST") {
+            sendJson(res, 201, { comment: await collegiumInitiatives.comment(access.profile, id, await readJsonBody(req)) });
+          } else if (id && section === "comments" && itemId && itemAction === "resolve" && req.method === "POST") {
+            sendJson(res, 200, { comment: await collegiumInitiatives.resolveComment(access.profile, id, itemId) });
+          } else if (id && section === "attachments" && !itemId && req.method === "POST") {
+            // Rights, status and limits are checked before the body is read.
+            let fileName: string;
+            try {
+              fileName = await collegiumInitiatives.prepareFileUpload(
+                access.profile,
+                id,
+                url.searchParams.get("fileName"),
+                Number(req.headers["content-length"]),
+              );
+            } catch (error) {
+              // Drain the rejected upload so the connection stays usable.
+              req.resume();
+              throw error;
+            }
+            let content: Buffer;
+            try {
+              content = await readBinaryBody(req, collegiumAttachmentLimits.maxFileBytes);
+            } catch (error) {
+              if (error instanceof RequestBodyTooLargeError) {
+                throw new CollegiumInitiativeError("Размер одного файла не должен превышать 10 МБ.", 413);
+              }
+              throw error;
+            }
+            sendJson(res, 201, { attachment: await collegiumInitiatives.addFile(access.profile, id, fileName, content) });
+          } else if (id && section === "attachments" && itemId === "links" && !itemAction && req.method === "POST") {
+            sendJson(res, 201, { attachment: await collegiumInitiatives.addLink(access.profile, id, await readJsonBody(req)) });
+          } else if (id && section === "attachments" && itemId && !itemAction && req.method === "GET") {
+            sendCollegiumAttachment(res, await collegiumInitiatives.readFile(access.profile, id, itemId));
+          } else if (id && section === "attachments" && itemId && !itemAction && req.method === "DELETE") {
+            await collegiumInitiatives.deleteAttachment(access.profile, id, itemId);
+            sendJson(res, 200, { ok: true });
+          } else if (section) throw new CollegiumInitiativeError("Действие недоступно.", 405);
+          else if (!id && req.method === "GET") sendJson(res, 200, await collegiumInitiatives.list(access.profile));
           else if (!id && req.method === "POST") sendJson(res, 201, { initiative: await collegiumInitiatives.create(access.profile, await readJsonBody(req)) });
           else if (id && req.method === "GET") sendJson(res, 200, await collegiumInitiatives.read(access.profile, id));
           else if (id && req.method === "PATCH") sendJson(res, 200, { initiative: await collegiumInitiatives.update(access.profile, id, await readJsonBody(req)) });
@@ -15207,6 +15246,28 @@ function sendXlsx(res: ServerResponse, content: Buffer, filename: string) {
     "cache-control": "no-store",
   });
   res.end(content);
+}
+
+/** Вложения всегда скачиваются, а тип берётся по сигнатуре, сохранённой сервером. */
+function sendCollegiumAttachment(
+  res: ServerResponse,
+  file: { fileName: string; contentType: string; content: Buffer },
+) {
+  const extension = /\.[a-z]{3,4}$/iu.exec(file.fileName)?.[0] ?? "";
+  const asciiFilename = file.fileName
+    .normalize("NFKD")
+    .replace(/[^a-zA-Z0-9._ -]/gu, "")
+    .trim()
+    .replace(/\s+/gu, "-");
+  res.writeHead(200, {
+    "content-type": file.contentType,
+    "content-length": String(file.content.length),
+    "content-disposition":
+      `attachment; filename="${asciiFilename.replace(/^\.+/u, "") || `attachment${extension}`}"; filename*=UTF-8''${encodeURIComponent(file.fileName)}`,
+    "x-content-type-options": "nosniff",
+    "cache-control": "no-store",
+  });
+  res.end(file.content);
 }
 
 function sendPdf(res: ServerResponse, pdf: Buffer, filename: string) {

@@ -9736,3 +9736,165 @@ p {
   background: var(--emerald-soft);
   color: var(--emerald);
 }
+
+.collegium-workflow {
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  padding: var(--density-3) 0;
+}
+
+.collegium-rework-note,
+.collegium-admission-gaps {
+  border-left: 4px solid var(--amber);
+  padding-left: var(--density-3);
+  font-size: 13px;
+}
+
+.collegium-rework-note ul,
+.collegium-admission-gaps ul {
+  margin: var(--density-1) 0;
+  padding-left: 18px;
+}
+
+.collegium-rework-note p {
+  margin: 0;
+  color: var(--muted);
+}
+
+.collegium-admission-ready {
+  margin: 0;
+  border-left: 4px solid var(--emerald);
+  padding-left: var(--density-3);
+  font-size: 13px;
+}
+
+.collegium-action-form,
+.collegium-comment-form {
+  display: grid;
+  gap: var(--density-3);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: var(--density-3);
+  background: var(--surface-subtle);
+}
+
+.collegium-comments {
+  display: grid;
+  gap: var(--density-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.collegium-comment {
+  display: grid;
+  gap: var(--density-1);
+  border-left: 3px solid var(--line-strong);
+  padding-left: var(--density-3);
+}
+
+.collegium-comment-remark {
+  border-left-color: var(--amber);
+}
+
+.collegium-comment-question {
+  border-left-color: var(--blue-gray);
+}
+
+.collegium-comment p {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.collegium-comment-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--density-2);
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.collegium-comment-meta strong {
+  color: var(--text);
+}
+
+.collegium-comment-resolved {
+  color: var(--emerald);
+  font-weight: 700;
+}
+
+.collegium-comment button {
+  justify-self: start;
+}
+
+.collegium-diff {
+  display: grid;
+  gap: var(--density-2);
+}
+
+.collegium-diff-list {
+  display: grid;
+  gap: var(--density-2);
+  margin: 0;
+}
+
+.collegium-diff-row {
+  display: grid;
+  grid-template-columns: minmax(140px, 1fr) minmax(0, 2fr) minmax(0, 2fr);
+  gap: var(--density-2);
+  font-size: 13px;
+}
+
+.collegium-diff-row dt {
+  font-weight: 700;
+}
+
+.collegium-diff-row dd {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.collegium-diff-before {
+  background: var(--brick-soft);
+}
+
+.collegium-diff-after {
+  background: var(--emerald-soft);
+}
+
+@media (max-width: 720px) {
+  .collegium-diff-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.collegium-attachments {
+  display: grid;
+  gap: var(--density-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.collegium-attachments li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--density-2);
+  align-items: center;
+}
+
+.collegium-attachment-meta {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.collegium-attachment-controls {
+  display: grid;
+  gap: var(--density-3);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: var(--density-3);
+  background: var(--surface-subtle);
+}

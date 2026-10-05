@@ -16108,6 +16108,19 @@ test("collegium initiatives API routes requests and maps module errors", async (
       calls.push(`update:${id}`);
       throw new CollegiumInitiativeError("Инициатива уже изменена. Обновите карточку.", 409);
     },
+    async prepareFileUpload(_profile: ServerUserProfile, id: string, fileName: string | null) {
+      calls.push(`prepare:${id}:${fileName}`);
+      if (id === "foreign") throw new CollegiumInitiativeError("Прикладывать материалы к этой инициативе нельзя.", 403);
+      return fileName ?? "";
+    },
+    async addFile(_profile: ServerUserProfile, id: string, fileName: string, content: Buffer) {
+      calls.push(`add:${id}:${fileName}:${content.length}`);
+      return { id: "file-1", kind: "file", label: fileName, fileName, fileType: "pdf", sizeBytes: content.length, createdByDisplayName: "x", createdAt: "2026-10-05T09:00:00.000Z" };
+    },
+    async readFile(_profile: ServerUserProfile, id: string, attachmentId: string) {
+      calls.push(`read-file:${id}:${attachmentId}`);
+      return { fileName: "Расчёт эффекта.pdf", contentType: "application/pdf", content: Buffer.from("%PDF-1.7") };
+    },
   } as unknown as CollegiumInitiativesService;
   const server = createApiServer({
     config: productionConfig,
@@ -16145,6 +16158,35 @@ test("collegium initiatives API routes requests and maps module errors", async (
     assert.equal((await fetch(`${baseUrl}/api/collegium-initiatives/abc-1`, { method: "DELETE", headers })).status, 405);
     assert.equal((await fetch(`${baseUrl}/api/collegium-initiatives/a/b`, { headers })).status, 404);
     assert.deepEqual(calls, ["list", 'create:{"card":{"title":"Идея"}}', "read:abc-1", "update:abc-1"]);
+    calls.length = 0;
+
+    const binaryHeaders = { Cookie: headers.Cookie, "Content-Type": "application/octet-stream" };
+    const denied = await fetch(`${baseUrl}/api/collegium-initiatives/foreign/attachments?fileName=a.pdf`, {
+      method: "POST", headers: binaryHeaders, body: Buffer.from("%PDF-1.7"),
+    });
+    assert.equal(denied.status, 403);
+    const tooLarge = await fetch(`${baseUrl}/api/collegium-initiatives/abc-1/attachments?fileName=a.pdf`, {
+      method: "POST", headers: binaryHeaders, body: Buffer.alloc(10 * 1024 * 1024 + 1),
+    });
+    assert.equal(tooLarge.status, 413);
+    const uploaded = await fetch(`${baseUrl}/api/collegium-initiatives/abc-1/attachments?fileName=a.pdf`, {
+      method: "POST", headers: binaryHeaders, body: Buffer.from("%PDF-1.7"),
+    });
+    assert.equal(uploaded.status, 201);
+    // Rejected uploads never reach the write.
+    assert.deepEqual(calls, [
+      "prepare:foreign:a.pdf",
+      "prepare:abc-1:a.pdf",
+      "prepare:abc-1:a.pdf",
+      "add:abc-1:a.pdf:8",
+    ]);
+
+    const download = await fetch(`${baseUrl}/api/collegium-initiatives/abc-1/attachments/file-1`, { headers });
+    assert.equal(download.status, 200);
+    assert.equal(download.headers.get("content-type"), "application/pdf");
+    assert.equal(download.headers.get("x-content-type-options"), "nosniff");
+    assert.match(download.headers.get("content-disposition") ?? "", /^attachment; filename="Raschet-effekta\.pdf"|^attachment; filename="/u);
+    assert.match(download.headers.get("content-disposition") ?? "", /filename\*=UTF-8''%D0%A0/u);
   } finally {
     server.close();
     await once(server, "close");

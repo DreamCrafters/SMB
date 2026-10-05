@@ -21,6 +21,7 @@ test("collegium initiatives repository rejects a stale revision", async () => {
       status: "draft",
       revision: 3,
       card: { title: "Идея" } as never,
+      workflow: {},
       createdByUserId: "author",
       createdAt: "2026-10-05T09:00:00.000Z",
       updatedAt: "2026-10-05T10:00:00.000Z",

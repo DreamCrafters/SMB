@@ -1,5 +1,10 @@
 import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
 import {
+  collegiumActionsRequiringComment,
+  collegiumAttachmentLimits,
+  collegiumCommentKindLabels,
+  collegiumCommentKinds,
+  collegiumInitiativeActionLabels,
   collegiumCostVatLabels,
   collegiumCostVatOptions,
   collegiumDecisionLabels,
@@ -10,7 +15,9 @@ import {
   collegiumRecurringPeriods,
   collegiumRequestedDecisions,
   maxCollegiumInitiativeRisks,
+  type CollegiumCommentKind,
   type CollegiumInitiative,
+  type CollegiumInitiativeAction,
   type CollegiumInitiativeCard,
   type CollegiumInitiativeCardInput,
   type CollegiumInitiativeDetailResponse,
@@ -23,7 +30,14 @@ import { LoadingIndicator } from "./LoadingIndicator";
 import { ManagedTable } from "./ManagedTable";
 import { TableCell, TableHeader } from "./TableCell";
 import {
+  actOnCollegiumInitiative,
+  addCollegiumAttachmentLink,
+  deleteCollegiumAttachment,
+  downloadCollegiumAttachment,
+  uploadCollegiumAttachment,
+  commentCollegiumInitiative,
   requestCollegiumInitiative,
+  resolveCollegiumInitiativeComment,
   requestCollegiumInitiatives,
   saveCollegiumInitiative,
 } from "./services/collegiumInitiatives";
@@ -115,10 +129,12 @@ export function CollegiumInitiativesWorkspace({
       ) : view.kind === "card" ? (
         <InitiativeCardView
           id={view.id}
-          people={data.people}
+          data={data}
           refreshVersion={refreshVersion}
           onBack={() => setView({ kind: "registry" })}
+          onChanged={() => setRefreshVersion((version) => version + 1)}
           onEdit={() => setView({ kind: "form", id: view.id })}
+          onShowToast={onShowToast}
         />
       ) : (
         <InitiativeForm
@@ -298,19 +314,24 @@ function InitiativeRegistry({
 
 function InitiativeCardView({
   id,
-  people,
+  data,
   refreshVersion,
   onBack,
   onEdit,
+  onChanged,
+  onShowToast,
 }: {
   id: string;
-  people: CollegiumPerson[];
+  data: CollegiumInitiativeListResponse;
   refreshVersion: number;
   onBack: () => void;
   onEdit: () => void;
+  onChanged: () => void;
+  onShowToast: ShowToast;
 }) {
   const detail = useInitiativeDetail(id, refreshVersion);
-  const peopleIndex = usePeopleIndex(people);
+  const peopleIndex = usePeopleIndex(data.people);
+  const [diffRevision, setDiffRevision] = useState<number>();
 
   if (detail.status === "loading") {
     return <LoadingIndicator label="Загружаем карточку…" variant="inline" />;
@@ -329,6 +350,11 @@ function InitiativeCardView({
   const { initiative, revisions, canEdit } = detail.data;
   const card = initiative.card;
   const person = (accountId: string) => peopleIndex.name(accountId) || (accountId === "" ? "" : "Учётная запись недоступна");
+  // The workspace bumps its refresh version, which reloads both the list and this card.
+  const reload = onChanged;
+  const diffIndex = revisions.findIndex((revision) => revision.revision === diffRevision);
+  const diffAfter = diffIndex === -1 ? undefined : revisions[diffIndex];
+  const diffBefore = diffIndex === -1 ? undefined : revisions[diffIndex + 1];
 
   return (
     <article className="collegium-card">
@@ -347,6 +373,13 @@ function InitiativeCardView({
           ) : null}
         </div>
       </header>
+
+      <WorkflowPanel
+        detail={detail.data}
+        people={data.people}
+        onChanged={reload}
+        onShowToast={onShowToast}
+      />
 
       <CardSection title="Идентификация">
         <CardValue label="Инициатор" value={person(card.initiatorId)} />
@@ -371,21 +404,9 @@ function InitiativeCardView({
         <CardValue label={collegiumInitiativeFieldLabels.effectMethod} value={card.effectMethod} wide />
       </CardSection>
       <CardSection title="Ресурсы">
-        <CardValue
-          label={collegiumInitiativeFieldLabels.oneTimeCostAmount}
-          value={[
-            formatAmount(card.oneTimeCostAmount, ""),
-            card.oneTimeCostVat === "" ? "" : collegiumCostVatLabels[card.oneTimeCostVat],
-          ].filter(Boolean).join(", ")}
-        />
+        <CardValue label={collegiumInitiativeFieldLabels.oneTimeCostAmount} value={formatCardField(card, "oneTimeCostAmount", person)} />
         <CardValue label={collegiumInitiativeFieldLabels.oneTimeCostSource} value={card.oneTimeCostSource} />
-        <CardValue
-          label={collegiumInitiativeFieldLabels.recurringCostAmount}
-          value={[
-            formatAmount(card.recurringCostAmount, ""),
-            card.recurringCostPeriod === "" ? "" : collegiumRecurringPeriodLabels[card.recurringCostPeriod],
-          ].filter(Boolean).join(" ")}
-        />
+        <CardValue label={collegiumInitiativeFieldLabels.recurringCostAmount} value={formatCardField(card, "recurringCostAmount", person)} />
         <CardValue label={collegiumInitiativeFieldLabels.internalResources} value={card.internalResources} wide />
       </CardSection>
       <CardSection title="Роли и сроки">
@@ -399,12 +420,22 @@ function InitiativeCardView({
       <CardSection title="KPI, риски и решение">
         <CardValue label={collegiumInitiativeFieldLabels.kpiCriterion} value={card.kpiCriterion} wide />
         <CardValue label={collegiumInitiativeFieldLabels.kpiSource} value={card.kpiSource} />
-        <CardValue
-          label={collegiumInitiativeFieldLabels.requestedDecision}
-          value={card.requestedDecision === "" ? "" : collegiumDecisionLabels[card.requestedDecision]}
-        />
+        <CardValue label={collegiumInitiativeFieldLabels.requestedDecision} value={formatCardField(card, "requestedDecision", person)} />
         <CardValue label={collegiumInitiativeFieldLabels.risks} value={card.risks.join("; ")} wide />
       </CardSection>
+
+      <AttachmentsSection
+        detail={detail.data}
+        onChanged={reload}
+        onShowToast={onShowToast}
+      />
+
+      <CommentsSection
+        detail={detail.data}
+        canLeaveRemarks={data.permissions.canManage}
+        onChanged={reload}
+        onShowToast={onShowToast}
+      />
 
       <section className="collegium-card-section">
         <h4>История изменений</h4>
@@ -431,7 +462,17 @@ function InitiativeCardView({
                   <TableCell>
                     {revision.changedFields.length === 0
                       ? "—"
-                      : revision.changedFields.map((field) => collegiumInitiativeFieldLabels[field]).join(", ")}
+                      : (
+                          <button
+                            className="board-assignment-link collegium-diff-link"
+                            type="button"
+                            onClick={() => setDiffRevision(
+                              diffRevision === revision.revision ? undefined : revision.revision,
+                            )}
+                          >
+                            {revision.changedFields.map((field) => collegiumInitiativeFieldLabels[field]).join(", ")}
+                          </button>
+                        )}
                   </TableCell>
                   <TableCell>{revision.reason || "—"}</TableCell>
                   <TableCell>{revision.comment || "—"}</TableCell>
@@ -440,9 +481,603 @@ function InitiativeCardView({
             </tbody>
           </ManagedTable>
         </div>
+        {diffAfter === undefined || diffBefore === undefined ? null : (
+          <div className="collegium-diff">
+            <h4>{`Было / стало: версия ${diffBefore.revision} → ${diffAfter.revision}`}</h4>
+            <dl className="collegium-diff-list">
+              {diffAfter.changedFields.map((field) => (
+                <div className="collegium-diff-row" key={field}>
+                  <dt>{collegiumInitiativeFieldLabels[field]}</dt>
+                  <dd className="collegium-diff-before">{formatCardField(diffBefore.card, field, person) || "—"}</dd>
+                  <dd className="collegium-diff-after">{formatCardField(diffAfter.card, field, person) || "—"}</dd>
+                </div>
+              ))}
+            </dl>
+          </div>
+        )}
       </section>
     </article>
   );
+}
+
+function WorkflowPanel({
+  detail,
+  people,
+  onChanged,
+  onShowToast,
+}: {
+  detail: CollegiumInitiativeDetailResponse;
+  people: CollegiumPerson[];
+  onChanged: () => void;
+  onShowToast: ShowToast;
+}) {
+  const { initiative, actions, missingAdmissionFields } = detail;
+  const [pendingAction, setPendingAction] = useState<CollegiumInitiativeAction>();
+  const [comment, setComment] = useState("");
+  const [remarks, setRemarks] = useState("");
+  const [responsibleId, setResponsibleId] = useState("");
+  const [dueDate, setDueDate] = useState("");
+  const [readinessCriterion, setReadinessCriterion] = useState("");
+  const [message, setMessage] = useState("");
+  const [isSaving, setIsSaving] = useState(false);
+  const peopleIndex = usePeopleIndex(people);
+  const showsAdmission = ["draft", "preliminary_review", "rework", "needs_elaboration"]
+    .includes(initiative.status);
+  const rework = initiative.workflow.rework;
+
+  function startAction(action: CollegiumInitiativeAction) {
+    setPendingAction(action);
+    setComment("");
+    setMessage("");
+    if (action === "return_for_rework") {
+      setRemarks("");
+      setResponsibleId(initiative.card.initiatorId);
+      setDueDate("");
+      setReadinessCriterion("");
+    }
+  }
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (pendingAction === undefined) return;
+    if (collegiumActionsRequiringComment.includes(pendingAction) && comment.trim() === "") {
+      setMessage("Укажите комментарий к решению.");
+      return;
+    }
+    setIsSaving(true);
+    setMessage("");
+    try {
+      await actOnCollegiumInitiative(initiative.id, {
+        action: pendingAction,
+        revision: initiative.revision,
+        ...(comment.trim() === "" ? {} : { comment: comment.trim() }),
+        ...(pendingAction === "return_for_rework"
+          ? {
+              rework: {
+                remarks: remarks.split("\n").map((remark) => remark.trim()).filter(Boolean),
+                responsibleId,
+                dueDate,
+                readinessCriterion: readinessCriterion.trim(),
+              },
+            }
+          : {}),
+      });
+      onShowToast(
+        collegiumInitiativeActionLabels[pendingAction],
+        `${initiative.number} · ${initiative.card.title}`,
+        "success",
+      );
+      setPendingAction(undefined);
+      onChanged();
+    } catch (error) {
+      setMessage(readShortUserMessage(
+        error instanceof Error ? error.message : "",
+        "Не удалось выполнить действие.",
+      ));
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  return (
+    <section className="collegium-card-section collegium-workflow">
+      {initiative.status === "rework" && rework !== undefined ? (
+        <div className="collegium-rework-note">
+          <strong>Возвращена на доработку</strong>
+          <ul>
+            {rework.remarks.map((remark, index) => <li key={index}>{remark}</li>)}
+          </ul>
+          <p>
+            {`Ответственный: ${peopleIndex.name(rework.responsibleId) || "—"} · срок ${formatDate(rework.dueDate)} · `}
+            {`критерий готовности: ${rework.readinessCriterion}`}
+          </p>
+        </div>
+      ) : null}
+      {showsAdmission ? (
+        missingAdmissionFields.length === 0 ? (
+          <p className="collegium-admission-ready">Карточка заполнена для вынесения на Коллегию.</p>
+        ) : (
+          <div className="collegium-admission-gaps">
+            <strong>Для вынесения на Коллегию не хватает:</strong>
+            <ul>
+              {missingAdmissionFields.map((gap, index) => <li key={index}>{gap}</li>)}
+            </ul>
+          </div>
+        )
+      ) : null}
+      {actions.length === 0 ? null : (
+        <div className="collegium-form-actions">
+          {actions.map((action) => (
+            <button
+              className={action === "admit" || action === "submit_for_review" ? "primary-button" : "secondary-button"}
+              disabled={isSaving}
+              key={action}
+              type="button"
+              onClick={() => startAction(action)}
+            >
+              {collegiumInitiativeActionLabels[action]}
+            </button>
+          ))}
+        </div>
+      )}
+      {pendingAction === undefined ? null : (
+        <form className="collegium-action-form" noValidate onSubmit={submit}>
+          <strong>{collegiumInitiativeActionLabels[pendingAction]}</strong>
+          {pendingAction === "return_for_rework" ? (
+            <div className="collegium-field-grid">
+              <label className="collegium-field collegium-field-wide">
+                <span>Обязательные замечания (каждое с новой строки)</span>
+                <textarea
+                  disabled={isSaving}
+                  rows={3}
+                  value={remarks}
+                  onChange={(event) => {
+                    const value = event.currentTarget.value;
+                    setRemarks(value);
+                  }}
+                />
+              </label>
+              <label className="collegium-field">
+                <span>Ответственный за доработку</span>
+                <select
+                  disabled={isSaving}
+                  value={responsibleId}
+                  onChange={(event) => {
+                    const value = event.currentTarget.value;
+                    setResponsibleId(value);
+                  }}
+                >
+                  <option value="">Не выбран</option>
+                  {people.map((person) => (
+                    <option key={person.id} value={person.id}>{person.displayName}</option>
+                  ))}
+                </select>
+              </label>
+              <label className="collegium-field">
+                <span>Срок доработки</span>
+                <input
+                  disabled={isSaving}
+                  type="date"
+                  value={dueDate}
+                  onChange={(event) => {
+                    const value = event.currentTarget.value;
+                    setDueDate(value);
+                  }}
+                />
+              </label>
+              <label className="collegium-field collegium-field-wide">
+                <span>Критерий готовности к повторному рассмотрению</span>
+                <input
+                  disabled={isSaving}
+                  maxLength={1000}
+                  value={readinessCriterion}
+                  onChange={(event) => {
+                    const value = event.currentTarget.value;
+                    setReadinessCriterion(value);
+                  }}
+                />
+              </label>
+            </div>
+          ) : null}
+          <label className="collegium-field">
+            <span>
+              {collegiumActionsRequiringComment.includes(pendingAction)
+                ? "Комментарий (обязательно)"
+                : "Комментарий"}
+            </span>
+            <textarea
+              disabled={isSaving}
+              maxLength={2000}
+              rows={2}
+              value={comment}
+              onChange={(event) => {
+                const value = event.currentTarget.value;
+                setComment(value);
+              }}
+            />
+          </label>
+          {message === "" ? null : <p className="form-message is-error" role="alert">{message}</p>}
+          <div className="collegium-form-actions">
+            <button
+              className="secondary-button"
+              disabled={isSaving}
+              type="button"
+              onClick={() => setPendingAction(undefined)}
+            >
+              Отмена
+            </button>
+            <button className="primary-button" disabled={isSaving} type="submit">
+              {isSaving ? <LoadingIndicator label="Сохраняем…" variant="button" /> : "Подтвердить"}
+            </button>
+          </div>
+        </form>
+      )}
+    </section>
+  );
+}
+
+function AttachmentsSection({
+  detail,
+  onChanged,
+  onShowToast,
+}: {
+  detail: CollegiumInitiativeDetailResponse;
+  onChanged: () => void;
+  onShowToast: ShowToast;
+}) {
+  const { initiative, attachments, canAttach } = detail;
+  const [linkUrl, setLinkUrl] = useState("");
+  const [linkLabel, setLinkLabel] = useState("");
+  const [message, setMessage] = useState("");
+  const [isSaving, setIsSaving] = useState(false);
+  const isFull = attachments.length >= collegiumAttachmentLimits.maxOwnerItems;
+
+  async function run(operation: () => Promise<unknown>, success?: string) {
+    setIsSaving(true);
+    setMessage("");
+    try {
+      await operation();
+      if (success !== undefined) {
+        onShowToast(success, `${initiative.number} · ${initiative.card.title}`, "success");
+        onChanged();
+      }
+      return true;
+    } catch (error) {
+      setMessage(readShortUserMessage(
+        error instanceof Error ? error.message : "",
+        "Не удалось сохранить материал.",
+      ));
+      return false;
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  return (
+    <section className="collegium-card-section">
+      <h4>Материалы</h4>
+      {attachments.length === 0 ? (
+        <p className="collegium-empty-note">Материалов пока нет.</p>
+      ) : (
+        <ul className="collegium-attachments">
+          {attachments.map((attachment) => (
+            <li key={attachment.id}>
+              {attachment.kind === "link" ? (
+                <a href={attachment.url} rel="noreferrer noopener" target="_blank">{attachment.label}</a>
+              ) : (
+                <button
+                  className="board-assignment-link"
+                  disabled={isSaving}
+                  type="button"
+                  onClick={() => void run(async () => {
+                    const blob = await downloadCollegiumAttachment(initiative.id, attachment.id);
+                    saveBlob(blob, attachment.fileName ?? attachment.label);
+                  })}
+                >
+                  {attachment.label}
+                </button>
+              )}
+              <span className="collegium-attachment-meta">
+                {[
+                  attachment.kind === "link" ? "ссылка" : formatFileSize(attachment.sizeBytes ?? 0),
+                  attachment.createdByDisplayName,
+                  formatDateTime(attachment.createdAt),
+                ].join(" · ")}
+              </span>
+              {canAttach ? (
+                <button
+                  className="secondary-button"
+                  disabled={isSaving}
+                  type="button"
+                  onClick={() => void run(
+                    () => deleteCollegiumAttachment(initiative.id, attachment.id),
+                    "Материал удалён",
+                  )}
+                >
+                  Удалить
+                </button>
+              ) : null}
+            </li>
+          ))}
+        </ul>
+      )}
+      {canAttach ? (
+        <div className="collegium-attachment-controls">
+          <label className="collegium-field">
+            <span>Приложить файл (PDF, DOCX, XLSX, PNG, JPEG до 10 МБ)</span>
+            <input
+              accept=".pdf,.docx,.xlsx,.png,.jpg,.jpeg"
+              disabled={isSaving || isFull}
+              type="file"
+              onChange={(event) => {
+                const file = event.currentTarget.files?.[0];
+                event.currentTarget.value = "";
+                if (file === undefined) return;
+                if (file.size > collegiumAttachmentLimits.maxFileBytes) {
+                  setMessage("Размер одного файла не должен превышать 10 МБ.");
+                  return;
+                }
+                void run(() => uploadCollegiumAttachment(initiative.id, file), "Файл приложен");
+              }}
+            />
+          </label>
+          <form
+            className="collegium-field-grid"
+            noValidate
+            onSubmit={(event) => {
+              event.preventDefault();
+              if (linkUrl.trim() === "" || linkLabel.trim() === "") {
+                setMessage("Укажите ссылку и подпись.");
+                return;
+              }
+              void run(
+                () => addCollegiumAttachmentLink(initiative.id, { url: linkUrl.trim(), label: linkLabel.trim() }),
+                "Ссылка добавлена",
+              ).then((saved) => {
+                if (saved) {
+                  setLinkUrl("");
+                  setLinkLabel("");
+                }
+              });
+            }}
+          >
+            <label className="collegium-field">
+              <span>Ссылка (Google Drive, Яндекс Диск и т. п.)</span>
+              <input
+                disabled={isSaving || isFull}
+                inputMode="url"
+                maxLength={collegiumAttachmentLimits.maxUrlLength}
+                placeholder="https://"
+                value={linkUrl}
+                onChange={(event) => {
+                  const value = event.currentTarget.value;
+                  setLinkUrl(value);
+                }}
+              />
+            </label>
+            <label className="collegium-field">
+              <span>Подпись ссылки</span>
+              <input
+                disabled={isSaving || isFull}
+                maxLength={collegiumAttachmentLimits.maxLabelLength}
+                value={linkLabel}
+                onChange={(event) => {
+                  const value = event.currentTarget.value;
+                  setLinkLabel(value);
+                }}
+              />
+            </label>
+            <div className="collegium-form-actions">
+              <button className="secondary-button" disabled={isSaving || isFull} type="submit">
+                Добавить ссылку
+              </button>
+            </div>
+          </form>
+          {isFull ? (
+            <p className="collegium-note">
+              {`Приложено максимальное число материалов: ${collegiumAttachmentLimits.maxOwnerItems}.`}
+            </p>
+          ) : null}
+        </div>
+      ) : null}
+      {message === "" ? null : <p className="form-message is-error" role="alert">{message}</p>}
+    </section>
+  );
+}
+
+function saveBlob(blob: Blob, fileName: string) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = fileName;
+  document.body.append(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function formatFileSize(bytes: number) {
+  return bytes >= 1024 * 1024
+    ? `${(bytes / (1024 * 1024)).toLocaleString("ru-RU", { maximumFractionDigits: 1 })} МБ`
+    : `${Math.max(1, Math.round(bytes / 1024))} КБ`;
+}
+
+function CommentsSection({
+  detail,
+  canLeaveRemarks,
+  onChanged,
+  onShowToast,
+}: {
+  detail: CollegiumInitiativeDetailResponse;
+  canLeaveRemarks: boolean;
+  onChanged: () => void;
+  onShowToast: ShowToast;
+}) {
+  const { initiative, comments, canComment, canResolveComments } = detail;
+  const [kind, setKind] = useState<CollegiumCommentKind>("comment");
+  const [text, setText] = useState("");
+  const [message, setMessage] = useState("");
+  const [isSaving, setIsSaving] = useState(false);
+  const kinds = collegiumCommentKinds.filter((item) => item !== "remark" || canLeaveRemarks);
+
+  async function run(operation: () => Promise<unknown>, success: string) {
+    setIsSaving(true);
+    setMessage("");
+    try {
+      await operation();
+      onShowToast(success, `${initiative.number} · ${initiative.card.title}`, "success");
+      onChanged();
+      return true;
+    } catch (error) {
+      setMessage(readShortUserMessage(
+        error instanceof Error ? error.message : "",
+        "Не удалось сохранить комментарий.",
+      ));
+      return false;
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  return (
+    <section className="collegium-card-section">
+      <h4>Обсуждение</h4>
+      {comments.length === 0 ? (
+        <p className="collegium-empty-note">Комментариев пока нет.</p>
+      ) : (
+        <ul className="collegium-comments">
+          {comments.map((comment) => (
+            <li className={`collegium-comment collegium-comment-${comment.kind}`} key={comment.id}>
+              <div className="collegium-comment-meta">
+                <strong>{collegiumCommentKindLabels[comment.kind]}</strong>
+                <span>{`${comment.authorDisplayName} · ${formatDateTime(comment.createdAt)}`}</span>
+                {comment.resolvedAt === undefined ? null : (
+                  <span className="collegium-comment-resolved">
+                    {`Устранено: ${comment.resolvedByDisplayName ?? ""}, ${formatDateTime(comment.resolvedAt)}`}
+                  </span>
+                )}
+              </div>
+              <p>{comment.text}</p>
+              {comment.kind !== "comment" && comment.resolvedAt === undefined && canResolveComments ? (
+                <button
+                  className="secondary-button"
+                  disabled={isSaving}
+                  type="button"
+                  onClick={() => void run(
+                    () => resolveCollegiumInitiativeComment(initiative.id, comment.id),
+                    "Отмечено устранённым",
+                  )}
+                >
+                  Отметить устранённым
+                </button>
+              ) : null}
+            </li>
+          ))}
+        </ul>
+      )}
+      {canComment ? (
+        <form
+          className="collegium-comment-form"
+          noValidate
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (text.trim() === "") {
+              setMessage("Напишите текст комментария.");
+              return;
+            }
+            void run(
+              () => commentCollegiumInitiative(initiative.id, { kind, text: text.trim() }),
+              "Комментарий добавлен",
+            ).then((saved) => {
+              if (saved) setText("");
+            });
+          }}
+        >
+          <div className="collegium-field-grid">
+            <label className="collegium-field">
+              <span>Вид</span>
+              <select
+                disabled={isSaving}
+                value={kind}
+                onChange={(event) => {
+                  const value = event.currentTarget.value as CollegiumCommentKind;
+                  setKind(value);
+                }}
+              >
+                {kinds.map((item) => (
+                  <option key={item} value={item}>{collegiumCommentKindLabels[item]}</option>
+                ))}
+              </select>
+            </label>
+            <label className="collegium-field collegium-field-wide">
+              <span>Текст</span>
+              <textarea
+                disabled={isSaving}
+                maxLength={4000}
+                rows={2}
+                value={text}
+                onChange={(event) => {
+                  const value = event.currentTarget.value;
+                  setText(value);
+                }}
+              />
+            </label>
+          </div>
+          {message === "" ? null : <p className="form-message is-error" role="alert">{message}</p>}
+          <div className="collegium-form-actions">
+            <button className="primary-button" disabled={isSaving} type="submit">
+              Добавить
+            </button>
+          </div>
+        </form>
+      ) : null}
+    </section>
+  );
+}
+
+/** Значение поля карточки для просмотра и сравнения версий. */
+function formatCardField(
+  card: CollegiumInitiativeCard,
+  field: keyof CollegiumInitiativeCardInput,
+  person: (accountId: string) => string,
+): string {
+  switch (field) {
+    case "directionCode":
+      return card.directionLabel;
+    case "effectTypeCodes":
+      return card.effectTypeLabels.join(", ");
+    case "expectedEffectAmount":
+      return formatAmount(card.expectedEffectAmount, "");
+    case "oneTimeCostAmount":
+      return [
+        formatAmount(card.oneTimeCostAmount, ""),
+        card.oneTimeCostVat === "" ? "" : collegiumCostVatLabels[card.oneTimeCostVat],
+      ].filter(Boolean).join(", ");
+    case "recurringCostAmount":
+      return [
+        formatAmount(card.recurringCostAmount, ""),
+        card.recurringCostPeriod === "" ? "" : collegiumRecurringPeriodLabels[card.recurringCostPeriod],
+      ].filter(Boolean).join(" ");
+    case "oneTimeCostVat":
+      return card.oneTimeCostVat === "" ? "" : collegiumCostVatLabels[card.oneTimeCostVat];
+    case "recurringCostPeriod":
+      return card.recurringCostPeriod === "" ? "" : collegiumRecurringPeriodLabels[card.recurringCostPeriod];
+    case "initiatorId":
+    case "ownerId":
+    case "executorId":
+    case "executionControllerId":
+    case "effectControllerId":
+      return person(card[field]);
+    case "plannedStart":
+    case "plannedResult":
+      return formatDate(card[field], "");
+    case "risks":
+      return card.risks.join("; ");
+    case "requestedDecision":
+      return card.requestedDecision === "" ? "" : collegiumDecisionLabels[card.requestedDecision];
+    default:
+      return card[field];
+  }
 }
 
 type FormState = Omit<CollegiumInitiativeCardInput, "risks"> & { risks: string[] };

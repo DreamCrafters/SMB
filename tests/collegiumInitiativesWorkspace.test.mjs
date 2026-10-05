@@ -43,6 +43,7 @@ function buildInitiative(card) {
       plannedStart: "", plannedResult: "", kpiCriterion: "", kpiSource: "", risks: [],
       requestedDecision: "", ...card,
     },
+    workflow: {},
     createdByUserId: "author",
     createdAt: "2026-10-05T09:00:00.000Z",
     updatedAt: "2026-10-05T09:00:00.000Z",
@@ -101,9 +102,16 @@ async function renderWorkspace(permissions, onRequest) {
 test("participant creates a draft and opens its card from the registry", async () => {
   let stored;
   const posts = [];
+  const actions = [];
   const view = await renderWorkspace(
     { canView: true, canParticipate: true, canManage: false, canApprove: false },
     async (url, init, permissions) => {
+      if (url.pathname === "/api/collegium-initiatives/initiative-1/actions") {
+        const body = JSON.parse(String(init.body));
+        actions.push(body);
+        stored = { ...stored, status: "preliminary_review", revision: stored.revision + 1 };
+        return [{ initiative: stored }];
+      }
       if (url.pathname === "/api/collegium-initiatives" && init.method === "POST") {
         const body = JSON.parse(String(init.body));
         posts.push(body);
@@ -117,7 +125,14 @@ test("participant creates a draft and opens its card from the registry", async (
         return [{
           initiative: stored,
           revisions: [{ revision: 1, createdAt: stored.createdAt, authorDisplayName: "Автор", status: "draft", changedFields: [], reason: "Создание инициативы", comment: "", card: stored.card }],
-          canEdit: true,
+          comments: [],
+          attachments: [{ id: "link-1", kind: "link", label: "Данные ОТК", url: "https://drive.google.com/x", createdByDisplayName: "Автор", createdAt: stored.createdAt }],
+          canAttach: stored.status === "draft",
+          canEdit: stored.status === "draft",
+          canComment: true,
+          canResolveComments: true,
+          actions: stored.status === "draft" ? ["submit_for_review", "withdraw"] : [],
+          missingAdmissionFields: ["Описание проблемы / возможности", "Ключевые риски"],
         }];
       }
       throw new Error(`Unexpected request: ${url.pathname}`);
@@ -173,6 +188,21 @@ test("participant creates a draft and opens its card from the registry", async (
     assert.match(container.textContent, /Черновик/u);
     assert.match(container.textContent, /Петров П\.П\./u);
     assert.match(container.textContent, /1\s200,50\s₽/u);
+
+    const link = Array.from(container.querySelectorAll(".collegium-attachments a"))[0];
+    assert.equal(link.textContent, "Данные ОТК");
+    assert.equal(link.getAttribute("rel"), "noreferrer noopener");
+    // The server-computed admission gaps are listed on the card.
+    assert.match(container.textContent, /Для вынесения на Коллегию не хватает:/u);
+    assert.match(container.textContent, /Ключевые риски/u);
+    await React.act(async () => findButtonByText(container, "Отправить на оценку").click());
+    await React.act(async () => findButtonByText(container, "Подтвердить").click());
+    await waitFor(React, () => container.textContent.includes("На предварительной оценке"));
+    assert.deepEqual(actions, [{ action: "submit_for_review", revision: 1 }]);
+    assert.equal(
+      Array.from(container.querySelectorAll("button")).some((button) => button.textContent === "Изменить"),
+      false,
+    );
 
     await React.act(async () => findButtonByText(container, "К реестру").click());
     await waitFor(React, () => container.querySelector(".collegium-initiatives-table") !== null);

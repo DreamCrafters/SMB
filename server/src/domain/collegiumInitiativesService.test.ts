@@ -5,6 +5,8 @@ import {
   type CollegiumInitiative,
   type CollegiumInitiativeAccess,
   type CollegiumInitiativeCardInput,
+  type CollegiumAttachment,
+  type CollegiumInitiativeComment,
   type CollegiumInitiativeRevision,
   type CollegiumPerson,
   type CollegiumReference,
@@ -51,11 +53,13 @@ function card(overrides: Partial<CollegiumInitiativeCardInput> = {}) {
   return { title: "Снизить потери при выпуске", ...overrides };
 }
 
-function createHarness(activeUsers = ["author", "other", "secretary", "owner"]) {
+function createHarness(activeUsers = ["author", "other", "secretary", "owner", "chair"]) {
   const initiatives = new Map<string, CollegiumInitiative>();
   const revisions: Array<{ initiativeId: string; revision: Omit<CollegiumInitiativeRevision, "createdAt"> }> = [];
   const auditEvents: AuditEventDraft[] = [];
   const counters = new Map<string, number>();
+  const comments: Array<{ initiativeId: string; comment: CollegiumInitiativeComment }> = [];
+  const attachments = new Map<string, { ownerId: string; attachment: CollegiumAttachment; deleted: boolean; content?: Buffer }>();
   let transactions = 0;
   const people: CollegiumPerson[] = activeUsers.map((userId) => ({
     id: `account:${userId}`,
@@ -93,6 +97,47 @@ function createHarness(activeUsers = ["author", "other", "secretary", "owner"]) 
       const { createdAt: _createdAt, ...rest } = revision;
       revisions.push({ initiativeId, revision: rest });
     },
+    async listComments(initiativeId: string) {
+      return comments.filter((entry) => entry.initiativeId === initiativeId).map(({ comment }) => comment);
+    },
+    async readComment(initiativeId: string, commentId: string) {
+      return comments.find((entry) => entry.initiativeId === initiativeId && entry.comment.id === commentId)?.comment;
+    },
+    async insertComment(initiativeId: string, comment: CollegiumInitiativeComment) {
+      comments.push({ initiativeId, comment: { ...comment } });
+    },
+    async resolveComment(initiativeId: string, commentId: string, resolvedAt: Date, resolvedByDisplayName: string) {
+      const entry = comments.find((item) => item.initiativeId === initiativeId && item.comment.id === commentId);
+      if (entry === undefined || entry.comment.resolvedAt !== undefined) return false;
+      entry.comment.resolvedAt = resolvedAt.toISOString();
+      entry.comment.resolvedByDisplayName = resolvedByDisplayName;
+      return true;
+    },
+    async listAttachments(owner: { id: string }) {
+      return [...attachments.values()]
+        .filter((entry) => entry.ownerId === owner.id && !entry.deleted)
+        .map(({ attachment }) => attachment);
+    },
+    async readAttachment(owner: { id: string }, attachmentId: string) {
+      const entry = attachments.get(attachmentId);
+      return entry?.ownerId === owner.id && !entry.deleted ? entry.attachment : undefined;
+    },
+    async readAttachmentContent(attachmentId: string) {
+      return attachments.get(attachmentId)?.content;
+    },
+    async readAttachmentUsage(owner: { id: string }) {
+      const live = [...attachments.values()].filter((entry) => entry.ownerId === owner.id && !entry.deleted);
+      return { items: live.length, bytes: live.reduce((total, { attachment }) => total + (attachment.sizeBytes ?? 0), 0) };
+    },
+    async insertAttachment(owner: { id: string }, attachment: CollegiumAttachment, content?: Buffer) {
+      attachments.set(attachment.id, { ownerId: owner.id, attachment, deleted: false, content });
+    },
+    async deleteAttachment(owner: { id: string }, attachmentId: string) {
+      const entry = attachments.get(attachmentId);
+      if (entry === undefined || entry.ownerId !== owner.id || entry.deleted) return false;
+      entry.deleted = true;
+      return true;
+    },
     async listRevisions(initiativeId: string) {
       return revisions
         .filter((entry) => entry.initiativeId === initiativeId)
@@ -113,7 +158,7 @@ function createHarness(activeUsers = ["author", "other", "secretary", "owner"]) 
     },
     now: () => new Date("2026-10-05T09:00:00.000Z"),
   });
-  return { service, initiatives, revisions, auditEvents, transactions: () => transactions };
+  return { service, initiatives, revisions, comments, attachments, auditEvents, transactions: () => transactions };
 }
 
 test("card input canonicalizes amounts, labels and rejects malformed fields", () => {
@@ -278,4 +323,223 @@ test("assigned people must be active accounts unless the value was already store
     revision: 1,
   });
   assert.equal(updated.card.title, "Уточнение");
+});
+
+function completeCard(overrides: Partial<CollegiumInitiativeCardInput> = {}) {
+  return {
+    ...card(),
+    problem: "Потери 3 % при выпуске",
+    baselineValue: "3 %",
+    baselinePeriod: "2026, январь–август",
+    baselineSource: "Отчёт ОТК № 12",
+    solution: "Сменить режим обжига",
+    expectedEffectAmount: "1 200 000",
+    expectedEffectPeriod: "год",
+    expectedEffectKind: "экономия затрат",
+    effectMethod: "Снижение потерь × себестоимость",
+    oneTimeCostAmount: "0",
+    recurringCostAmount: "0",
+    internalResources: "Технолог, 2 смены",
+    ownerId: "account:owner",
+    executorId: "account:author",
+    executionControllerId: "account:secretary",
+    effectControllerId: "account:other",
+    plannedStart: "2026-11-01",
+    plannedResult: "2027-02-01",
+    kpiCriterion: "Потери не выше 1,5 %",
+    kpiSource: "Отчёт ОТК",
+    risks: ["Срыв поставок"],
+    requestedDecision: "pilot",
+    ...overrides,
+  };
+}
+
+test("admission filter lists every gap of the queue-1 success criterion", async () => {
+  const { service } = createHarness();
+  const draft = await service.create(profile("author", "participant"), {
+    card: completeCard({
+      baselinePeriod: "",
+      oneTimeCostAmount: "",
+      effectControllerId: "account:author",
+      risks: [],
+      requestedDecision: "",
+    }),
+  });
+  const detail = await service.read(profile("author", "participant"), draft.id);
+  assert.deepEqual(detail.missingAdmissionFields, [
+    "Базовая линия и её период",
+    "Разовые затраты, ₽",
+    "Ключевые риски",
+    "Что требуется от Коллегии",
+    "Контролёр эффекта не может быть исполнителем или владельцем результата",
+  ]);
+  const complete = await service.create(profile("author", "participant"), { card: completeCard() });
+  assert.deepEqual((await service.read(profile("author", "participant"), complete.id)).missingAdmissionFields, []);
+});
+
+test("route moves an idea to review, back to rework and to admission", async () => {
+  const { service, revisions, comments, auditEvents } = createHarness();
+  const author = profile("author", "participant");
+  const secretary = profile("secretary", "secretary");
+  const chair = profile("chair", "chair");
+  const draft = await service.create(author, { card: completeCard({ kpiSource: "" }) });
+
+  assert.deepEqual((await service.read(author, draft.id)).actions, ["submit_for_review", "withdraw"]);
+  await assert.rejects(
+    service.act(author, draft.id, { action: "admit", revision: 1 }),
+    (error) => error instanceof CollegiumInitiativeError && error.status === 409,
+  );
+  const submitted = await service.act(author, draft.id, { action: "submit_for_review", revision: 1 });
+  assert.equal(submitted.status, "preliminary_review");
+  assert.deepEqual(revisions.at(-1)?.revision.event, {
+    action: "submit_for_review", fromStatus: "draft", toStatus: "preliminary_review",
+  });
+  assert.equal(auditEvents.at(-1)?.action, "collegium_initiative.transition");
+
+  // Participants cannot judge; the chair alone admits and needs a complete card.
+  await assert.rejects(
+    service.act(author, draft.id, { action: "admit", revision: 2 }),
+    (error) => error instanceof CollegiumInitiativeError && error.status === 403,
+  );
+  await assert.rejects(
+    service.act(chair, draft.id, { action: "admit", revision: 2 }),
+    /Источник KPI/u,
+  );
+
+  await assert.rejects(
+    service.act(secretary, draft.id, { action: "return_for_rework", revision: 2 }),
+    /комментарий/u,
+  );
+  await assert.rejects(
+    service.act(secretary, draft.id, { action: "return_for_rework", revision: 2, comment: "Не хватает KPI" }),
+    /запрос на доработку/u,
+  );
+  const reworked = await service.act(secretary, draft.id, {
+    action: "return_for_rework",
+    revision: 2,
+    comment: "Не хватает KPI",
+    rework: {
+      remarks: ["Укажите источник KPI", " "],
+      responsibleId: "account:author",
+      dueDate: "2026-10-20",
+      readinessCriterion: "Заполнен источник KPI",
+    },
+  });
+  assert.equal(reworked.status, "rework");
+  assert.equal(reworked.workflow.rework?.responsibleId, "account:author");
+  assert.deepEqual(comments.map(({ comment }) => [comment.kind, comment.text]), [["remark", "Укажите источник KPI"]]);
+
+  const fixed = await service.update(author, draft.id, {
+    card: completeCard(), revision: 3, reason: "Добавлен источник KPI",
+  });
+  await service.act(author, draft.id, { action: "submit_for_review", revision: fixed.revision });
+  const ready = await service.act(chair, draft.id, { action: "admit", revision: fixed.revision + 1 });
+  assert.equal(ready.status, "ready");
+});
+
+test("suspension returns to the previous status and the author may withdraw a draft", async () => {
+  const { service } = createHarness();
+  const author = profile("author", "participant");
+  const secretary = profile("secretary", "secretary");
+  const draft = await service.create(author, { card: completeCard() });
+  await service.act(author, draft.id, { action: "submit_for_review", revision: 1 });
+
+  await assert.rejects(
+    service.act(secretary, draft.id, { action: "suspend", revision: 2 }),
+    /комментарий/u,
+  );
+  const suspended = await service.act(secretary, draft.id, {
+    action: "suspend", revision: 2, comment: "Ждём бюджет",
+  });
+  assert.equal(suspended.workflow.suspendedFrom, "preliminary_review");
+  const resumed = await service.act(secretary, draft.id, { action: "resume", revision: 3 });
+  assert.equal(resumed.status, "preliminary_review");
+  assert.equal(resumed.workflow.suspendedFrom, undefined);
+
+  const second = await service.create(author, { card: card({ title: "Черновик" }) });
+  await assert.rejects(
+    service.act(secretary, second.id, { action: "withdraw", revision: 1, comment: "x" }),
+    (error) => error instanceof CollegiumInitiativeError && error.status === 403,
+  );
+  const withdrawn = await service.act(author, second.id, {
+    action: "withdraw", revision: 1, comment: "Идея неактуальна",
+  });
+  assert.equal(withdrawn.status, "closed");
+});
+
+test("participants comment, secretaries leave remarks and owners resolve them", async () => {
+  const { service } = createHarness();
+  const author = profile("author", "participant");
+  const draft = await service.create(author, { card: completeCard() });
+  await service.act(author, draft.id, { action: "submit_for_review", revision: 1 });
+
+  await assert.rejects(
+    service.comment(profile("viewer", "view"), draft.id, { kind: "comment", text: "Мнение" }),
+    (error) => error instanceof CollegiumInitiativeError && error.status === 403,
+  );
+  await assert.rejects(
+    service.comment(profile("other", "participant"), draft.id, { kind: "remark", text: "Замечание" }),
+    (error) => error instanceof CollegiumInitiativeError && error.status === 403,
+  );
+  const question = await service.comment(profile("other", "participant"), draft.id, {
+    kind: "question", text: "Какой период базовой линии?",
+  });
+  const plain = await service.comment(profile("other", "participant"), draft.id, {
+    kind: "comment", text: "Поддерживаю",
+  });
+  await assert.rejects(
+    service.resolveComment(profile("other", "participant"), draft.id, question.id),
+    (error) => error instanceof CollegiumInitiativeError && error.status === 403,
+  );
+  await assert.rejects(service.resolveComment(author, draft.id, plain.id), /вопросы и замечания/u);
+  const resolved = await service.resolveComment(author, draft.id, question.id);
+  assert.equal(resolved.resolvedByDisplayName, "Пользователь author");
+  await assert.rejects(
+    service.resolveComment(author, draft.id, question.id),
+    (error) => error instanceof CollegiumInitiativeError && error.status === 409,
+  );
+  const detail = await service.read(author, draft.id);
+  assert.equal(detail.comments.length, 2);
+  assert.equal(detail.canResolveComments, true);
+});
+
+test("authors attach materials within limits and secretaries keep the history", async () => {
+  const { service, attachments } = createHarness();
+  const author = profile("author", "participant");
+  const draft = await service.create(author, { card: card() });
+  const pdf = Buffer.from("%PDF-1.7 расчёт");
+
+  await assert.rejects(
+    service.prepareFileUpload(profile("other", "participant"), draft.id, "a.pdf", 10),
+    (error) => error instanceof CollegiumInitiativeError && error.status === 404,
+  );
+  await assert.rejects(
+    service.prepareFileUpload(author, draft.id, "a.pdf", 11 * 1024 * 1024),
+    (error) => error instanceof CollegiumInitiativeError && error.status === 413,
+  );
+  assert.equal(await service.prepareFileUpload(author, draft.id, " Расчёт.pdf", pdf.length), "Расчёт.pdf");
+  const file = await service.addFile(author, draft.id, "Расчёт.pdf", pdf);
+  assert.equal(file.fileType, "pdf");
+  assert.equal(file.sizeBytes, pdf.length);
+  await service.addLink(author, draft.id, { url: "https://drive.google.com/x", label: "Данные ОТК" });
+
+  const downloaded = await service.readFile(profile("secretary", "secretary"), draft.id, file.id);
+  assert.equal(downloaded.contentType, "application/pdf");
+  assert.deepEqual(downloaded.content, pdf);
+  const detail = await service.read(author, draft.id);
+  assert.deepEqual(detail.attachments.map(({ label }) => label), ["Расчёт.pdf", "Данные ОТК"]);
+  assert.equal(detail.canAttach, true);
+
+  await service.deleteAttachment(author, draft.id, file.id);
+  assert.deepEqual((await service.read(author, draft.id)).attachments.map(({ label }) => label), ["Данные ОТК"]);
+  // Soft delete: the stored file stays for history.
+  assert.ok(attachments.get(file.id)?.deleted);
+
+  // The total size limit counts the stored files.
+  for (const entry of attachments.values()) entry.attachment.sizeBytes ??= 0;
+  attachments.set("big", { ownerId: draft.id, attachment: { id: "big", kind: "file", label: "big.pdf", fileType: "pdf", sizeBytes: 45 * 1024 * 1024, createdByDisplayName: "x", createdAt: "2026-10-05T09:00:00.000Z" }, deleted: false });
+  await assert.rejects(
+    service.addFile(author, draft.id, "Ещё.pdf", Buffer.concat([pdf, Buffer.alloc(6 * 1024 * 1024)])),
+    (error) => error instanceof CollegiumInitiativeError && error.status === 413,
+  );
 });

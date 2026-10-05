@@ -2,8 +2,11 @@ import type { ResultSetHeader, RowDataPacket } from "mysql2/promise";
 import type { DatabasePool } from "../db/pool.js";
 import {
   collegiumInitiativesNavigationItem,
+  type CollegiumAttachment,
+  type CollegiumAttachmentFileType,
   collegiumReferenceKinds,
   type CollegiumInitiative,
+  type CollegiumInitiativeComment,
   type CollegiumInitiativeRevision,
   type CollegiumPerson,
   type CollegiumReference,
@@ -18,9 +21,35 @@ type InitiativeRow = RowDataPacket & {
   revision: number;
   created_by_user_id: string;
   payload: string | object;
+  workflow: string | object | null;
   created_at: Date | string;
   updated_at: Date | string;
 };
+
+type CommentRow = RowDataPacket & {
+  id: string;
+  kind: CollegiumInitiativeComment["kind"];
+  text: string;
+  author_user_id: string;
+  author_display_name: string;
+  created_at: Date | string;
+  resolved_at: Date | string | null;
+  resolved_by_display_name: string | null;
+};
+
+type AttachmentRow = RowDataPacket & {
+  id: string;
+  kind: CollegiumAttachment["kind"];
+  label: string;
+  file_name: string | null;
+  file_type: CollegiumAttachmentFileType | null;
+  size_bytes: number | null;
+  url: string | null;
+  created_by_display_name: string;
+  created_at: Date | string;
+};
+
+export type CollegiumAttachmentOwner = { type: "initiative" | "meeting"; id: string };
 
 type RevisionRow = RowDataPacket & {
   revision: number;
@@ -138,7 +167,7 @@ export function createCollegiumInitiativesRepository(pool: DatabasePool) {
     async list(): Promise<CollegiumInitiative[]> {
       const [rows] = await pool.query<InitiativeRow[]>(
         `select id, number, status, revision, created_by_user_id, payload,
-          created_at, updated_at
+          workflow, created_at, updated_at
          from collegium_initiatives
          order by created_at desc, sequence_id desc`,
       );
@@ -148,7 +177,7 @@ export function createCollegiumInitiativesRepository(pool: DatabasePool) {
     async read(id: string, lock = false) {
       const [rows] = await pool.query<InitiativeRow[]>(
         `select id, number, status, revision, created_by_user_id, payload,
-          created_at, updated_at
+          workflow, created_at, updated_at
          from collegium_initiatives where id = ? ${lock ? "for update" : ""}`,
         [id],
       );
@@ -158,8 +187,9 @@ export function createCollegiumInitiativesRepository(pool: DatabasePool) {
     async insert(initiative: CollegiumInitiative) {
       await pool.query(
         `insert into collegium_initiatives
-          (id, number, status, revision, created_by_user_id, payload, created_at, updated_at)
-         values (?, ?, ?, ?, ?, ?, ?, ?)`,
+          (id, number, status, revision, created_by_user_id, payload, workflow,
+            created_at, updated_at)
+         values (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           initiative.id,
           initiative.number,
@@ -167,6 +197,7 @@ export function createCollegiumInitiativesRepository(pool: DatabasePool) {
           initiative.revision,
           initiative.createdByUserId,
           JSON.stringify(initiative.card),
+          JSON.stringify(initiative.workflow),
           new Date(initiative.createdAt),
           new Date(initiative.updatedAt),
         ],
@@ -177,12 +208,13 @@ export function createCollegiumInitiativesRepository(pool: DatabasePool) {
     async update(initiative: CollegiumInitiative, expectedRevision: number) {
       const [result] = await pool.query<ResultSetHeader>(
         `update collegium_initiatives
-         set status = ?, revision = ?, payload = ?, updated_at = ?
+         set status = ?, revision = ?, payload = ?, workflow = ?, updated_at = ?
          where id = ? and revision = ?`,
         [
           initiative.status,
           initiative.revision,
           JSON.stringify(initiative.card),
+          JSON.stringify(initiative.workflow),
           new Date(initiative.updatedAt),
           initiative.id,
           expectedRevision,
@@ -204,6 +236,153 @@ export function createCollegiumInitiativesRepository(pool: DatabasePool) {
          values (?, ?, ?, ?, ?)`,
         [id, initiativeId, revision.revision, JSON.stringify(payload), createdAt],
       );
+    },
+
+    async listComments(initiativeId: string): Promise<CollegiumInitiativeComment[]> {
+      const [rows] = await pool.query<CommentRow[]>(
+        `select id, kind, text, author_user_id, author_display_name, created_at,
+          resolved_at, resolved_by_display_name
+         from collegium_initiative_comments
+         where initiative_id = ? order by sequence_id`,
+        [initiativeId],
+      );
+      return rows.map(mapComment);
+    },
+
+    async readComment(initiativeId: string, commentId: string, lock = false) {
+      const [rows] = await pool.query<CommentRow[]>(
+        `select id, kind, text, author_user_id, author_display_name, created_at,
+          resolved_at, resolved_by_display_name
+         from collegium_initiative_comments
+         where initiative_id = ? and id = ? ${lock ? "for update" : ""}`,
+        [initiativeId, commentId],
+      );
+      return rows[0] === undefined ? undefined : mapComment(rows[0]);
+    },
+
+    async insertComment(initiativeId: string, comment: CollegiumInitiativeComment) {
+      await pool.query(
+        `insert into collegium_initiative_comments
+          (id, initiative_id, kind, text, author_user_id, author_display_name, created_at)
+         values (?, ?, ?, ?, ?, ?, ?)`,
+        [
+          comment.id,
+          initiativeId,
+          comment.kind,
+          comment.text,
+          comment.authorUserId,
+          comment.authorDisplayName,
+          new Date(comment.createdAt),
+        ],
+      );
+    },
+
+    /** Only the resolution mark changes; an already resolved comment stays as is. */
+    async resolveComment(
+      initiativeId: string,
+      commentId: string,
+      resolvedAt: Date,
+      resolvedByDisplayName: string,
+    ) {
+      const [result] = await pool.query<ResultSetHeader>(
+        `update collegium_initiative_comments
+         set resolved_at = ?, resolved_by_display_name = ?
+         where initiative_id = ? and id = ? and resolved_at is null`,
+        [resolvedAt, resolvedByDisplayName, initiativeId, commentId],
+      );
+      return result.affectedRows === 1;
+    },
+
+    async listAttachments(owner: CollegiumAttachmentOwner): Promise<CollegiumAttachment[]> {
+      const [rows] = await pool.query<AttachmentRow[]>(
+        `select id, kind, label, file_name, file_type, size_bytes, url,
+          created_by_display_name, created_at
+         from collegium_attachments
+         where owner_type = ? and owner_id = ? and deleted_at is null
+         order by sequence_id`,
+        [owner.type, owner.id],
+      );
+      return rows.map(mapAttachment);
+    },
+
+    async readAttachment(owner: CollegiumAttachmentOwner, attachmentId: string, lock = false) {
+      const [rows] = await pool.query<AttachmentRow[]>(
+        `select id, kind, label, file_name, file_type, size_bytes, url,
+          created_by_display_name, created_at
+         from collegium_attachments
+         where owner_type = ? and owner_id = ? and id = ? and deleted_at is null
+         ${lock ? "for update" : ""}`,
+        [owner.type, owner.id, attachmentId],
+      );
+      return rows[0] === undefined ? undefined : mapAttachment(rows[0]);
+    },
+
+    async readAttachmentContent(attachmentId: string) {
+      const [rows] = await pool.query<(RowDataPacket & { content: Buffer })[]>(
+        "select content from collegium_attachment_contents where attachment_id = ?",
+        [attachmentId],
+      );
+      return rows[0]?.content;
+    },
+
+    /** Count and bytes of live attachments; callers hold the owner row lock. */
+    async readAttachmentUsage(owner: CollegiumAttachmentOwner) {
+      const [rows] = await pool.query<(RowDataPacket & { items: number; bytes: number | null })[]>(
+        `select count(*) as items, coalesce(sum(size_bytes), 0) as bytes
+         from collegium_attachments
+         where owner_type = ? and owner_id = ? and deleted_at is null`,
+        [owner.type, owner.id],
+      );
+      return { items: Number(rows[0]?.items ?? 0), bytes: Number(rows[0]?.bytes ?? 0) };
+    },
+
+    async insertAttachment(
+      owner: CollegiumAttachmentOwner,
+      attachment: CollegiumAttachment & { createdByUserId: string },
+      content?: Buffer,
+    ) {
+      await pool.query(
+        `insert into collegium_attachments
+          (id, owner_type, owner_id, kind, label, file_name, file_type, size_bytes, url,
+            created_by_user_id, created_by_display_name, created_at)
+         values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          attachment.id,
+          owner.type,
+          owner.id,
+          attachment.kind,
+          attachment.label,
+          attachment.fileName ?? null,
+          attachment.fileType ?? null,
+          attachment.sizeBytes ?? null,
+          attachment.url ?? null,
+          attachment.createdByUserId,
+          attachment.createdByDisplayName,
+          new Date(attachment.createdAt),
+        ],
+      );
+      if (content !== undefined) {
+        await pool.query(
+          "insert into collegium_attachment_contents (attachment_id, content) values (?, ?)",
+          [attachment.id, content],
+        );
+      }
+    },
+
+    /** Soft delete: the row and the file stay for history and decided agenda items. */
+    async deleteAttachment(
+      owner: CollegiumAttachmentOwner,
+      attachmentId: string,
+      deletedAt: Date,
+      deletedByDisplayName: string,
+    ) {
+      const [result] = await pool.query<ResultSetHeader>(
+        `update collegium_attachments
+         set deleted_at = ?, deleted_by_display_name = ?
+         where owner_type = ? and owner_id = ? and id = ? and deleted_at is null`,
+        [deletedAt, deletedByDisplayName, owner.type, owner.id, attachmentId],
+      );
+      return result.affectedRows === 1;
     },
 
     async listRevisions(initiativeId: string): Promise<CollegiumInitiativeRevision[]> {
@@ -232,9 +411,43 @@ function mapInitiative(row: InitiativeRow): CollegiumInitiative {
     status: row.status,
     revision: Number(row.revision),
     card: readJson(row.payload),
+    workflow: row.workflow === null || row.workflow === undefined
+      ? {}
+      : readJson(row.workflow),
     createdByUserId: row.created_by_user_id,
     createdAt: toIsoString(row.created_at),
     updatedAt: toIsoString(row.updated_at),
+  };
+}
+
+function mapAttachment(row: AttachmentRow): CollegiumAttachment {
+  return {
+    id: row.id,
+    kind: row.kind,
+    label: row.label,
+    ...(row.file_name === null ? {} : { fileName: row.file_name }),
+    ...(row.file_type === null ? {} : { fileType: row.file_type }),
+    ...(row.size_bytes === null ? {} : { sizeBytes: Number(row.size_bytes) }),
+    ...(row.url === null ? {} : { url: row.url }),
+    createdByDisplayName: row.created_by_display_name,
+    createdAt: toIsoString(row.created_at),
+  };
+}
+
+function mapComment(row: CommentRow): CollegiumInitiativeComment {
+  return {
+    id: row.id,
+    kind: row.kind,
+    text: row.text,
+    authorUserId: row.author_user_id,
+    authorDisplayName: row.author_display_name,
+    createdAt: toIsoString(row.created_at),
+    ...(row.resolved_at === null
+      ? {}
+      : {
+          resolvedAt: toIsoString(row.resolved_at),
+          resolvedByDisplayName: row.resolved_by_display_name ?? "",
+        }),
   };
 }
 

@@ -1,12 +1,33 @@
 import { randomUUID } from "node:crypto";
 import {
+  collegiumAttachmentFileTypes,
+  collegiumAttachmentLimits,
+  collegiumCommentKinds,
+  collegiumInitiativeActionLabels,
   collegiumInitiativeFieldLabels,
   collegiumInitiativeRoleFields,
+  collegiumInitiativeStatusLabels,
+  type CollegiumAttachment,
+  type CollegiumCommentKind,
   type CollegiumInitiative,
   type CollegiumInitiativeCard,
+  type CollegiumInitiativeComment,
   type CollegiumInitiativeDetailResponse,
   type CollegiumInitiativeListResponse,
+  type CollegiumInitiativePermissions,
+  type CollegiumPerson,
 } from "../contracts/collegiumInitiatives.js";
+import {
+  listAvailableCollegiumActions,
+  listCollegiumAdmissionGaps,
+  planCollegiumAction,
+  readCollegiumActionRequest,
+} from "./collegiumInitiativeWorkflow.js";
+import {
+  detectCollegiumAttachmentType,
+  readCollegiumAttachmentFileName,
+  readCollegiumAttachmentLink,
+} from "./collegiumAttachment.js";
 import type { DatabaseTransactionRunner } from "../db/transactionContext.js";
 import type { AuditRepository } from "../repositories/auditRepository.js";
 import type { CollegiumInitiativesRepository } from "../repositories/collegiumInitiativesRepository.js";
@@ -17,6 +38,7 @@ import {
   collegiumAccountId,
   collegiumInitiativePermissions,
   CollegiumInitiativeError,
+  isOwnCollegiumInitiative,
   listChangedCollegiumFields,
   readCollegiumInitiativeCardInput,
   readCollegiumOptionalText,
@@ -24,6 +46,7 @@ import {
 
 const maxReasonLength = 500;
 const maxCommentLength = 2000;
+const maxDiscussionCommentLength = 4000;
 
 export function createCollegiumInitiativesService({
   repository,
@@ -36,6 +59,7 @@ export function createCollegiumInitiativesService({
   audit: AuditRepository;
   now?: () => Date;
 }) {
+  const today = () => new Intl.DateTimeFormat("sv-SE", { timeZone: "Europe/Moscow" }).format(now());
   const moscowYear = () => Number(
     new Intl.DateTimeFormat("en-US", { timeZone: "Europe/Moscow", year: "numeric" })
       .format(now()),
@@ -90,9 +114,17 @@ export function createCollegiumInitiativesService({
 
   function recordAudit(
     profile: ServerUserProfile,
-    action: "collegium_initiative.create" | "collegium_initiative.update",
+    action:
+      | "collegium_initiative.create"
+      | "collegium_initiative.update"
+      | "collegium_initiative.transition"
+      | "collegium_initiative.comment"
+      | "collegium_initiative.comment_resolve"
+      | "collegium_initiative.attachment_add"
+      | "collegium_initiative.attachment_delete",
     initiative: CollegiumInitiative,
-    changedFields: readonly string[],
+    summary: string,
+    details: Array<{ label: string; value: string }> = [],
   ) {
     return audit.record({
       actor: {
@@ -103,18 +135,67 @@ export function createCollegiumInitiativesService({
       },
       category: "data_change",
       action,
-      summary: action === "collegium_initiative.create"
-        ? `Создана инициатива ${initiative.number}`
-        : `Изменена инициатива ${initiative.number}`,
-      details: [
-        { label: "Инициатива", value: initiative.card.title },
-        ...(changedFields.length === 0
-          ? []
-          : [{ label: "Изменённые поля", value: changedFields.join(", ") }]),
-      ],
+      summary,
+      details: [{ label: "Инициатива", value: initiative.card.title }, ...details],
       targetType: "collegium_initiative",
       targetId: initiative.id,
     });
+  }
+
+  async function readRolePeople(card: CollegiumInitiativeCard, lock = false) {
+    const people = new Map<string, CollegiumPerson | undefined>();
+    for (const field of collegiumInitiativeRoleFields) {
+      const accountId = card[field];
+      if (accountId !== "" && !people.has(accountId)) {
+        people.set(accountId, await repository.readPerson(accountId, lock));
+      }
+    }
+    return people;
+  }
+
+  /**
+   * Автор и владелец прикладывают материалы, пока идея не вынесена в повестку;
+   * секретарь — в любой момент до закрытия.
+   */
+  function canAttach(
+    initiative: CollegiumInitiative,
+    profile: ServerUserProfile,
+    permissions: CollegiumInitiativePermissions,
+  ) {
+    if (initiative.status === "closed") return false;
+    if (permissions.canManage) return true;
+    return permissions.canParticipate &&
+      isOwnCollegiumInitiative(initiative, profile.userId) &&
+      ["draft", "preliminary_review", "rework", "ready", "needs_elaboration"].includes(initiative.status);
+  }
+
+  async function requireAttachRights(profile: ServerUserProfile, id: string, lock: boolean) {
+    const found = await requireInitiative(profile, id, lock);
+    if (!canAttach(found.initiative, profile, found.permissions)) {
+      throw new CollegiumInitiativeError("Прикладывать материалы к этой инициативе нельзя.", 403);
+    }
+    return found;
+  }
+
+  async function assertAttachmentRoom(id: string, addedBytes: number) {
+    const usage = await repository.readAttachmentUsage({ type: "initiative", id });
+    if (usage.items >= collegiumAttachmentLimits.maxOwnerItems) {
+      throw new CollegiumInitiativeError(
+        `К карточке можно приложить не больше ${collegiumAttachmentLimits.maxOwnerItems} материалов.`,
+      );
+    }
+    if (usage.bytes + addedBytes > collegiumAttachmentLimits.maxOwnerBytes) {
+      throw new CollegiumInitiativeError("Общий объём файлов карточки не должен превышать 50 МБ.", 413);
+    }
+  }
+
+  function canResolveComments(
+    initiative: CollegiumInitiative,
+    profile: ServerUserProfile,
+    permissions: CollegiumInitiativePermissions,
+  ) {
+    return permissions.canManage ||
+      (permissions.canParticipate && isOwnCollegiumInitiative(initiative, profile.userId));
   }
 
   return {
@@ -139,10 +220,23 @@ export function createCollegiumInitiativesService({
       id: string,
     ): Promise<CollegiumInitiativeDetailResponse> {
       const { initiative, permissions } = await requireInitiative(profile, id);
+      const [revisions, comments, attachments, people] = await Promise.all([
+        repository.listRevisions(id),
+        repository.listComments(id),
+        repository.listAttachments({ type: "initiative", id }),
+        readRolePeople(initiative.card),
+      ]);
       return {
         initiative,
-        revisions: await repository.listRevisions(id),
+        revisions,
+        comments,
+        attachments,
         canEdit: canEditCollegiumInitiative(initiative, profile, permissions),
+        canAttach: canAttach(initiative, profile, permissions),
+        canComment: permissions.canParticipate && initiative.status !== "closed",
+        canResolveComments: canResolveComments(initiative, profile, permissions),
+        actions: listAvailableCollegiumActions(initiative, profile.userId, permissions),
+        missingAdmissionFields: listCollegiumAdmissionGaps(initiative.card, people),
       };
     },
 
@@ -170,6 +264,7 @@ export function createCollegiumInitiativesService({
           status: "draft",
           revision: 1,
           card,
+          workflow: {},
           createdByUserId: profile.userId,
           createdAt: createdAt.toISOString(),
           updatedAt: createdAt.toISOString(),
@@ -186,7 +281,12 @@ export function createCollegiumInitiativesService({
           comment: request.comment,
           card,
         });
-        await recordAudit(profile, "collegium_initiative.create", initiative, []);
+        await recordAudit(
+          profile,
+          "collegium_initiative.create",
+          initiative,
+          `Создана инициатива ${initiative.number}`,
+        );
         return initiative;
       });
     },
@@ -242,9 +342,261 @@ export function createCollegiumInitiativesService({
           profile,
           "collegium_initiative.update",
           updated,
-          changedFields.map((field) => collegiumInitiativeFieldLabels[field]),
+          `Изменена инициатива ${updated.number}`,
+          [{
+            label: "Изменённые поля",
+            value: changedFields.map((field) => collegiumInitiativeFieldLabels[field]).join(", "),
+          }],
         );
         return updated;
+      });
+    },
+
+    async act(profile: ServerUserProfile, id: string, body: unknown) {
+      const request = readCollegiumActionRequest(body, today());
+      return transaction.run(async () => {
+        const { initiative, permissions } = await requireInitiative(profile, id, true);
+        if (initiative.revision !== request.revision) {
+          throw new CollegiumInitiativeError("Инициатива уже изменена. Обновите карточку.", 409);
+        }
+        const toStatus = planCollegiumAction(initiative, request.action, profile.userId, permissions);
+        if (request.action === "admit") {
+          const gaps = listCollegiumAdmissionGaps(
+            initiative.card,
+            await readRolePeople(initiative.card, true),
+          );
+          if (gaps.length > 0) {
+            throw new CollegiumInitiativeError(
+              `Не заполнены обязательные данные: ${gaps.join("; ")}.`,
+            );
+          }
+        }
+        const changedAt = now();
+        const workflow = { ...initiative.workflow };
+        if (request.action === "suspend") workflow.suspendedFrom = initiative.status;
+        if (request.action === "resume") delete workflow.suspendedFrom;
+        if (request.rework !== undefined) {
+          const responsible = await repository.readPerson(request.rework.responsibleId, true);
+          if (responsible === undefined) {
+            throw new CollegiumInitiativeError("Ответственный за доработку должен быть действующей учётной записью.");
+          }
+          workflow.rework = {
+            ...request.rework,
+            requestedByDisplayName: profile.displayName,
+            requestedAt: changedAt.toISOString(),
+          };
+          for (const remark of request.rework.remarks) {
+            await repository.insertComment(initiative.id, {
+              id: randomUUID(),
+              kind: "remark",
+              text: remark,
+              authorUserId: profile.userId,
+              authorDisplayName: profile.displayName,
+              createdAt: changedAt.toISOString(),
+            });
+          }
+        }
+        const updated: CollegiumInitiative = {
+          ...initiative,
+          status: toStatus,
+          workflow,
+          revision: initiative.revision + 1,
+          updatedAt: changedAt.toISOString(),
+        };
+        await repository.update(updated, initiative.revision);
+        await repository.insertRevision(initiative.id, {
+          id: randomUUID(),
+          revision: updated.revision,
+          createdAt: changedAt,
+          authorDisplayName: profile.displayName,
+          status: toStatus,
+          changedFields: [],
+          reason: collegiumInitiativeActionLabels[request.action],
+          comment: request.comment,
+          card: initiative.card,
+          event: { action: request.action, fromStatus: initiative.status, toStatus },
+        });
+        await recordAudit(
+          profile,
+          "collegium_initiative.transition",
+          updated,
+          `${collegiumInitiativeActionLabels[request.action]}: инициатива ${updated.number}`,
+          [
+            { label: "Было", value: collegiumInitiativeStatusLabels[initiative.status] },
+            { label: "Стало", value: collegiumInitiativeStatusLabels[toStatus] },
+            ...(request.comment === "" ? [] : [{ label: "Комментарий", value: request.comment }]),
+          ],
+        );
+        return updated;
+      });
+    },
+
+    async comment(profile: ServerUserProfile, id: string, body: unknown) {
+      const { kind, text } = readCommentRequest(body);
+      return transaction.run(async () => {
+        const { initiative, permissions } = await requireInitiative(profile, id, true);
+        if (!permissions.canParticipate || initiative.status === "closed") {
+          throw new CollegiumInitiativeError("Комментировать эту инициативу нельзя.", 403);
+        }
+        if (kind === "remark" && !permissions.canManage) {
+          throw new CollegiumInitiativeError("Замечания оставляет секретарь или председатель.", 403);
+        }
+        const comment: CollegiumInitiativeComment = {
+          id: randomUUID(),
+          kind,
+          text,
+          authorUserId: profile.userId,
+          authorDisplayName: profile.displayName,
+          createdAt: now().toISOString(),
+        };
+        await repository.insertComment(initiative.id, comment);
+        await recordAudit(
+          profile,
+          "collegium_initiative.comment",
+          initiative,
+          `Комментарий к инициативе ${initiative.number}`,
+        );
+        return comment;
+      });
+    },
+
+    /**
+     * Проверка до чтения тела: права, статус и лимиты по заявленному размеру,
+     * чтобы чужой или лишний файл не загружался на сервер целиком.
+     */
+    async prepareFileUpload(
+      profile: ServerUserProfile,
+      id: string,
+      rawFileName: string | null,
+      declaredBytes: number,
+    ) {
+      const fileName = readCollegiumAttachmentFileName(rawFileName);
+      await requireAttachRights(profile, id, false);
+      if (Number.isFinite(declaredBytes) && declaredBytes > collegiumAttachmentLimits.maxFileBytes) {
+        throw new CollegiumInitiativeError("Размер одного файла не должен превышать 10 МБ.", 413);
+      }
+      await assertAttachmentRoom(id, Number.isFinite(declaredBytes) ? declaredBytes : 0);
+      return fileName;
+    },
+
+    async addFile(profile: ServerUserProfile, id: string, fileName: string, content: Buffer) {
+      const fileType = detectCollegiumAttachmentType(fileName, content);
+      return transaction.run(async () => {
+        const { initiative } = await requireAttachRights(profile, id, true);
+        await assertAttachmentRoom(id, content.length);
+        const attachment: CollegiumAttachment = {
+          id: randomUUID(),
+          kind: "file",
+          label: fileName,
+          fileName,
+          fileType,
+          sizeBytes: content.length,
+          createdByDisplayName: profile.displayName,
+          createdAt: now().toISOString(),
+        };
+        await repository.insertAttachment(
+          { type: "initiative", id },
+          { ...attachment, createdByUserId: profile.userId },
+          content,
+        );
+        await recordAudit(
+          profile,
+          "collegium_initiative.attachment_add",
+          initiative,
+          `Приложен файл к инициативе ${initiative.number}`,
+          [{ label: "Файл", value: fileName }],
+        );
+        return attachment;
+      });
+    },
+
+    async addLink(profile: ServerUserProfile, id: string, body: unknown) {
+      const link = readCollegiumAttachmentLink(body);
+      return transaction.run(async () => {
+        const { initiative } = await requireAttachRights(profile, id, true);
+        await assertAttachmentRoom(id, 0);
+        const attachment: CollegiumAttachment = {
+          id: randomUUID(),
+          kind: "link",
+          label: link.label,
+          url: link.url,
+          createdByDisplayName: profile.displayName,
+          createdAt: now().toISOString(),
+        };
+        await repository.insertAttachment(
+          { type: "initiative", id },
+          { ...attachment, createdByUserId: profile.userId },
+        );
+        await recordAudit(
+          profile,
+          "collegium_initiative.attachment_add",
+          initiative,
+          `Приложена ссылка к инициативе ${initiative.number}`,
+          [{ label: "Ссылка", value: link.label }],
+        );
+        return attachment;
+      });
+    },
+
+    async readFile(profile: ServerUserProfile, id: string, attachmentId: string) {
+      await requireInitiative(profile, id);
+      const attachment = await repository.readAttachment({ type: "initiative", id }, attachmentId);
+      if (attachment?.kind !== "file" || attachment.fileType === undefined) {
+        throw new CollegiumInitiativeError("Файл не найден.", 404);
+      }
+      const content = await repository.readAttachmentContent(attachmentId);
+      if (content === undefined) throw new CollegiumInitiativeError("Файл не найден.", 404);
+      return {
+        fileName: attachment.fileName ?? attachment.label,
+        contentType: collegiumAttachmentFileTypes[attachment.fileType].contentType,
+        content,
+      };
+    },
+
+    async deleteAttachment(profile: ServerUserProfile, id: string, attachmentId: string) {
+      return transaction.run(async () => {
+        const { initiative } = await requireAttachRights(profile, id, true);
+        const attachment = await repository.readAttachment({ type: "initiative", id }, attachmentId, true);
+        if (attachment === undefined) throw new CollegiumInitiativeError("Материал не найден.", 404);
+        await repository.deleteAttachment({ type: "initiative", id }, attachmentId, now(), profile.displayName);
+        await recordAudit(
+          profile,
+          "collegium_initiative.attachment_delete",
+          initiative,
+          `Удалён материал инициативы ${initiative.number}`,
+          [{ label: "Материал", value: attachment.label }],
+        );
+      });
+    },
+
+    async resolveComment(profile: ServerUserProfile, id: string, commentId: string) {
+      return transaction.run(async () => {
+        const { initiative, permissions } = await requireInitiative(profile, id, true);
+        if (!canResolveComments(initiative, profile, permissions)) {
+          throw new CollegiumInitiativeError("Отметить устранение может автор, владелец или секретарь.", 403);
+        }
+        const comment = await repository.readComment(id, commentId, true);
+        if (comment === undefined) {
+          throw new CollegiumInitiativeError("Комментарий не найден.", 404);
+        }
+        if (comment.kind === "comment") {
+          throw new CollegiumInitiativeError("Устранёнными отмечаются только вопросы и замечания.");
+        }
+        const resolvedAt = now();
+        if (!await repository.resolveComment(id, commentId, resolvedAt, profile.displayName)) {
+          throw new CollegiumInitiativeError("Замечание уже отмечено устранённым.", 409);
+        }
+        await recordAudit(
+          profile,
+          "collegium_initiative.comment_resolve",
+          initiative,
+          `Отмечено устранение по инициативе ${initiative.number}`,
+        );
+        return {
+          ...comment,
+          resolvedAt: resolvedAt.toISOString(),
+          resolvedByDisplayName: profile.displayName,
+        };
       });
     },
   };
@@ -253,6 +605,22 @@ export function createCollegiumInitiativesService({
 export type CollegiumInitiativesService = ReturnType<
   typeof createCollegiumInitiativesService
 >;
+
+function readCommentRequest(body: unknown): { kind: CollegiumCommentKind; text: string } {
+  if (typeof body !== "object" || body === null || Array.isArray(body)) {
+    throw new CollegiumInitiativeError("Передайте комментарий.");
+  }
+  const record = body as Record<string, unknown>;
+  if (Object.keys(record).some((key) => key !== "kind" && key !== "text")) {
+    throw new CollegiumInitiativeError("Запрос содержит неизвестные поля.");
+  }
+  if (!(collegiumCommentKinds as readonly unknown[]).includes(record.kind)) {
+    throw new CollegiumInitiativeError("Выберите вид комментария.");
+  }
+  const text = readCollegiumOptionalText(record.text, maxDiscussionCommentLength, "Комментарий");
+  if (text === "") throw new CollegiumInitiativeError("Напишите текст комментария.");
+  return { kind: record.kind as CollegiumCommentKind, text };
+}
 
 function readSaveRequest(body: unknown) {
   if (typeof body !== "object" || body === null || Array.isArray(body)) {

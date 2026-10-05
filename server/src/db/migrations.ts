@@ -4580,6 +4580,65 @@ const migrations: Migration[] = [
           values (${sqlString(kind)}, ${sqlString(code)}, ${sqlString(label)}, ${index});`),
     ],
   },
+  {
+    /**
+     * Задача 135, срез 2: служебное состояние маршрута (откуда приостановлена,
+     * последний запрос доработки) и комментарии к карточке. Комментарии не
+     * редактируются и не удаляются; меняется только отметка «устранено».
+     */
+    id: "091_collegium_initiative_workflow",
+    statements: [
+      `alter table collegium_initiatives
+        add column workflow longtext null check (workflow is null or json_valid(workflow));`,
+      `create table if not exists collegium_initiative_comments (
+        sequence_id bigint unsigned not null auto_increment primary key,
+        id varchar(100) not null,
+        initiative_id varchar(100) not null,
+        kind varchar(20) not null,
+        text text not null,
+        author_user_id varchar(100) not null,
+        author_display_name varchar(255) not null,
+        created_at timestamp(3) not null,
+        resolved_at timestamp(3) null,
+        resolved_by_display_name varchar(255) null,
+        unique key uniq_collegium_comment_id (id),
+        key idx_collegium_comment_initiative (initiative_id, sequence_id)
+      ) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci;`,
+    ],
+  },
+  {
+    /**
+     * Задача 135, срез 2: вложения инициатив (а затем заседаний). Метаданные и
+     * содержимое разделены, чтобы списки не читали файлы; удаление мягкое —
+     * материалы, по которым принималось решение, физически не удаляются.
+     */
+    id: "092_collegium_attachments",
+    statements: [
+      `create table if not exists collegium_attachments (
+        sequence_id bigint unsigned not null auto_increment primary key,
+        id varchar(100) not null,
+        owner_type varchar(20) not null,
+        owner_id varchar(100) not null,
+        kind varchar(10) not null,
+        label varchar(255) not null,
+        file_name varchar(255) null,
+        file_type varchar(10) null,
+        size_bytes int unsigned null,
+        url varchar(2000) null,
+        created_by_user_id varchar(100) not null,
+        created_by_display_name varchar(255) not null,
+        created_at timestamp(3) not null,
+        deleted_at timestamp(3) null,
+        deleted_by_display_name varchar(255) null,
+        unique key uniq_collegium_attachment_id (id),
+        key idx_collegium_attachment_owner (owner_type, owner_id, sequence_id)
+      ) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci;`,
+      `create table if not exists collegium_attachment_contents (
+        attachment_id varchar(100) not null primary key,
+        content mediumblob not null
+      ) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci;`,
+    ],
+  },
 ];
 
 function removePositionJsonValue(

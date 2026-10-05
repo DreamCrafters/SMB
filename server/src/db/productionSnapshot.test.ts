@@ -9,6 +9,7 @@ import {
   ProductionSnapshotSchemaMismatchError,
   type DatabaseSnapshot,
   type DatabaseSnapshotStore,
+  planSnapshotInsertBatches,
 } from "./productionSnapshot.js";
 
 function buildSnapshot({
@@ -285,3 +286,25 @@ function buildAtomicReplacementConnection(
     release() { calls.push("release"); },
   } as unknown as PoolConnection;
 }
+
+test("snapshot insert batches stay under the byte limit even with large files", () => {
+  const file = Buffer.alloc(3 * 1024 * 1024);
+  const rows = [
+    ["a", file],
+    ["b", file],
+    ["c", "small"],
+    ["d", Buffer.alloc(9 * 1024 * 1024)],
+    ["e", "small"],
+  ];
+  const batches = planSnapshotInsertBatches(rows, 250, 8 * 1024 * 1024);
+  // A 3 MB file counts double as escaped SQL, so two never share a batch;
+  // an oversized row goes alone instead of failing the whole table.
+  assert.deepEqual(batches.map((batch) => batch.map((row) => row[0])), [
+    ["a"], ["b", "c"], ["d"], ["e"],
+  ]);
+  assert.deepEqual(
+    planSnapshotInsertBatches([["x"], ["y"], ["z"]], 2).map((batch) => batch.length),
+    [2, 1],
+  );
+  assert.deepEqual(planSnapshotInsertBatches([], 10), []);
+});

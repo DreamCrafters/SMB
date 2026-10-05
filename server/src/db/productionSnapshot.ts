@@ -342,8 +342,7 @@ async function insertSnapshotRows(
   );
   const columnSql = table.columns.map(quoteIdentifier).join(", ");
 
-  for (let offset = 0; offset < table.rows.length; offset += batchSize) {
-    const batch = table.rows.slice(offset, offset + batchSize);
+  for (const batch of planSnapshotInsertBatches(table.rows, batchSize)) {
     const rowPlaceholder = `(${table.columns.map(() => "?").join(", ")})`;
     const valuesSql = batch.map(() => rowPlaceholder).join(", ");
 
@@ -352,6 +351,44 @@ async function insertSnapshotRows(
       batch.flat(),
     );
   }
+}
+
+/**
+ * Пачки вставки ограничены и числом строк, и объёмом: файлы в БД (вложения
+ * инициатив, PDF поручений) иначе собирают один запрос больше
+ * `max_allowed_packet`. Строка крупнее лимита вставляется отдельно.
+ */
+export const maxSnapshotInsertBatchBytes = 4 * 1024 * 1024;
+
+export function planSnapshotInsertBatches(
+  rows: readonly unknown[][],
+  maxRows: number,
+  maxBytes = maxSnapshotInsertBatchBytes,
+): unknown[][][] {
+  const batches: unknown[][][] = [];
+  let current: unknown[][] = [];
+  let currentBytes = 0;
+  for (const row of rows) {
+    const rowBytes = row.reduce<number>((total, value) => total + estimateSnapshotValueBytes(value), 0);
+    if (current.length > 0 && (current.length >= maxRows || currentBytes + rowBytes > maxBytes)) {
+      batches.push(current);
+      current = [];
+      currentBytes = 0;
+    }
+    current.push(row);
+    currentBytes += rowBytes;
+  }
+  if (current.length > 0) batches.push(current);
+  return batches;
+}
+
+function estimateSnapshotValueBytes(value: unknown) {
+  if (value === null || value === undefined) return 4;
+  if (Buffer.isBuffer(value)) return value.length * 2 + 4;
+  if (typeof value === "string") return Buffer.byteLength(value, "utf8") * 2 + 2;
+  if (value instanceof Date) return 32;
+  if (typeof value === "object") return Buffer.byteLength(JSON.stringify(value), "utf8") * 2 + 2;
+  return 24;
 }
 
 async function verifySnapshotRows(

@@ -277,6 +277,7 @@ export type CollegiumInitiative = {
   status: CollegiumInitiativeStatus;
   revision: number;
   card: CollegiumInitiativeCard;
+  workflow: CollegiumInitiativeWorkflow;
   createdByUserId: string;
   createdAt: string;
   updatedAt: string;
@@ -291,6 +292,8 @@ export type CollegiumInitiativeRevision = {
   reason: string;
   comment: string;
   card: CollegiumInitiativeCard;
+  /** Смена статуса; правка карточки события не имеет. */
+  event?: CollegiumInitiativeEvent;
 };
 
 export type CollegiumInitiativePermissions = {
@@ -310,7 +313,16 @@ export type CollegiumInitiativeListResponse = {
 export type CollegiumInitiativeDetailResponse = {
   initiative: CollegiumInitiative;
   revisions: CollegiumInitiativeRevision[];
+  comments: CollegiumInitiativeComment[];
+  attachments: CollegiumAttachment[];
   canEdit: boolean;
+  canAttach: boolean;
+  canComment: boolean;
+  canResolveComments: boolean;
+  /** Действия маршрута, доступные этому пользователю сейчас. */
+  actions: CollegiumInitiativeAction[];
+  /** Подписи незаполненных полей фильтра допуска; пусто — карточка готова. */
+  missingAdmissionFields: string[];
 };
 
 export type CollegiumInitiativeSaveRequest = {
@@ -359,3 +371,121 @@ export const collegiumInitiativeFieldLabels: Record<
 };
 
 export const collegiumInitiativesApiPath = "/api/collegium-initiatives";
+
+/** Действия маршрута среза 2; решения Коллегии применяются протоколом. */
+export const collegiumInitiativeActions = [
+  "submit_for_review",
+  "admit",
+  "return_for_rework",
+  "suspend",
+  "resume",
+  "withdraw",
+] as const;
+
+export type CollegiumInitiativeAction =
+  (typeof collegiumInitiativeActions)[number];
+
+export const collegiumInitiativeActionLabels: Record<
+  CollegiumInitiativeAction,
+  string
+> = {
+  submit_for_review: "Отправить на оценку",
+  admit: "Допустить к рассмотрению",
+  return_for_rework: "Вернуть на доработку",
+  suspend: "Приостановить",
+  resume: "Возобновить",
+  withdraw: "Отозвать черновик",
+};
+
+/** Действия, для которых комментарий обязателен (ТЗ 5.2). */
+export const collegiumActionsRequiringComment: readonly CollegiumInitiativeAction[] = [
+  "return_for_rework",
+  "suspend",
+  "withdraw",
+];
+
+export type CollegiumReworkRequest = {
+  remarks: string[];
+  responsibleId: string;
+  dueDate: string;
+  readinessCriterion: string;
+};
+
+export type CollegiumInitiativeActionRequest = {
+  action: CollegiumInitiativeAction;
+  revision: number;
+  comment?: string;
+  rework?: CollegiumReworkRequest;
+};
+
+/** Служебное состояние маршрута, которое не входит в карточку. */
+export type CollegiumInitiativeWorkflow = {
+  suspendedFrom?: CollegiumInitiativeStatus;
+  rework?: CollegiumReworkRequest & {
+    requestedByDisplayName: string;
+    requestedAt: string;
+  };
+};
+
+export type CollegiumInitiativeEvent = {
+  action: CollegiumInitiativeAction;
+  fromStatus: CollegiumInitiativeStatus;
+  toStatus: CollegiumInitiativeStatus;
+};
+
+export const collegiumCommentKinds = ["comment", "question", "remark"] as const;
+export type CollegiumCommentKind = (typeof collegiumCommentKinds)[number];
+export const collegiumCommentKindLabels: Record<CollegiumCommentKind, string> = {
+  comment: "Комментарий",
+  question: "Вопрос автору",
+  remark: "Замечание",
+};
+
+export type CollegiumInitiativeComment = {
+  id: string;
+  kind: CollegiumCommentKind;
+  text: string;
+  authorUserId: string;
+  authorDisplayName: string;
+  createdAt: string;
+  resolvedAt?: string;
+  resolvedByDisplayName?: string;
+};
+
+export const collegiumAttachmentLimits = {
+  maxFileBytes: 10 * 1024 * 1024,
+  maxOwnerBytes: 50 * 1024 * 1024,
+  maxOwnerItems: 20,
+  maxUrlLength: 2000,
+  maxLabelLength: 250,
+} as const;
+
+export const collegiumAttachmentFileTypes = {
+  pdf: { extensions: [".pdf"], contentType: "application/pdf", label: "PDF" },
+  docx: {
+    extensions: [".docx"],
+    contentType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    label: "DOCX",
+  },
+  xlsx: {
+    extensions: [".xlsx"],
+    contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    label: "XLSX",
+  },
+  png: { extensions: [".png"], contentType: "image/png", label: "PNG" },
+  jpeg: { extensions: [".jpg", ".jpeg"], contentType: "image/jpeg", label: "JPEG" },
+} as const;
+
+export type CollegiumAttachmentFileType = keyof typeof collegiumAttachmentFileTypes;
+
+export type CollegiumAttachment = {
+  id: string;
+  kind: "file" | "link";
+  label: string;
+  fileName?: string;
+  fileType?: CollegiumAttachmentFileType;
+  sizeBytes?: number;
+  url?: string;
+  createdByDisplayName: string;
+  createdAt: string;
+};
