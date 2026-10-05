@@ -1,8 +1,10 @@
 import {
   collegiumCostVatOptions,
+  collegiumEffectPeriods,
   collegiumInitiativeRoleFields,
   collegiumRecurringPeriods,
   collegiumRequestedDecisions,
+  collegiumYesNoOptions,
   maxCollegiumInitiativeRisks,
   type CollegiumInitiative,
   type CollegiumInitiativeCard,
@@ -10,6 +12,8 @@ import {
   type CollegiumInitiativePermissions,
   type CollegiumInitiativeStatus,
   type CollegiumReference,
+  type CollegiumRisk,
+  type CollegiumYesNo,
 } from "../contracts/collegiumInitiatives.js";
 import { hasProfileCapability, type ServerUserProfile } from "./auth.js";
 
@@ -29,7 +33,6 @@ const shortTextFields = [
   "baselineValue",
   "baselinePeriod",
   "baselineSource",
-  "expectedEffectPeriod",
   "expectedEffectKind",
   "oneTimeCostSource",
   "kpiSource",
@@ -48,6 +51,7 @@ const amountFields = [
   "expectedEffectAmount",
   "oneTimeCostAmount",
   "recurringCostAmount",
+  "capexAmount",
 ] as const satisfies readonly (keyof CollegiumInitiativeCardInput)[];
 
 const dateFields = [
@@ -55,11 +59,18 @@ const dateFields = [
   "plannedResult",
 ] as const satisfies readonly (keyof CollegiumInitiativeCardInput)[];
 
+const yesNoFields = [
+  "changesTechnology",
+  "newProductOrMarket",
+  "boardDecisionRequired",
+] as const satisfies readonly (keyof CollegiumInitiativeCardInput)[];
+
 const cardInputFields = [
   "title",
   "initiatorId",
   "directionCode",
   "effectTypeCodes",
+  "expectedEffectPeriod",
   ...shortTextFields,
   ...longTextFields,
   ...amountFields,
@@ -69,6 +80,7 @@ const cardInputFields = [
   ...dateFields,
   "risks",
   "requestedDecision",
+  ...yesNoFields,
 ] as const satisfies readonly (keyof CollegiumInitiativeCardInput)[];
 
 /** Статусы, в которых участник правит свою или назначенную инициативу. */
@@ -208,24 +220,60 @@ export function readCollegiumInitiativeCardInput(
     return option;
   });
 
+  // A risk arrives as an object with its level; a bare string is a risk without one.
   const rawRisks = input.risks ?? [];
-  if (
-    !Array.isArray(rawRisks) ||
-    !rawRisks.every((risk) => typeof risk === "string")
-  ) {
+  if (!Array.isArray(rawRisks)) {
     throw new CollegiumInitiativeError("Проверьте риски.");
   }
-  const risks = (rawRisks as string[])
-    .map((risk) => risk.trim())
-    .filter((risk) => risk !== "");
+  const risks: CollegiumRisk[] = [];
+  for (const raw of rawRisks as unknown[]) {
+    const item = typeof raw === "string" ? { text: raw, levelCode: "" } : isRecord(raw) ? raw : undefined;
+    if (
+      item === undefined ||
+      typeof item.text !== "string" ||
+      (item.levelCode !== undefined && typeof item.levelCode !== "string")
+    ) {
+      throw new CollegiumInitiativeError("Проверьте риски.");
+    }
+    const riskText = item.text.trim();
+    if (riskText === "") continue;
+    if (riskText.length > maxShortTextLength) {
+      throw new CollegiumInitiativeError(
+        `Риск не должен быть длиннее ${maxShortTextLength} символов.`,
+      );
+    }
+    const levelCode = typeof item.levelCode === "string" ? item.levelCode.trim() : "";
+    const level = reference.risk_level.find(({ code }) => code === levelCode);
+    if (
+      levelCode !== "" &&
+      (level === undefined ||
+        (level.archived === true && !previous?.risks.some((risk) => risk.levelCode === levelCode)))
+    ) {
+      throw new CollegiumInitiativeError("Выберите уровень риска из справочника.");
+    }
+    risks.push({ text: riskText, levelCode, levelLabel: level?.label ?? "" });
+  }
   if (risks.length > maxCollegiumInitiativeRisks) {
     throw new CollegiumInitiativeError("Укажите не больше трёх рисков.");
   }
-  if (risks.some((risk) => risk.length > maxShortTextLength)) {
-    throw new CollegiumInitiativeError(
-      `Риск не должен быть длиннее ${maxShortTextLength} символов.`,
-    );
+
+  // Old cards keep their free-text period until someone picks one from the list.
+  const expectedEffectPeriod = text("expectedEffectPeriod", maxShortTextLength);
+  if (
+    expectedEffectPeriod !== "" &&
+    !(collegiumEffectPeriods as readonly string[]).includes(expectedEffectPeriod) &&
+    expectedEffectPeriod !== previous?.expectedEffectPeriod
+  ) {
+    throw new CollegiumInitiativeError("Выберите период эффекта из списка.");
   }
+
+  const flags = Object.fromEntries(yesNoFields.map((field) => {
+    const value = text(field, 10);
+    if (value !== "" && !(collegiumYesNoOptions as readonly string[]).includes(value)) {
+      throw new CollegiumInitiativeError("Ответьте «да» или «нет».");
+    }
+    return [field, value];
+  })) as Record<(typeof yesNoFields)[number], CollegiumYesNo | "">;
 
   const oneTimeCostVat = text("oneTimeCostVat", maxShortTextLength);
   if (
@@ -288,6 +336,7 @@ export function readCollegiumInitiativeCardInput(
     directionLabel: direction?.label ?? "",
     effectTypeCodes: effectTypes.map(({ code }) => code),
     effectTypeLabels: effectTypes.map(({ label }) => label),
+    expectedEffectPeriod,
     ...Object.fromEntries(
       shortTextFields.map((field) => [field, text(field, maxShortTextLength)]),
     ) as Record<(typeof shortTextFields)[number], string>,
@@ -306,6 +355,36 @@ export function readCollegiumInitiativeCardInput(
     risks,
     requestedDecision:
       requestedDecision as CollegiumInitiativeCard["requestedDecision"],
+    ...flags,
+  };
+}
+
+function readStoredText(value: unknown) {
+  return typeof value === "string" ? value : "";
+}
+
+/**
+ * Карточка, сохранённая до новых полей: риски-строки становятся рисками без
+ * уровня, отсутствующие поля — незаполненными. Применяется ко всем читателям
+ * (инициативы, ревизии, снимки повестки).
+ */
+export function normalizeCollegiumCard(card: CollegiumInitiativeCard): CollegiumInitiativeCard {
+  const raw = card as unknown as Record<string, unknown>;
+  const flag = (value: unknown) =>
+    (collegiumYesNoOptions as readonly unknown[]).includes(value) ? value as CollegiumYesNo : "";
+  return {
+    ...card,
+    capexAmount: readStoredText(raw.capexAmount),
+    changesTechnology: flag(raw.changesTechnology),
+    newProductOrMarket: flag(raw.newProductOrMarket),
+    boardDecisionRequired: flag(raw.boardDecisionRequired),
+    risks: Array.isArray(raw.risks)
+      ? raw.risks.flatMap((risk: unknown): CollegiumRisk[] => {
+          if (typeof risk === "string") return [{ text: risk, levelCode: "", levelLabel: "" }];
+          if (!isRecord(risk) || typeof risk.text !== "string") return [];
+          return [{ text: risk.text, levelCode: readStoredText(risk.levelCode), levelLabel: readStoredText(risk.levelLabel) }];
+        })
+      : [],
   };
 }
 
@@ -333,9 +412,12 @@ export function listChangedCollegiumFields(
   before: CollegiumInitiativeCard,
   after: CollegiumInitiativeCard,
 ): Array<keyof CollegiumInitiativeCardInput> {
-  return cardInputFields.filter(
-    (field) => JSON.stringify(before[field]) !== JSON.stringify(after[field]),
-  );
+  // A renamed risk level changes the label, not the card.
+  const comparable = (card: CollegiumInitiativeCard, field: keyof CollegiumInitiativeCardInput) =>
+    field === "risks"
+      ? JSON.stringify(card.risks.map(({ text, levelCode }) => ({ text, levelCode })))
+      : JSON.stringify(card[field]);
+  return cardInputFields.filter((field) => comparable(before, field) !== comparable(after, field));
 }
 
 export function readCollegiumOptionalText(

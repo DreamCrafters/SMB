@@ -6,6 +6,7 @@ import {
   type CollegiumMeeting,
   type CollegiumReference,
 } from "../contracts/collegiumInitiatives.js";
+import { fromKopecks, toKopecks as toKopecksValue } from "./collegiumEconomics.js";
 import type { DirectorAssignment } from "../contracts/directorAssignments.js";
 
 /** Одобренные и реализуемые: их ожидаемый эффект — плановый эффект портфеля. */
@@ -34,18 +35,8 @@ const activeStatuses: readonly CollegiumInitiativeStatus[] = [
 
 const topLimit = 10;
 
-/** Canonical rubles to kopecks without floating-point drift. */
 function toKopecks(value: string | undefined) {
-  if (value === undefined || value === "") return 0n;
-  const sign = value.startsWith("-") ? -1n : 1n;
-  const [rubles, kopecks = "0"] = value.replace(/^-/u, "").split(".");
-  return sign * (BigInt(rubles) * 100n + BigInt(kopecks.padEnd(2, "0").slice(0, 2)));
-}
-
-function fromKopecks(value: bigint) {
-  const absolute = value < 0n ? -value : value;
-  const kopecks = (absolute % 100n).toString().padStart(2, "0");
-  return `${value < 0n ? "-" : ""}${absolute / 100n}.${kopecks}`;
+  return toKopecksValue(value ?? "");
 }
 
 function ref(initiative: CollegiumInitiative) {
@@ -167,15 +158,19 @@ export function buildCollegiumDashboard({
         expectedEffect: initiative.card.expectedEffectAmount,
         status: initiative.status,
       })),
-    // Risk levels arrive with the full passport (queue 3): rank by the stake at risk.
+    // Severity is the position in the risk level list (last is highest); ties go to the larger stake.
     topRisks: [...active]
-      .filter((initiative) => initiative.card.risks.length > 0)
       .sort(compareEffect)
       .flatMap((initiative) => initiative.card.risks.map((risk) => ({
         ...ref(initiative),
-        risk,
+        risk: risk.text,
+        levelCode: risk.levelCode,
+        levelLabel: reference.risk_level.find(({ code }) => code === risk.levelCode)?.label ?? risk.levelLabel,
         expectedEffect: initiative.card.expectedEffectAmount,
+        severity: reference.risk_level.findIndex(({ code }) => code === risk.levelCode),
       })))
+      .sort((left, right) => right.severity - left.severity)
+      .map(({ severity: _severity, ...item }) => item)
       .slice(0, topLimit),
   };
 }

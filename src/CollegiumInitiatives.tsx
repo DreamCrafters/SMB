@@ -11,6 +11,10 @@ import {
   collegiumCostVatLabels,
   collegiumCostVatOptions,
   collegiumDecisionLabels,
+  collegiumEffectPeriodLabels,
+  collegiumEffectPeriods,
+  collegiumYesNoLabels,
+  collegiumYesNoOptions,
   collegiumInitiativeFieldLabels,
   collegiumInitiativeStatusLabels,
   collegiumInitiativeStages,
@@ -21,6 +25,9 @@ import {
   collegiumRequestedDecisions,
   maxCollegiumInitiativeRisks,
   type CollegiumCommentKind,
+  type CollegiumEconomics,
+  type CollegiumPassportReason,
+  type CollegiumRiskInput,
   type CollegiumInitiative,
   type CollegiumInitiativeAction,
   type CollegiumInitiativeCard,
@@ -275,6 +282,7 @@ function InitiativeRegistry({
   const people = usePeopleIndex(data.people);
   const initiatives = data.initiatives;
   const overdue = new Set(data.overdueIds);
+  const passportRequired = new Set(data.passportRequiredIds ?? []);
   const hasFilters = Object.values(filters).some((value) => value !== undefined && value !== "");
   const setField = <K extends keyof CollegiumInitiativeFilters>(key: K, value: string) => {
     setDraft((current) => {
@@ -317,7 +325,7 @@ function InitiativeRegistry({
       </select>
     </label>
   );
-  const flag = (key: "boardDecision" | "overdue" | "mine", label: string) => (
+  const flag = (key: "boardDecision" | "overdue" | "mine" | "passportRequired", label: string) => (
     <label className="collegium-checkbox">
       <input
         checked={draft[key] === "yes"}
@@ -448,9 +456,28 @@ function InitiativeRegistry({
               </select>
             </label>
             {text("risk", "Риск содержит")}
+            <label className="collegium-field">
+              <span>Уровень риска</span>
+              <select
+                value={draft.riskLevelCode ?? ""}
+                onChange={(event) => {
+                  const value = event.currentTarget.value;
+                  setField("riskLevelCode", value);
+                }}
+              >
+                <option value="">Все уровни</option>
+                {data.reference.risk_level.map((option) => (
+                  <option key={option.code} value={option.code}>
+                    {option.archived === true ? `${option.label} (архив)` : option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {text("paybackMax", "Окупаемость не дольше, мес.", { type: "amount" })}
             <div className="collegium-checkbox-group">
               {flag("boardDecision", "Требует решения СД")}
               {flag("overdue", "Есть просроченные поручения")}
+              {flag("passportRequired", "Нужен полный паспорт")}
             </div>
           </div>
         ) : null}
@@ -523,6 +550,7 @@ function InitiativeRegistry({
                       {collegiumInitiativeStatusLabels[initiative.status]}
                     </span>
                     {overdue.has(initiative.id) ? <span className="collegium-overdue-mark">просрочены поручения</span> : null}
+                    {passportRequired.has(initiative.id) ? <span className="collegium-passport-mark">нужен полный паспорт</span> : null}
                   </TableCell>
                   <TableCell>{initiative.card.directionLabel || "—"}</TableCell>
                   <TableCell>{people.name(initiative.card.initiatorId) || "—"}</TableCell>
@@ -650,7 +678,7 @@ function InitiativeCardView({
       </CardSection>
       <CardSection title="Эффект">
         <CardValue label={collegiumInitiativeFieldLabels.expectedEffectAmount} value={formatAmount(card.expectedEffectAmount, "")} />
-        <CardValue label={collegiumInitiativeFieldLabels.expectedEffectPeriod} value={card.expectedEffectPeriod} />
+        <CardValue label={collegiumInitiativeFieldLabels.expectedEffectPeriod} value={formatEffectPeriod(card.expectedEffectPeriod)} />
         <CardValue label={collegiumInitiativeFieldLabels.expectedEffectKind} value={card.expectedEffectKind} />
         <CardValue label={collegiumInitiativeFieldLabels.effectMethod} value={card.effectMethod} wide />
       </CardSection>
@@ -658,8 +686,10 @@ function InitiativeCardView({
         <CardValue label={collegiumInitiativeFieldLabels.oneTimeCostAmount} value={formatCardField(card, "oneTimeCostAmount", person)} />
         <CardValue label={collegiumInitiativeFieldLabels.oneTimeCostSource} value={card.oneTimeCostSource} />
         <CardValue label={collegiumInitiativeFieldLabels.recurringCostAmount} value={formatCardField(card, "recurringCostAmount", person)} />
+        <CardValue label={collegiumInitiativeFieldLabels.capexAmount} value={formatAmount(card.capexAmount, "")} />
         <CardValue label={collegiumInitiativeFieldLabels.internalResources} value={card.internalResources} wide />
       </CardSection>
+      <EconomicsSection economics={detail.data.economics} reasons={detail.data.passportReasons} />
       <CardSection title="Роли и сроки">
         <CardValue label={collegiumInitiativeFieldLabels.ownerId} value={person(card.ownerId)} />
         <CardValue label={collegiumInitiativeFieldLabels.executorId} value={person(card.executorId)} />
@@ -672,7 +702,10 @@ function InitiativeCardView({
         <CardValue label={collegiumInitiativeFieldLabels.kpiCriterion} value={card.kpiCriterion} wide />
         <CardValue label={collegiumInitiativeFieldLabels.kpiSource} value={card.kpiSource} />
         <CardValue label={collegiumInitiativeFieldLabels.requestedDecision} value={formatCardField(card, "requestedDecision", person)} />
-        <CardValue label={collegiumInitiativeFieldLabels.risks} value={card.risks.join("; ")} wide />
+        <CardValue label={collegiumInitiativeFieldLabels.risks} value={formatRisks(card)} wide />
+        {(["changesTechnology", "newProductOrMarket", "boardDecisionRequired"] as const).map((field) => (
+          <CardValue key={field} label={collegiumInitiativeFieldLabels[field]} value={formatCardField(card, field, person)} />
+        ))}
       </CardSection>
 
       <AttachmentsSection
@@ -1502,6 +1535,44 @@ function CommentsSection({
 }
 
 /** Значение поля карточки для просмотра и сравнения версий. */
+/** Расчёт ТЗ 11.3 и причины полного паспорта ТЗ 7.2 — значения сервера. */
+function EconomicsSection({ economics, reasons }: {
+  economics: CollegiumEconomics;
+  reasons: CollegiumPassportReason[];
+}) {
+  const payback = economics.paybackStatus === "not_paying"
+    ? "не окупается"
+    : economics.paybackMonths === "" ? "" : `${economics.paybackMonths.replace(".", ",")} мес.`;
+  return (
+    <CardSection title="Экономика">
+      <CardValue label="Годовой эффект" value={formatAmount(economics.annualEffect, "")} />
+      <CardValue label="Постоянные затраты в год" value={formatAmount(economics.annualRecurringCost, "")} />
+      <CardValue label="Чистый годовой эффект" value={formatAmount(economics.netAnnualEffect, "")} />
+      <CardValue label="Разовые затраты с CAPEX" value={formatAmount(economics.oneTimeCosts, "")} />
+      <CardValue label="Срок окупаемости" value={payback} />
+      <CardValue label="ROI" value={economics.roiPercent === "" ? "" : `${economics.roiPercent.replace(".", ",")} %`} />
+      <CardValue
+        label="Полный паспорт"
+        value={reasons.length === 0
+          ? "не требуется"
+          : `требуется: ${reasons.map((reason) => reason.label.toLocaleLowerCase("ru-RU")).join("; ")}`}
+        wide
+      />
+    </CardSection>
+  );
+}
+
+/** Подпись периода из списка или прежний свободный текст старой карточки. */
+function formatEffectPeriod(value: string) {
+  return (collegiumEffectPeriodLabels as Record<string, string>)[value] ?? value;
+}
+
+function formatRisks(card: CollegiumInitiativeCard) {
+  return card.risks
+    .map((risk) => (risk.levelLabel === "" ? risk.text : `${risk.text} (${risk.levelLabel.toLocaleLowerCase("ru-RU")})`))
+    .join("; ");
+}
+
 function formatCardField(
   card: CollegiumInitiativeCard,
   field: keyof CollegiumInitiativeCardInput,
@@ -1538,7 +1609,15 @@ function formatCardField(
     case "plannedResult":
       return formatDate(card[field], "");
     case "risks":
-      return card.risks.join("; ");
+      return formatRisks(card);
+    case "expectedEffectPeriod":
+      return formatEffectPeriod(card.expectedEffectPeriod);
+    case "capexAmount":
+      return formatAmount(card.capexAmount, "");
+    case "changesTechnology":
+    case "newProductOrMarket":
+    case "boardDecisionRequired":
+      return card[field] === "" ? "" : collegiumYesNoLabels[card[field]];
     case "requestedDecision":
       return card.requestedDecision === "" ? "" : collegiumDecisionLabels[card.requestedDecision];
     default:
@@ -1546,7 +1625,7 @@ function formatCardField(
   }
 }
 
-type FormState = Omit<CollegiumInitiativeCardInput, "risks"> & { risks: string[] };
+type FormState = CollegiumInitiativeCardInput;
 
 function InitiativeForm({
   id,
@@ -1602,7 +1681,7 @@ function InitiativeForm({
     setMessage("");
     try {
       const initiative = await saveCollegiumInitiative(id, {
-        card: { ...form, risks: form.risks.filter((risk) => risk.trim() !== "") },
+        card: { ...form, risks: form.risks.filter((risk) => risk.text.trim() !== "") },
         ...(loaded === undefined ? {} : { revision: loaded.initiative.revision }),
         ...(reason.trim() === "" ? {} : { reason: reason.trim() }),
         ...(comment.trim() === "" ? {} : { comment: comment.trim() }),
@@ -1646,7 +1725,7 @@ function InitiativeForm({
     </label>
   );
 
-  const amount = (field: "expectedEffectAmount" | "oneTimeCostAmount" | "recurringCostAmount") => (
+  const amount = (field: "expectedEffectAmount" | "oneTimeCostAmount" | "recurringCostAmount" | "capexAmount") => (
     <label className="collegium-field">
       <span>{collegiumInitiativeFieldLabels[field]}</span>
       <input
@@ -1767,7 +1846,28 @@ function InitiativeForm({
 
       <FormSection title="Эффект">
         {amount("expectedEffectAmount")}
-        {text("expectedEffectPeriod")}
+        <label className="collegium-field">
+          <span>{collegiumInitiativeFieldLabels.expectedEffectPeriod}</span>
+          <select
+            disabled={isSaving}
+            value={form.expectedEffectPeriod}
+            onChange={(event) => {
+              const value = event.currentTarget.value;
+              update("expectedEffectPeriod", value);
+            }}
+          >
+            <option value="">Не выбрано</option>
+            {collegiumEffectPeriods.map((option) => (
+              <option key={option} value={option}>{collegiumEffectPeriodLabels[option]}</option>
+            ))}
+            {/* An old free-text period stays until another one is picked. */}
+            {saved !== undefined &&
+            saved.expectedEffectPeriod !== "" &&
+            !(collegiumEffectPeriods as readonly string[]).includes(saved.expectedEffectPeriod) ? (
+              <option value={saved.expectedEffectPeriod}>{`${saved.expectedEffectPeriod} (прежнее значение)`}</option>
+            ) : null}
+          </select>
+        </label>
         {text("expectedEffectKind")}
         {text("effectMethod", { long: true })}
       </FormSection>
@@ -1808,6 +1908,7 @@ function InitiativeForm({
             ))}
           </select>
         </label>
+        {amount("capexAmount")}
         {text("internalResources", { long: true })}
       </FormSection>
 
@@ -1835,22 +1936,45 @@ function InitiativeForm({
       <FormSection title="KPI, риски и решение">
         {text("kpiCriterion", { long: true })}
         {text("kpiSource")}
-        {Array.from({ length: maxCollegiumInitiativeRisks }, (_, index) => (
-          <label className="collegium-field" key={index}>
-            <span>{`Риск ${index + 1}`}</span>
-            <input
-              disabled={isSaving}
-              maxLength={250}
-              value={form.risks[index] ?? ""}
-              onChange={(event) => {
-                const value = event.currentTarget.value;
-                const risks = [...form.risks];
-                risks[index] = value;
-                update("risks", risks);
-              }}
-            />
-          </label>
-        ))}
+        {Array.from({ length: maxCollegiumInitiativeRisks }, (_, index) => {
+          const risk = form.risks[index] ?? { text: "", levelCode: "" };
+          const setRisk = (next: CollegiumRiskInput) => {
+            const risks = Array.from({ length: Math.max(form.risks.length, index + 1) }, (_, position) =>
+              form.risks[position] ?? { text: "", levelCode: "" });
+            risks[index] = next;
+            update("risks", risks);
+          };
+          return (
+            <div className="collegium-risk-row" key={index}>
+              <label className="collegium-field">
+                <span>{`Риск ${index + 1}`}</span>
+                <input
+                  disabled={isSaving}
+                  maxLength={250}
+                  value={risk.text}
+                  onChange={(event) => setRisk({ ...risk, text: event.currentTarget.value })}
+                />
+              </label>
+              <label className="collegium-field">
+                <span>{`Уровень риска ${index + 1}`}</span>
+                <select
+                  disabled={isSaving}
+                  value={risk.levelCode}
+                  onChange={(event) => setRisk({ ...risk, levelCode: event.currentTarget.value })}
+                >
+                  <option value="">Не выбран</option>
+                  {data.reference.risk_level
+                    .filter((option) => option.archived !== true || saved?.risks.some((item) => item.levelCode === option.code))
+                    .map((option) => (
+                      <option key={option.code} value={option.code}>
+                        {option.archived === true ? `${option.label} (архив)` : option.label}
+                      </option>
+                    ))}
+                </select>
+              </label>
+            </div>
+          );
+        })}
         <label className="collegium-field">
           <span>{collegiumInitiativeFieldLabels.requestedDecision}</span>
           <select
@@ -1867,6 +1991,24 @@ function InitiativeForm({
             ))}
           </select>
         </label>
+        {(["changesTechnology", "newProductOrMarket", "boardDecisionRequired"] as const).map((field) => (
+          <label className="collegium-field" key={field}>
+            <span>{collegiumInitiativeFieldLabels[field]}</span>
+            <select
+              disabled={isSaving}
+              value={form[field]}
+              onChange={(event) => {
+                const value = event.currentTarget.value as FormState[typeof field];
+                update(field, value);
+              }}
+            >
+              <option value="">Не указано</option>
+              {collegiumYesNoOptions.map((option) => (
+                <option key={option} value={option}>{collegiumYesNoLabels[option]}</option>
+              ))}
+            </select>
+          </label>
+        ))}
       </FormSection>
 
       <FormSection title="Изменение">
@@ -1999,6 +2141,10 @@ function createEmptyForm(): FormState {
     kpiSource: "",
     risks: [],
     requestedDecision: "",
+    capexAmount: "",
+    changesTechnology: "",
+    newProductOrMarket: "",
+    boardDecisionRequired: "",
   };
 }
 
@@ -2010,9 +2156,11 @@ function formFromCard(card: CollegiumInitiativeCard): FormState {
   } = card;
   return {
     ...input,
+    risks: card.risks.map(({ text, levelCode }): CollegiumRiskInput => ({ text, levelCode })),
     expectedEffectAmount: formatAmountInput(card.expectedEffectAmount),
     oneTimeCostAmount: formatAmountInput(card.oneTimeCostAmount),
     recurringCostAmount: formatAmountInput(card.recurringCostAmount),
+    capexAmount: formatAmountInput(card.capexAmount),
   };
 }
 

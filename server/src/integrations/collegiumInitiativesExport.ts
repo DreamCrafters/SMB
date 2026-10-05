@@ -1,17 +1,21 @@
 import {
   collegiumCostVatLabels,
   collegiumDecisionLabels,
+  collegiumEffectPeriodLabels,
   collegiumInitiativeStatusLabels,
   collegiumMeetingFormatLabels,
   collegiumMeetingStatusLabels,
   collegiumRecurringPeriodLabels,
   collegiumResultConclusionLabels,
+  collegiumYesNoLabels,
   type CollegiumDashboard,
   type CollegiumInitiative,
   type CollegiumInitiativeDetailResponse,
   type CollegiumMeeting,
+  type CollegiumYesNo,
 } from "../contracts/collegiumInitiatives.js";
 import type { DirectorAssignment } from "../contracts/directorAssignments.js";
+import { calculateCollegiumEconomics } from "../domain/collegiumEconomics.js";
 import { renderPdfDocument } from "./pdfRenderer.js";
 import { buildXlsxWorkbook } from "./xlsxWriter.js";
 
@@ -40,6 +44,21 @@ function money(value: string | undefined) {
     : `${new Intl.NumberFormat("ru-RU", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number(value))} ₽`;
 }
 
+/** Период эффекта: подпись из списка или прежний свободный текст. */
+function effectPeriod(value: string) {
+  return (collegiumEffectPeriodLabels as Record<string, string>)[value] ?? value;
+}
+
+function yesNo(value: CollegiumYesNo | "") {
+  return value === "" ? "" : collegiumYesNoLabels[value];
+}
+
+function risks(card: CollegiumInitiative["card"]) {
+  return card.risks
+    .map((risk) => (risk.levelLabel === "" ? risk.text : `${risk.text} (${risk.levelLabel.toLocaleLowerCase("ru-RU")})`))
+    .join("; ");
+}
+
 function decision(initiative: CollegiumInitiative) {
   const last = initiative.workflow.lastDecision;
   return last === undefined
@@ -52,6 +71,7 @@ export function buildCollegiumRegistryXlsx(
   initiatives: readonly CollegiumInitiative[],
   name: Names,
   overdueIds: ReadonlySet<string>,
+  passportRequiredIds: ReadonlySet<string> = new Set(),
 ) {
   return buildXlsxWorkbook([{
     name: "Инициативы Коллегии",
@@ -71,6 +91,12 @@ export function buildCollegiumRegistryXlsx(
       { header: "Период эффекта", width: 14 },
       { header: "Разовые затраты, ₽", width: 18 },
       { header: "Постоянные затраты, ₽", width: 18 },
+      { header: "CAPEX, ₽", width: 16 },
+      { header: "Чистый годовой эффект, ₽", width: 18 },
+      { header: "Окупаемость, мес.", width: 14 },
+      { header: "ROI, %", width: 10 },
+      { header: "Полный паспорт", width: 12 },
+      { header: "Риски", width: 34 },
       { header: "Плановое начало", width: 13 },
       { header: "Плановый результат", width: 13 },
       { header: "Критерий успеха", width: 30 },
@@ -83,6 +109,7 @@ export function buildCollegiumRegistryXlsx(
     rows: initiatives.map((initiative) => {
       const { card } = initiative;
       const result = initiative.workflow.result;
+      const { economics } = calculateCollegiumEconomics(card);
       return [
         initiative.number,
         date(initiative.createdAt),
@@ -96,9 +123,15 @@ export function buildCollegiumRegistryXlsx(
         name(card.executionControllerId),
         name(card.effectControllerId),
         amount(card.expectedEffectAmount),
-        card.expectedEffectPeriod,
+        effectPeriod(card.expectedEffectPeriod),
         amount(card.oneTimeCostAmount),
         amount(card.recurringCostAmount),
+        amount(card.capexAmount),
+        amount(economics.netAnnualEffect),
+        economics.paybackStatus === "not_paying" ? "не окупается" : amount(economics.paybackMonths),
+        amount(economics.roiPercent),
+        passportRequiredIds.has(initiative.id) ? "требуется" : "",
+        risks(card),
         date(card.plannedStart),
         date(card.plannedResult),
         card.kpiCriterion,
@@ -197,11 +230,20 @@ export async function renderCollegiumInitiativeCardPdf(
         ["Что меняется", card.changeScope],
       ]),
       ...section("Эффект и ресурсы", [
-        ["Ожидаемый эффект", [money(card.expectedEffectAmount), card.expectedEffectPeriod, card.expectedEffectKind].filter(Boolean).join(", ")],
+        ["Ожидаемый эффект", [money(card.expectedEffectAmount), effectPeriod(card.expectedEffectPeriod), card.expectedEffectKind].filter(Boolean).join(", ")],
         ["Методика расчёта", card.effectMethod],
         ["Разовые затраты", [money(card.oneTimeCostAmount), card.oneTimeCostVat === "" ? "" : collegiumCostVatLabels[card.oneTimeCostVat], card.oneTimeCostSource].filter(Boolean).join(", ")],
         ["Постоянные затраты", [money(card.recurringCostAmount), card.recurringCostPeriod === "" ? "" : collegiumRecurringPeriodLabels[card.recurringCostPeriod]].filter(Boolean).join(" ")],
+        ["CAPEX", money(card.capexAmount)],
         ["Внутренние ресурсы", card.internalResources],
+        ["Чистый годовой эффект", money(detail.economics.netAnnualEffect)],
+        ["Срок окупаемости", detail.economics.paybackStatus === "not_paying"
+          ? "не окупается"
+          : detail.economics.paybackMonths === "" ? "" : `${detail.economics.paybackMonths.replace(".", ",")} мес.`],
+        ["ROI", detail.economics.roiPercent === "" ? "" : `${detail.economics.roiPercent.replace(".", ",")} %`],
+        ["Полный паспорт", detail.passportReasons.length === 0
+          ? "не требуется"
+          : `требуется: ${detail.passportReasons.map((reason) => reason.label.toLocaleLowerCase("ru-RU")).join("; ")}`],
       ]),
       ...section("Роли, сроки и KPI", [
         ["Владелец результата", name(card.ownerId)],
@@ -211,8 +253,11 @@ export async function renderCollegiumInitiativeCardPdf(
         ["Сроки", [date(card.plannedStart), date(card.plannedResult)].filter(Boolean).join(" — ")],
         ["Критерий успеха", card.kpiCriterion],
         ["Источник KPI", card.kpiSource],
-        ["Ключевые риски", card.risks.join("; ")],
+        ["Ключевые риски", risks(card)],
         ["Требуется от Коллегии", card.requestedDecision === "" ? "" : collegiumDecisionLabels[card.requestedDecision]],
+        ["Меняется технология или контроль качества", yesNo(card.changesTechnology)],
+        ["Новый продукт, рынок или клиент", yesNo(card.newProductOrMarket)],
+        ["Требуется решение СД", yesNo(card.boardDecisionRequired)],
       ]),
       ...section("Решение и исполнение", [
         ["Решение Коллегии", decision(initiative)],
@@ -308,8 +353,8 @@ export async function renderCollegiumDashboardPdf(dashboard: CollegiumDashboard)
       ]),
       ...(dashboard.topRisks.length === 0 ? [] : [
         heading("Топ-10 рисков"),
-        table(["Номер", "Инициатива", "Риск"], [62, 170, "*"], dashboard.topRisks.map((item) =>
-          [item.number, item.title, item.risk])),
+        table(["Номер", "Инициатива", "Уровень", "Риск"], [62, 150, 70, "*"], dashboard.topRisks.map((item) =>
+          [item.number, item.title, item.levelLabel || "—", item.risk])),
       ]),
     ],
   });

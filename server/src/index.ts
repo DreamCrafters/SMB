@@ -122,6 +122,7 @@ const collegiumAssignmentsRepository = createDirectorAssignmentsRepository(pool,
 const collegiumInitiatives = createCollegiumInitiativesService({
   repository: createCollegiumInitiativesRepository(pool),
   assignments: collegiumAssignmentsRepository,
+  settings: createCollegiumSettingsRepository(pool),
   transaction: database.transaction,
   audit: createAuditRepository(pool),
 });

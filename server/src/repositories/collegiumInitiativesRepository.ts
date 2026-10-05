@@ -13,7 +13,7 @@ import {
   type CollegiumReference,
   type CollegiumReferenceKind,
 } from "../contracts/collegiumInitiatives.js";
-import { CollegiumInitiativeError } from "../domain/collegiumInitiative.js";
+import { CollegiumInitiativeError, normalizeCollegiumCard } from "../domain/collegiumInitiative.js";
 import {
   collegiumReminderLeaseSeconds,
   collegiumReminderMaxAttempts,
@@ -576,11 +576,15 @@ export function createCollegiumInitiativesRepository(pool: DatabasePool) {
          where initiative_id = ? order by revision desc`,
         [initiativeId],
       );
-      return rows.map((row) => ({
-        ...readJson<Omit<CollegiumInitiativeRevision, "createdAt">>(row.payload),
-        revision: Number(row.revision),
-        createdAt: toIsoString(row.created_at),
-      }));
+      return rows.map((row) => {
+        const payload = readJson<Omit<CollegiumInitiativeRevision, "createdAt">>(row.payload);
+        return {
+          ...payload,
+          card: normalizeCollegiumCard(payload.card),
+          revision: Number(row.revision),
+          createdAt: toIsoString(row.created_at),
+        };
+      });
     },
   };
 }
@@ -595,7 +599,7 @@ function mapInitiative(row: InitiativeRow): CollegiumInitiative {
     number: row.number,
     status: row.status,
     revision: Number(row.revision),
-    card: readJson(row.payload),
+    card: normalizeCollegiumCard(readJson(row.payload)),
     workflow: row.workflow === null || row.workflow === undefined
       ? {}
       : readJson(row.workflow),
@@ -619,8 +623,13 @@ function meetingPayload(meeting: CollegiumMeeting): MeetingPayload {
 }
 
 function mapMeeting(row: MeetingRow): CollegiumMeeting {
+  const payload = readJson<MeetingPayload>(row.payload);
   return {
-    ...readJson<MeetingPayload>(row.payload),
+    ...payload,
+    items: payload.items.map((item) => ({
+      ...item,
+      snapshot: { ...item.snapshot, card: normalizeCollegiumCard(item.snapshot.card) },
+    })),
     id: row.id,
     number: row.number,
     status: row.status,

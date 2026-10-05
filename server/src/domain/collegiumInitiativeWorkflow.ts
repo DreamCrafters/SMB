@@ -1,5 +1,6 @@
 import {
   collegiumActionsRequiringComment,
+  collegiumEffectPeriods,
   collegiumResultConclusions,
   collegiumInitiativeActions,
   collegiumInitiativeFieldLabels,
@@ -43,13 +44,14 @@ const admissionTextRequirements: ReadonlyArray<{
     label: "Ожидаемый эффект: сумма, период и вид",
     isFilled: (card) =>
       card.expectedEffectAmount !== "" &&
-      card.expectedEffectPeriod !== "" &&
+      (collegiumEffectPeriods as readonly string[]).includes(card.expectedEffectPeriod) &&
       card.expectedEffectKind !== "",
   },
   { label: collegiumInitiativeFieldLabels.effectMethod, isFilled: (card) => card.effectMethod !== "" },
   // An explicit zero is a filled resource plan.
   { label: collegiumInitiativeFieldLabels.oneTimeCostAmount, isFilled: (card) => card.oneTimeCostAmount !== "" },
   { label: collegiumInitiativeFieldLabels.recurringCostAmount, isFilled: (card) => card.recurringCostAmount !== "" },
+  { label: collegiumInitiativeFieldLabels.capexAmount, isFilled: (card) => card.capexAmount !== "" },
   { label: collegiumInitiativeFieldLabels.internalResources, isFilled: (card) => card.internalResources !== "" },
   {
     label: "Срок реализации: плановые даты начала и результата",
@@ -57,8 +59,14 @@ const admissionTextRequirements: ReadonlyArray<{
   },
   { label: collegiumInitiativeFieldLabels.kpiCriterion, isFilled: (card) => card.kpiCriterion !== "" },
   { label: collegiumInitiativeFieldLabels.kpiSource, isFilled: (card) => card.kpiSource !== "" },
-  { label: "Ключевые риски", isFilled: (card) => card.risks.length > 0 },
+  {
+    label: "Ключевые риски с уровнем",
+    isFilled: (card) => card.risks.length > 0 && card.risks.every((risk) => risk.levelCode !== ""),
+  },
   { label: collegiumInitiativeFieldLabels.requestedDecision, isFilled: (card) => card.requestedDecision !== "" },
+  { label: collegiumInitiativeFieldLabels.changesTechnology, isFilled: (card) => card.changesTechnology !== "" },
+  { label: collegiumInitiativeFieldLabels.newProductOrMarket, isFilled: (card) => card.newProductOrMarket !== "" },
+  { label: collegiumInitiativeFieldLabels.boardDecisionRequired, isFilled: (card) => card.boardDecisionRequired !== "" },
 ];
 
 /**

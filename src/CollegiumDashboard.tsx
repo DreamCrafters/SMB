@@ -148,13 +148,14 @@ export function CollegiumDashboardView({
 
       <section className="collegium-card-section">
         <h3>Топ-10 рисков</h3>
-        <p className="collegium-empty-note">Риски активных инициатив по величине ожидаемого эффекта.</p>
+        <p className="collegium-empty-note">Риски активных инициатив: сначала высший уровень, затем больший ожидаемый эффект.</p>
         {dashboard.topRisks.length === 0 ? <p className="collegium-empty-note">Риски не указаны.</p> : (
           <div className="table-scroll">
             <ManagedTable tableId="collegium.dashboardRisks" className="data-table collegium-dashboard-table">
               <thead>
                 <tr>
                   <TableHeader>Инициатива</TableHeader>
+                  <TableHeader>Уровень</TableHeader>
                   <TableHeader>Риск</TableHeader>
                 </tr>
               </thead>
@@ -162,6 +163,7 @@ export function CollegiumDashboardView({
                 {dashboard.topRisks.map((item, index) => (
                   <tr key={`${item.id}:${index}`}>
                     <TableCell>{link(item)}</TableCell>
+                    <TableCell>{item.levelLabel || "—"}</TableCell>
                     <TableCell>{item.risk}</TableCell>
                   </tr>
                 ))}

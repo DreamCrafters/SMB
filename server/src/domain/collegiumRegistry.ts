@@ -8,6 +8,7 @@ import {
   type CollegiumInitiativeStage,
   type CollegiumInitiativeStatus,
 } from "../contracts/collegiumInitiatives.js";
+import { calculateCollegiumEconomics } from "./collegiumEconomics.js";
 import { CollegiumInitiativeError, readCollegiumAmount } from "./collegiumInitiative.js";
 
 const maxTextFilterLength = 120;
@@ -28,7 +29,7 @@ export function readCollegiumInitiativeFilters(params: URLSearchParams): Collegi
     }
     return value;
   };
-  for (const key of ["query", "risk", "directionCode", "effectTypeCode"] as const) {
+  for (const key of ["query", "risk", "directionCode", "effectTypeCode", "riskLevelCode"] as const) {
     const value = read(key);
     if (value !== "") filters[key] = value;
   }
@@ -70,17 +71,26 @@ export function readCollegiumInitiativeFilters(params: URLSearchParams): Collegi
     if (!idPattern.test(meetingId)) throw new CollegiumInitiativeError("Проверьте фильтр по заседанию.");
     filters.meetingId = meetingId;
   }
-  for (const key of ["boardDecision", "overdue", "mine"] as const) {
+  for (const key of ["boardDecision", "overdue", "mine", "passportRequired"] as const) {
     const value = read(key);
     if (value === "") continue;
     if (value !== "yes") throw new CollegiumInitiativeError("Проверьте фильтры реестра.");
     filters[key] = "yes";
+  }
+  const paybackMax = read("paybackMax").replace(",", ".");
+  if (paybackMax !== "") {
+    if (!/^\d{1,4}(?:\.\d)?$/u.test(paybackMax) || Number(paybackMax) <= 0) {
+      throw new CollegiumInitiativeError("Срок окупаемости — число месяцев больше 0, до одного знака после запятой.");
+    }
+    filters.paybackMax = paybackMax;
   }
   return filters;
 }
 
 export type CollegiumRegistryContext = {
   overdueIds: ReadonlySet<string>;
+  /** Инициативы, которым нужен полный паспорт (ТЗ 7.2). */
+  passportRequiredIds: ReadonlySet<string>;
   /** Инициативы, бывавшие в повестке заседания, по id заседания. */
   meetingInitiativeIds: ReadonlyMap<string, ReadonlySet<string>>;
   /** Инициативы, где текст запроса найден в комментариях. */
@@ -138,7 +148,19 @@ export function filterCollegiumInitiatives(
       const roles = [card.initiatorId, card.ownerId, card.executorId, card.executionControllerId, card.effectControllerId];
       if (initiative.createdByUserId !== context.userId && !roles.includes(accountId)) return false;
     }
-    if (risk !== "" && !card.risks.some((item) => normalize(item).includes(risk))) return false;
+    if (risk !== "" && !card.risks.some((item) => normalize(item.text).includes(risk))) return false;
+    if (
+      filters.riskLevelCode !== undefined &&
+      !card.risks.some((item) => item.levelCode === filters.riskLevelCode)
+    ) return false;
+    if (filters.passportRequired === "yes" && !context.passportRequiredIds.has(initiative.id)) return false;
+    if (filters.paybackMax !== undefined) {
+      const calculation = calculateCollegiumEconomics(card);
+      if (
+        calculation.economics.paybackStatus !== "payback" ||
+        calculation.exceedsPaybackNorm(filters.paybackMax)
+      ) return false;
+    }
     if (query !== "") {
       const haystack = [
         initiative.number,

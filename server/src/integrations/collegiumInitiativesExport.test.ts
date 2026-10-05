@@ -27,7 +27,9 @@ const initiative = {
     expectedEffectKind: "", effectMethod: "", oneTimeCostAmount: "0.00", oneTimeCostVat: "", oneTimeCostSource: "",
     recurringCostAmount: "", recurringCostPeriod: "", internalResources: "", ownerId: "account:owner", executorId: "",
     executionControllerId: "", effectControllerId: "", plannedStart: "", plannedResult: "2027-02-01",
-    kpiCriterion: "Потери ≤ 1,5 %", kpiSource: "", risks: [], requestedDecision: "pilot",
+    kpiCriterion: "Потери ≤ 1,5 %", kpiSource: "", risks: [{ text: "Срыв поставок", levelCode: "high", levelLabel: "Высокий" }],
+    requestedDecision: "pilot", capexAmount: "300000.00", changesTechnology: "no", newProductOrMarket: "no",
+    boardDecisionRequired: "no",
   },
 } as CollegiumInitiative;
 const name = (id: string) => ({ "account:author": "Иванова А.А.", "account:owner": "Петров П.П." })[id] ?? "";
@@ -68,7 +70,7 @@ test("dashboard summary PDF renders with every section", async () => {
     nextMeeting: { id: "m", number: "КЗ-2026-01", meetingDate: "2026-10-12", meetingTime: "10:00", items: [ref] },
     unconfirmed: [ref], boardDecisions: [ref],
     topByEffect: [{ ...ref, expectedEffect: "1000.00", status: "in_progress" }],
-    topRisks: [{ ...ref, risk: "Рост цен", expectedEffect: "1000.00" }],
+    topRisks: [{ ...ref, risk: "Рост цен", levelCode: "high", levelLabel: "Высокий", expectedEffect: "1000.00" }],
   });
   assert.equal(summary.subarray(0, 5).toString("latin1"), "%PDF-");
 });

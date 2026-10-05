@@ -18,7 +18,7 @@ import { DirectorAssignmentError } from "./directorAssignment.js";
 const reference: CollegiumReference = {
   direction: [{ code: "production", label: "Производство" }],
   effect_type: [{ code: "cost_saving", label: "Экономия затрат" }],
-  risk_level: [],
+  risk_level: [{ code: "medium", label: "Средний", significant: false }],
   site: [],
   kpi: [],
 };
@@ -56,7 +56,7 @@ function completeCard(title: string) {
     baselineSource: "Отчёт ОТК № 12",
     solution: "Сменить режим обжига",
     expectedEffectAmount: "1200000",
-    expectedEffectPeriod: "год",
+    expectedEffectPeriod: "year",
     expectedEffectKind: "экономия затрат",
     effectMethod: "Снижение потерь × себестоимость",
     oneTimeCostAmount: "0",
@@ -70,8 +70,12 @@ function completeCard(title: string) {
     plannedResult: "2027-02-01",
     kpiCriterion: "Потери не выше 1,5 %",
     kpiSource: "Отчёт ОТК",
-    risks: ["Срыв поставок"],
+    risks: [{ text: "Срыв поставок", levelCode: "medium" }],
     requestedDecision: "pilot",
+    capexAmount: "0",
+    changesTechnology: "no",
+    newProductOrMarket: "no",
+    boardDecisionRequired: "no",
   };
 }
 

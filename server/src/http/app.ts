@@ -1020,7 +1020,7 @@ export function createApiServer({
               fileName: isXlsx ? "Реестр инициатив Коллегии.xlsx" : "Реестр инициатив Коллегии.pdf",
               contentType: isXlsx ? xlsxType : "application/pdf",
               content: isXlsx
-                ? buildCollegiumRegistryXlsx(registry.initiatives, registry.name, registry.overdueIds)
+                ? buildCollegiumRegistryXlsx(registry.initiatives, registry.name, registry.overdueIds, registry.passportRequiredIds)
                 : await renderCollegiumRegistryPdf(registry.initiatives, registry.name, registry.overdueIds),
             });
             return;

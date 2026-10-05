@@ -11,6 +11,8 @@ import type { AuditEventDraft } from "./audit.js";
 import type { ServerUserProfile } from "./auth.js";
 import {
   CollegiumInitiativeError,
+  listChangedCollegiumFields,
+  normalizeCollegiumCard,
   readCollegiumAmount,
   readCollegiumInitiativeCardInput,
 } from "./collegiumInitiative.js";
@@ -23,7 +25,7 @@ const reference: CollegiumReference = {
     { code: "cost_saving", label: "Экономия затрат" },
     { code: "defect_reduction", label: "Снижение брака" },
   ],
-  risk_level: [],
+  risk_level: [{ code: "medium", label: "Средний", significant: false }],
   site: [],
   kpi: [],
 };
@@ -102,6 +104,31 @@ test("an archived reference value stays valid only where it was already chosen",
   assert.deepEqual(kept.effectTypeLabels, ["Старый эффект", "Экономия затрат"]);
 });
 
+test("cards saved before queue 3 read and save without losing data", () => {
+  const legacy = normalizeCollegiumCard({
+    ...readCollegiumInitiativeCardInput(card(), reference),
+    expectedEffectPeriod: "за сезон",
+    risks: ["Срыв поставок"],
+  } as never);
+  assert.deepEqual(legacy.risks, [{ text: "Срыв поставок", levelCode: "", levelLabel: "" }]);
+  assert.deepEqual(
+    [legacy.capexAmount, legacy.changesTechnology, legacy.newProductOrMarket, legacy.boardDecisionRequired],
+    ["", "", "", ""],
+  );
+  // The old free-text period survives an unrelated edit but cannot be typed anew.
+  const edited = readCollegiumInitiativeCardInput(
+    { ...card(), expectedEffectPeriod: "за сезон", risks: [{ text: "Срыв поставок", levelCode: "" }], title: "Новое имя" },
+    reference,
+    legacy,
+  );
+  assert.equal(edited.expectedEffectPeriod, "за сезон");
+  assert.deepEqual(listChangedCollegiumFields(legacy, edited), ["title"]);
+  // A renamed risk level changes the label, not the card.
+  const leveled = readCollegiumInitiativeCardInput({ ...card(), risks: [{ text: "Простой", levelCode: "medium" }] }, reference);
+  const renamed = { ...leveled, risks: [{ ...leveled.risks[0], levelLabel: "Средний (новое имя)" }] };
+  assert.deepEqual(listChangedCollegiumFields(leveled, renamed), []);
+});
+
 test("card input canonicalizes amounts, labels and rejects malformed fields", () => {
   const parsed = readCollegiumInitiativeCardInput({
     ...card(),
@@ -118,7 +145,15 @@ test("card input canonicalizes amounts, labels and rejects malformed fields", ()
   assert.equal(parsed.recurringCostAmount, "");
   assert.equal(parsed.directionLabel, "Производство");
   assert.deepEqual(parsed.effectTypeLabels, ["Снижение брака"]);
-  assert.deepEqual(parsed.risks, ["Срыв поставок", "Брак"]);
+  // A bare string from an older client is a risk without a level.
+  assert.deepEqual(parsed.risks, [
+    { text: "Срыв поставок", levelCode: "", levelLabel: "" },
+    { text: "Брак", levelCode: "", levelLabel: "" },
+  ]);
+  assert.deepEqual(
+    readCollegiumInitiativeCardInput({ ...card(), risks: [{ text: "Простой", levelCode: "medium" }] }, reference).risks,
+    [{ text: "Простой", levelCode: "medium", levelLabel: "Средний" }],
+  );
 
   const rejects = (input: Record<string, unknown>, pattern: RegExp) =>
     assert.throws(() => readCollegiumInitiativeCardInput(input, reference), pattern);
@@ -133,6 +168,10 @@ test("card input canonicalizes amounts, labels and rejects malformed fields", ()
   rejects({ ...card(), plannedStart: "2026-12-01", plannedResult: "2026-11-01" }, /раньше/u);
   rejects({ ...card(), expectedEffectAmount: "-5" }, /неотрицательным/u);
   rejects({ ...card(), requestedDecision: "close" }, /решение/u);
+  rejects({ ...card(), risks: [{ text: "Простой", levelCode: "extreme" }] }, /уровень риска/u);
+  rejects({ ...card(), expectedEffectPeriod: "за сезон" }, /период эффекта/u);
+  rejects({ ...card(), changesTechnology: "maybe" }, /«да» или «нет»/u);
+  rejects({ ...card(), capexAmount: "-1" }, /неотрицательным/u);
   assert.equal(readCollegiumAmount("007"), "7.00");
   assert.throws(() => readCollegiumAmount("1.234"), /двумя знаками/u);
 });
@@ -275,7 +314,7 @@ function completeCard(overrides: Partial<CollegiumInitiativeCardInput> = {}) {
     baselineSource: "Отчёт ОТК № 12",
     solution: "Сменить режим обжига",
     expectedEffectAmount: "1 200 000",
-    expectedEffectPeriod: "год",
+    expectedEffectPeriod: "year",
     expectedEffectKind: "экономия затрат",
     effectMethod: "Снижение потерь × себестоимость",
     oneTimeCostAmount: "0",
@@ -289,8 +328,12 @@ function completeCard(overrides: Partial<CollegiumInitiativeCardInput> = {}) {
     plannedResult: "2027-02-01",
     kpiCriterion: "Потери не выше 1,5 %",
     kpiSource: "Отчёт ОТК",
-    risks: ["Срыв поставок"],
+    risks: [{ text: "Срыв поставок", levelCode: "medium" }],
     requestedDecision: "pilot",
+    capexAmount: "0",
+    changesTechnology: "no",
+    newProductOrMarket: "no",
+    boardDecisionRequired: "no",
     ...overrides,
   };
 }
@@ -302,16 +345,20 @@ test("admission filter lists every gap of the queue-1 success criterion", async 
       baselinePeriod: "",
       oneTimeCostAmount: "",
       effectControllerId: "account:author",
-      risks: [],
+      risks: [{ text: "Без уровня", levelCode: "" }],
       requestedDecision: "",
+      capexAmount: "",
+      boardDecisionRequired: "",
     }),
   });
   const detail = await service.read(profile("author", "participant"), draft.id);
   assert.deepEqual(detail.missingAdmissionFields, [
     "Базовая линия и её период",
     "Разовые затраты, ₽",
-    "Ключевые риски",
+    "CAPEX, ₽",
+    "Ключевые риски с уровнем",
     "Что требуется от Коллегии",
+    "Требуется решение Совета директоров",
     "Контролёр эффекта не может быть исполнителем или владельцем результата",
   ]);
   const complete = await service.create(profile("author", "participant"), { card: completeCard() });

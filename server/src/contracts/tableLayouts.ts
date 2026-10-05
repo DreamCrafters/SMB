@@ -37,7 +37,7 @@ export const tableDefinitions = {
   "collegium.dashboardStatuses": defineTable("Дашборд Коллегии: статусы", ["status", "scale", "count"]),
   "collegium.dashboardEffect": defineTable("Дашборд Коллегии: эффект по направлениям", ["direction", "scale", "planned", "confirmed"]),
   "collegium.dashboardTopEffect": defineTable("Дашборд Коллегии: топ по эффекту", ["initiative", "status", "expectedEffect"]),
-  "collegium.dashboardRisks": defineTable("Дашборд Коллегии: топ рисков", ["initiative", "risk"]),
+  "collegium.dashboardRisks": defineTable("Дашборд Коллегии: топ рисков", ["initiative", "level", "risk"]),
   "collegium.reference": defineTable("Справочник Коллегии", ["label", "unit", "significant", "state", "actions"]),
   "director.personnel": defineTable("Сотрудники", ["fullName", "position", "department", "category", "user", "status"]),
   "production.plan": defineTable("План выработки", ["date", "forming", "sorting", "unformed", "chamotte"]),

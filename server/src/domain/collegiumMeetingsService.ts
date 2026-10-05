@@ -4,6 +4,7 @@ import {
   collegiumAttachmentFileTypes,
   collegiumAttachmentLimits,
   collegiumDecisionLabels,
+  collegiumInitiativeRoleFields,
   collegiumInitiativeStatusLabels,
   collegiumMeetingDecisionStatuses,
   type CollegiumAttachment,
@@ -292,12 +293,7 @@ export function createCollegiumMeetingsService({
           throw new CollegiumInitiativeError("В повестку включаются только инициативы «Готова к рассмотрению».", 409);
         }
         const people = new Map<string, Awaited<ReturnType<typeof repository.readPerson>>>();
-        for (const accountId of [
-          initiative.card.ownerId,
-          initiative.card.executorId,
-          initiative.card.executionControllerId,
-          initiative.card.effectControllerId,
-        ]) {
+        for (const accountId of collegiumInitiativeRoleFields.map((field) => initiative.card[field])) {
           if (accountId !== "" && !people.has(accountId)) {
             people.set(accountId, await repository.readPerson(accountId, true));
           }

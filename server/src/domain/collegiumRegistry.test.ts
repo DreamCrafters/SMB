@@ -21,7 +21,8 @@ function initiative(id: string, overrides: Partial<CollegiumInitiative> = {}, ca
       expectedEffectPeriod: "", expectedEffectKind: "", effectMethod: "", oneTimeCostAmount: "", oneTimeCostVat: "",
       oneTimeCostSource: "", recurringCostAmount: "", recurringCostPeriod: "", internalResources: "", ownerId: "",
       executorId: "", executionControllerId: "", effectControllerId: "", plannedStart: "", plannedResult: "",
-      kpiCriterion: "", kpiSource: "", risks: [], requestedDecision: "",
+      kpiCriterion: "", kpiSource: "", risks: [], requestedDecision: "", capexAmount: "",
+      changesTechnology: "", newProductOrMarket: "", boardDecisionRequired: "",
       ...card,
     },
   };
@@ -29,6 +30,7 @@ function initiative(id: string, overrides: Partial<CollegiumInitiative> = {}, ca
 
 const context = {
   overdueIds: new Set(["2"]),
+  passportRequiredIds: new Set(["3"]),
   meetingInitiativeIds: new Map([["meeting-1", new Set(["3"])]]),
   commentMatchIds: new Set<string>(),
   name: (id: string) => (id === "account:author" ? "Иванова Анна" : ""),
@@ -46,7 +48,7 @@ function ids(params: Record<string, string>, list: CollegiumInitiative[], commen
 test("registry filters cover period, people, money, stage, meeting, overdue and search", () => {
   const list = [
     initiative("1", { createdAt: "2026-09-01T09:00:00.000Z" }, { ownerId: "account:owner", expectedEffectAmount: "500000.00", oneTimeCostAmount: "0.00" }),
-    initiative("2", { status: "in_progress" }, { executorId: "account:exec", expectedEffectAmount: "2000000.00", risks: ["Срыв поставок сырья"] }),
+    initiative("2", { status: "in_progress" }, { executorId: "account:exec", expectedEffectAmount: "2000000.00", risks: [{ text: "Срыв поставок сырья", levelCode: "high", levelLabel: "Высокий" }] }),
     initiative("3", { status: "board_referral" }, { effectControllerId: "account:ctrl", directionCode: "quality" }),
     initiative("4", { status: "closed", workflow: { result: { description: "", actualEffectAmount: "900.00", source: "", conclusion: "", recordedAt: "", recordedByDisplayName: "" } } }, { solution: "Новая печь" }),
   ];
@@ -66,6 +68,8 @@ test("registry filters cover period, people, money, stage, meeting, overdue and 
   assert.deepEqual(ids({ overdue: "yes" }, list), ["2"]);
   assert.deepEqual(ids({ risk: "поставок" }, list), ["2"]);
   assert.deepEqual(ids({ mine: "yes" }, list), ["2"]);
+  assert.deepEqual(ids({ riskLevelCode: "high" }, list), ["2"]);
+  assert.deepEqual(ids({ passportRequired: "yes" }, list), ["3"]);
   // Search covers the number, texts, the initiator name and comments.
   assert.deepEqual(ids({ query: "печь" }, list), ["4"]);
   assert.deepEqual(ids({ query: "иванова" }, list), ["1", "2", "3", "4"]);
@@ -86,7 +90,27 @@ test("registry filters reject unknown keys and malformed values", () => {
     { overdue: "true" },
     { meetingId: "../x" },
     { query: "x".repeat(121) },
+    { paybackMax: "0" },
+    { paybackMax: "12.25" },
+    { passportRequired: "1" },
   ]) {
     assert.throws(() => readCollegiumInitiativeFilters(new URLSearchParams(params)), JSON.stringify(params));
   }
+});
+
+test("the payback filter keeps only initiatives paying back within the limit", () => {
+  const paying = (id: string, effect: string) => initiative(id, {}, {
+    expectedEffectAmount: effect, expectedEffectPeriod: "year", oneTimeCostAmount: "1200.00",
+  });
+  const list = [
+    paying("fast", "1200.00"),
+    paying("slow", "600.00"),
+    initiative("none", {}, { expectedEffectAmount: "100.00", expectedEffectPeriod: "year", oneTimeCostAmount: "0.00" }),
+    initiative("loss", {}, {
+      expectedEffectAmount: "100.00", expectedEffectPeriod: "year", oneTimeCostAmount: "10.00",
+      recurringCostAmount: "200.00", recurringCostPeriod: "year",
+    }),
+  ];
+  assert.deepEqual(ids({ paybackMax: "12" }, list), ["fast"]);
+  assert.deepEqual(ids({ paybackMax: "24,0" }, list), ["fast", "slow"]);
 });

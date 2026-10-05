@@ -10,6 +10,7 @@ import {
   type CollegiumAttachment,
   type CollegiumAttentionItem,
   type CollegiumDashboard,
+  type CollegiumSettingsInput,
   type CollegiumCommentKind,
   type CollegiumInitiative,
   type CollegiumInitiativeCard,
@@ -41,6 +42,11 @@ import {
 import { recordCollegiumInitiativeEvent } from "./collegiumInitiativeEvents.js";
 import { filterCollegiumInitiatives } from "./collegiumRegistry.js";
 import { buildCollegiumDashboard } from "./collegiumDashboard.js";
+import {
+  calculateCollegiumEconomics,
+  listCollegiumPassportReasons,
+  unsetCollegiumSettings,
+} from "./collegiumEconomics.js";
 import {
   buildAssignmentCreatedNotification,
   buildHiddenRoleNotifications,
@@ -120,12 +126,15 @@ function buildActionNotifications(
 export function createCollegiumInitiativesService({
   repository,
   assignments,
+  settings,
   transaction,
   audit,
   now = () => new Date(),
 }: {
   repository: CollegiumInitiativesRepository;
   assignments?: CollegiumLinkedAssignmentsSource;
+  /** Пороги ТЗ 7.2; без источника условия порогов не срабатывают. */
+  settings?: { readSettings(): Promise<CollegiumSettingsInput> };
   transaction: DatabaseTransactionRunner;
   audit: AuditRepository;
   now?: () => Date;
@@ -135,6 +144,8 @@ export function createCollegiumInitiativesService({
     new Intl.DateTimeFormat("en-US", { timeZone: "Europe/Moscow", year: "numeric" })
       .format(now()),
   );
+
+  const readSettings = () => settings?.readSettings() ?? Promise.resolve(unsetCollegiumSettings);
 
   function requireView(profile: ServerUserProfile) {
     const permissions = collegiumInitiativePermissions(profile);
@@ -304,12 +315,13 @@ export function createCollegiumInitiativesService({
     permissions: CollegiumInitiativePermissions,
     filters: CollegiumInitiativeFilters,
   ) {
-    const [initiatives, people, reference, meetings, linked, commentMatches] = await Promise.all([
+    const [initiatives, people, reference, meetings, linked, moduleSettings, commentMatches] = await Promise.all([
       repository.list(),
       repository.listPeople(),
       repository.listReference(),
       repository.listMeetings(),
       assignments?.listWithInitiativeLink() ?? Promise.resolve([]),
+      readSettings(),
       filters.query === undefined
         ? Promise.resolve([] as string[])
         : repository.findInitiativeIdsByCommentText(filters.query),
@@ -325,9 +337,14 @@ export function createCollegiumInitiativesService({
     ]));
     const visible = initiatives.filter((initiative) =>
       canViewCollegiumInitiative(initiative, profile, permissions));
+    const passportRequiredIds = new Set(visible
+      .filter((initiative) => listCollegiumPassportReasons(initiative, moduleSettings, reference).length > 0)
+      .map((initiative) => initiative.id));
     return {
+      passportRequiredIds,
       initiatives: filterCollegiumInitiatives(visible, filters, {
         overdueIds,
+        passportRequiredIds,
         meetingInitiativeIds,
         commentMatchIds: new Set(commentMatches),
         name: (accountId) => names.get(accountId) ?? "",
@@ -347,12 +364,14 @@ export function createCollegiumInitiativesService({
     id: string,
   ): Promise<CollegiumInitiativeDetailResponse> {
     const { initiative, permissions } = await requireInitiative(profile, id);
-    const [revisions, comments, attachments, people, linkedAssignments] = await Promise.all([
+    const [revisions, comments, attachments, people, linkedAssignments, reference, moduleSettings] = await Promise.all([
       repository.listRevisions(id),
       repository.listComments(id),
       repository.listAttachments({ type: "initiative", id }),
       readRolePeople(initiative.card),
       listLinkedAssignments(id),
+      repository.listReference(),
+      readSettings(),
     ]);
     return {
       initiative,
@@ -370,6 +389,8 @@ export function createCollegiumInitiativesService({
       canCreateAssignments: assignableStatuses.includes(initiative.status) &&
         hasProfileCapability(profile, "business.manage_collegium_assignments"),
       canRecordResult: canRecordResult(initiative, profile, permissions),
+      economics: calculateCollegiumEconomics(initiative.card).economics,
+      passportReasons: listCollegiumPassportReasons(initiative, moduleSettings, reference),
     };
   }
 
@@ -408,6 +429,9 @@ export function createCollegiumInitiativesService({
           .map((meeting) => ({ id: meeting.id, number: meeting.number, meetingDate: meeting.meetingDate })),
         overdueIds: registry.initiatives
           .filter((initiative) => registry.overdueIds.has(initiative.id))
+          .map((initiative) => initiative.id),
+        passportRequiredIds: registry.initiatives
+          .filter((initiative) => registry.passportRequiredIds.has(initiative.id))
           .map((initiative) => initiative.id),
       };
     },

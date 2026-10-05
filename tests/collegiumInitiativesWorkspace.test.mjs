@@ -20,7 +20,7 @@ const DOM_GLOBAL_NAMES = [
 const reference = {
   direction: [{ code: "production", label: "Производство" }, { code: "legacy", label: "Старое направление", archived: true }],
   effect_type: [{ code: "cost_saving", label: "Экономия затрат" }],
-  risk_level: [],
+  risk_level: [{ code: "high", label: "Высокий", significant: true }],
   site: [],
   kpi: [],
 };
@@ -28,6 +28,14 @@ const people = [
   { id: "account:owner", displayName: "Петров П.П.", position: "Член Коллегии", hasInitiativesTab: true },
   { id: "account:outsider", displayName: "Сидоров С.С.", position: "Мастер", hasInitiativesTab: false },
 ];
+
+const detailExtras = {
+  economics: {
+    annualEffect: "1200000.00", annualRecurringCost: "0.00", netAnnualEffect: "1200000.00",
+    oneTimeCosts: "600000.00", paybackStatus: "payback", paybackMonths: "6.0", roiPercent: "200.0",
+  },
+  passportReasons: [{ code: "capex", label: "Требуется CAPEX" }],
+};
 
 function buildInitiative(card) {
   return {
@@ -44,7 +52,8 @@ function buildInitiative(card) {
       recurringCostAmount: "", recurringCostPeriod: "", internalResources: "",
       ownerId: "", executorId: "", executionControllerId: "", effectControllerId: "",
       plannedStart: "", plannedResult: "", kpiCriterion: "", kpiSource: "", risks: [],
-      requestedDecision: "", ...card,
+      requestedDecision: "", capexAmount: "", changesTechnology: "", newProductOrMarket: "",
+      boardDecisionRequired: "", ...card,
     },
     workflow: {},
     createdByUserId: "author",
@@ -119,7 +128,12 @@ test("participant creates a draft and opens its card from the registry", async (
       if (url.pathname === "/api/collegium-initiatives" && init.method === "POST") {
         const body = JSON.parse(String(init.body));
         posts.push(body);
-        stored = buildInitiative({ ...body.card, expectedEffectAmount: "1200.50" });
+        // Like the server: the stored risk carries the level label.
+        stored = buildInitiative({
+          ...body.card,
+          expectedEffectAmount: "1200.50",
+          risks: body.card.risks.map((risk) => ({ ...risk, levelLabel: "Высокий" })),
+        });
         return [{ initiative: stored }, 201];
       }
       if (url.pathname === "/api/collegium-initiatives") {
@@ -140,7 +154,7 @@ test("participant creates a draft and opens its card from the registry", async (
           linkedAssignments: [],
           summaryStatus: "not_started",
           canCreateAssignments: false,
-          canRecordResult: false,
+          canRecordResult: false, ...detailExtras,
         }];
       }
       throw new Error(`Unexpected request: ${url.pathname}`);
@@ -185,6 +199,22 @@ test("participant creates a draft and opens its card from the registry", async (
       setNativeInputValue(ownerSelect, "account:owner");
       ownerSelect.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
     });
+    const field = (label) => Array.from(form.querySelectorAll("label")).find(
+      (item) => item.querySelector(":scope > span")?.textContent === label,
+    ).querySelector("input, select");
+    await React.act(async () => {
+      const period = field("Период эффекта");
+      setNativeInputValue(period, "year");
+      period.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
+      const risk = field("Риск 1");
+      setNativeInputValue(risk, "Срыв поставок");
+      risk.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+    });
+    await React.act(async () => {
+      const level = field("Уровень риска 1");
+      setNativeInputValue(level, "high");
+      level.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
+    });
     await React.act(async () => {
       form.dispatchEvent(new dom.window.Event("submit", { bubbles: true, cancelable: true }));
     });
@@ -193,11 +223,18 @@ test("participant creates a draft and opens its card from the registry", async (
     assert.equal(posts[0].card.title, "Снизить потери при выпуске");
     assert.equal(posts[0].card.expectedEffectAmount, "1 200,5");
     assert.equal(posts[0].card.ownerId, "account:owner");
+    assert.equal(posts[0].card.expectedEffectPeriod, "year");
+    // Empty risk slots are dropped; a risk carries its level code.
+    assert.deepEqual(posts[0].card.risks, [{ text: "Срыв поставок", levelCode: "high" }]);
     assert.equal(posts[0].revision, undefined);
     assert.match(container.textContent, /И-2026-0001/u);
     assert.match(container.textContent, /Черновик/u);
     assert.match(container.textContent, /Петров П\.П\./u);
     assert.match(container.textContent, /1\s200,50\s₽/u);
+    // The economics and the passport requirement come from the server.
+    assert.match(container.textContent, /ROI200,0 %/u);
+    assert.match(container.textContent, /Срок окупаемости6,0 мес\./u);
+    assert.match(container.textContent, /требуется: требуется capex/u);
 
     const link = Array.from(container.querySelectorAll(".collegium-attachments a"))[0];
     assert.equal(link.textContent, "Данные ОТК");
@@ -269,6 +306,7 @@ test("an approved initiative creates a linked collegium assignment with protocol
           summaryStatus: stored.status === "in_progress" ? "in_pilot" : "in_preparation",
           canCreateAssignments: true,
           canRecordResult: stored.status === "in_progress",
+          ...detailExtras,
         }];
       }
       throw new Error(`Unexpected request: ${url.pathname}`);
@@ -360,7 +398,7 @@ test("the attention panel lists server-computed actions and opens the card", asy
         return [{
           initiative: stored, revisions: [], comments: [], attachments: [], canAttach: false, canEdit: false,
           canComment: false, canResolveComments: false, actions: [], missingAdmissionFields: [],
-          linkedAssignments: [], summaryStatus: "in_preparation", canCreateAssignments: false, canRecordResult: false,
+          linkedAssignments: [], summaryStatus: "in_preparation", canCreateAssignments: false, canRecordResult: false, ...detailExtras,
         }];
       }
       throw new Error(`Unexpected request: ${url.pathname}`);
@@ -406,7 +444,7 @@ test("the dashboard shows server figures with labelled effect bars and opens a c
         return [{
           initiative: stored, revisions: [], comments: [], attachments: [], canAttach: false, canEdit: false,
           canComment: false, canResolveComments: false, actions: [], missingAdmissionFields: [],
-          linkedAssignments: [], summaryStatus: "in_preparation", canCreateAssignments: false, canRecordResult: false,
+          linkedAssignments: [], summaryStatus: "in_preparation", canCreateAssignments: false, canRecordResult: false, ...detailExtras,
         }];
       }
       throw new Error(`Unexpected request: ${url.pathname}`);

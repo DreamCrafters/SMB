@@ -235,6 +235,24 @@ export type CollegiumInitiativeRoleField =
 
 export const maxCollegiumInitiativeRisks = 3;
 
+/** Период ожидаемого эффекта; прежний свободный текст остаётся только для показа. */
+export const collegiumEffectPeriods = ["month", "quarter", "year", "one_time"] as const;
+export type CollegiumEffectPeriod = (typeof collegiumEffectPeriods)[number];
+export const collegiumEffectPeriodLabels: Record<CollegiumEffectPeriod, string> = {
+  month: "в месяц",
+  quarter: "в квартал",
+  year: "в год",
+  one_time: "разово",
+};
+
+export const collegiumYesNoOptions = ["yes", "no"] as const;
+export type CollegiumYesNo = (typeof collegiumYesNoOptions)[number];
+export const collegiumYesNoLabels: Record<CollegiumYesNo, string> = { yes: "да", no: "нет" };
+
+/** Риск с уровнем из справочника `risk_level`; старые записи — без уровня. */
+export type CollegiumRiskInput = { text: string; levelCode: string };
+export type CollegiumRisk = CollegiumRiskInput & { levelLabel: string };
+
 /**
  * Редактируемые поля экспресс-карты (ТЗ 6.2). Суммы — канонический текст
  * `1234.50` или пустая строка; люди — `account:<userId>` или пустая строка.
@@ -251,6 +269,7 @@ export type CollegiumInitiativeCardInput = {
   solution: string;
   changeScope: string;
   expectedEffectAmount: string;
+  /** Код `CollegiumEffectPeriod`; в старых карточках — свободный текст. */
   expectedEffectPeriod: string;
   expectedEffectKind: string;
   effectMethod: string;
@@ -259,6 +278,7 @@ export type CollegiumInitiativeCardInput = {
   oneTimeCostSource: string;
   recurringCostAmount: string;
   recurringCostPeriod: CollegiumRecurringPeriod | "";
+  capexAmount: string;
   internalResources: string;
   ownerId: string;
   executorId: string;
@@ -268,14 +288,20 @@ export type CollegiumInitiativeCardInput = {
   plannedResult: string;
   kpiCriterion: string;
   kpiSource: string;
-  risks: string[];
+  risks: CollegiumRiskInput[];
   requestedDecision: CollegiumRequestedDecision | "";
+  /** Входы ТЗ 7.2: меняется технология, рецептура, спецификация или контроль качества. */
+  changesTechnology: CollegiumYesNo | "";
+  /** Новый продукт, рынок или ключевой клиент. */
+  newProductOrMarket: CollegiumYesNo | "";
+  boardDecisionRequired: CollegiumYesNo | "";
 };
 
 /** Снимок хранит и код, и подпись справочника, чтобы история не менялась. */
-export type CollegiumInitiativeCard = CollegiumInitiativeCardInput & {
+export type CollegiumInitiativeCard = Omit<CollegiumInitiativeCardInput, "risks"> & {
   directionLabel: string;
   effectTypeLabels: string[];
+  risks: CollegiumRisk[];
 };
 
 export type CollegiumPerson = {
@@ -327,7 +353,41 @@ export type CollegiumInitiativeListResponse = {
   meetings: Array<{ id: string; number: string; meetingDate: string }>;
   /** Инициативы с просроченными связанными поручениями. */
   overdueIds: string[];
+  /** Инициативы, которым по ТЗ 7.2 нужен полный паспорт. */
+  passportRequiredIds: string[];
 };
+
+/**
+ * Расчёт по экспресс-карте (ТЗ 11.3). Суммы — рубли `1234.50` в год (чистый
+ * эффект со знаком), пустая строка — не определено (нет периода или затрат).
+ */
+export type CollegiumEconomics = {
+  annualEffect: string;
+  annualRecurringCost: string;
+  netAnnualEffect: string;
+  oneTimeCosts: string;
+  /** `not_paying` — чистый эффект ≤ 0 при разовых затратах; `none` — не определено. */
+  paybackStatus: "payback" | "not_paying" | "none";
+  /** Месяцев, один знак после запятой. */
+  paybackMonths: string;
+  /** Процентов, один знак после запятой, со знаком. */
+  roiPercent: string;
+};
+
+export const collegiumPassportReasonCodes = [
+  "one_time_cost",
+  "capex",
+  "technology",
+  "new_product",
+  "significant_risk",
+  "payback",
+  "board_decision",
+  "status",
+] as const;
+export type CollegiumPassportReasonCode = (typeof collegiumPassportReasonCodes)[number];
+
+/** Причина, по которой инициативе нужен полный паспорт (ТЗ 7.2). */
+export type CollegiumPassportReason = { code: CollegiumPassportReasonCode; label: string };
 
 export type CollegiumInitiativeDetailResponse = {
   initiative: CollegiumInitiative;
@@ -347,6 +407,9 @@ export type CollegiumInitiativeDetailResponse = {
   /** Право отправки реестра Коллегии и подходящий статус инициативы. */
   canCreateAssignments: boolean;
   canRecordResult: boolean;
+  economics: CollegiumEconomics;
+  /** Пусто — полный паспорт не требуется. */
+  passportReasons: CollegiumPassportReason[];
 };
 
 export type CollegiumInitiativeSaveRequest = {
@@ -381,6 +444,7 @@ export const collegiumInitiativeFieldLabels: Record<
   oneTimeCostSource: "Источник финансирования",
   recurringCostAmount: "Постоянные затраты, ₽",
   recurringCostPeriod: "Период постоянных затрат",
+  capexAmount: "CAPEX, ₽",
   internalResources: "Требуемые внутренние ресурсы",
   ownerId: "Владелец результата",
   executorId: "Предлагаемый исполнитель",
@@ -392,6 +456,9 @@ export const collegiumInitiativeFieldLabels: Record<
   kpiSource: "Источник KPI",
   risks: "Топ-3 риска",
   requestedDecision: "Что требуется от Коллегии",
+  changesTechnology: "Меняется технология, рецептура, спецификация или контроль качества",
+  newProductOrMarket: "Новый продукт, рынок или ключевой клиент",
+  boardDecisionRequired: "Требуется решение Совета директоров",
 };
 
 export const collegiumInitiativesApiPath = "/api/collegium-initiatives";
@@ -876,6 +943,10 @@ export type CollegiumInitiativeFilters = {
   boardDecision?: "yes";
   overdue?: "yes";
   risk?: string;
+  riskLevelCode?: string;
+  /** Окупаемость не больше N месяцев (неокупаемые и неопределённые не входят). */
+  paybackMax?: string;
+  passportRequired?: "yes";
   /** Где пользователь автор или в любой роли карточки. */
   mine?: "yes";
 };
@@ -902,6 +973,9 @@ export const collegiumInitiativeFilterKeys = [
   "boardDecision",
   "overdue",
   "risk",
+  "riskLevelCode",
+  "paybackMax",
+  "passportRequired",
   "mine",
 ] as const satisfies readonly (keyof CollegiumInitiativeFilters)[];
 
@@ -939,5 +1013,5 @@ export type CollegiumDashboard = {
   unconfirmed: CollegiumInitiativeRef[];
   boardDecisions: CollegiumInitiativeRef[];
   topByEffect: Array<CollegiumInitiativeRef & { expectedEffect: string; status: CollegiumInitiativeStatus }>;
-  topRisks: Array<CollegiumInitiativeRef & { risk: string; expectedEffect: string }>;
+  topRisks: Array<CollegiumInitiativeRef & { risk: string; levelCode: string; levelLabel: string; expectedEffect: string }>;
 };

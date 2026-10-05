@@ -10032,6 +10032,25 @@ p {
   font-weight: 700;
 }
 
+.collegium-passport-mark {
+  display: block;
+  color: var(--blue-gray);
+  font-size: 12px;
+}
+
+.collegium-risk-row {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: minmax(0, 2fr) minmax(140px, 1fr);
+  gap: var(--density-2);
+}
+
+@media (max-width: 560px) {
+  .collegium-risk-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
 .collegium-attention {
   display: grid;
   gap: var(--density-2);

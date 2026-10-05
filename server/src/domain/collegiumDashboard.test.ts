@@ -25,9 +25,9 @@ test("dashboard counts stages, sums effect exactly and ranks the top lists", () 
     initiative("preliminary_review", { expectedEffectAmount: "999999.00" }),
     initiative("rework", {}, { rework: { dueDate: "2026-10-01" } as CollegiumInitiative["workflow"]["rework"] }),
     initiative("rework", {}, { rework: { dueDate: "2026-10-09" } as CollegiumInitiative["workflow"]["rework"] }),
-    initiative("approved_pilot", { directionCode: "energy", directionLabel: "Энергия", expectedEffectAmount: "0.10", risks: ["Сбой поставки"] }),
+    initiative("approved_pilot", { directionCode: "energy", directionLabel: "Энергия", expectedEffectAmount: "0.10", risks: [{ text: "Сбой поставки", levelCode: "critical", levelLabel: "Критический" }] }),
     initiative("in_progress", { directionCode: "energy", directionLabel: "Энергия (старое)", expectedEffectAmount: "0.20" }, { lastDecision: { decision: "pilot" } as CollegiumInitiative["workflow"]["lastDecision"] }),
-    initiative("in_progress", { directionCode: "raw", directionLabel: "Сырьё", expectedEffectAmount: "500.00", risks: ["Рост цен", "Простой"] }),
+    initiative("in_progress", { directionCode: "raw", directionLabel: "Сырьё", expectedEffectAmount: "500.00", risks: [{ text: "Рост цен", levelCode: "low", levelLabel: "Низкий" }, { text: "Простой", levelCode: "", levelLabel: "" }] }),
     initiative("done_confirmed", { directionCode: "raw", directionLabel: "Сырьё", expectedEffectAmount: "300.00" }, {
       result,
       effectConfirmation: { confirmedByDisplayName: "Контролёр", confirmedAt: "", result },
@@ -58,7 +58,9 @@ test("dashboard counts stages, sums effect exactly and ranks the top lists", () 
 
   const reference = {
     direction: [{ code: "energy", label: "Энергия" }, { code: "raw", label: "Сырьё", archived: true }],
-    effect_type: [], risk_level: [], site: [], kpi: [],
+    effect_type: [],
+    risk_level: [{ code: "low", label: "Низкий" }, { code: "critical", label: "Критический (новое имя)" }],
+    site: [], kpi: [],
   };
   const dashboard = buildCollegiumDashboard({ today: "2026-10-05", initiatives, meetings, assignments, reference });
 
@@ -84,8 +86,9 @@ test("dashboard counts stages, sums effect exactly and ranks the top lists", () 
   assert.deepEqual(dashboard.boardDecisions.map(({ id }) => id), ["i-9"]);
   // Finished and rejected initiatives leave the top lists.
   assert.deepEqual(dashboard.topByEffect.map(({ id }) => id), ["i-1", "i-6", "i-9", "i-5", "i-4"]);
-  assert.deepEqual(dashboard.topRisks.map(({ id, risk }) => [id, risk]), [
-    ["i-6", "Рост цен"], ["i-6", "Простой"], ["i-4", "Сбой поставки"],
+  // The most severe level first, then the larger stake; risks without a level come last.
+  assert.deepEqual(dashboard.topRisks.map(({ id, risk, levelLabel }) => [id, risk, levelLabel]), [
+    ["i-4", "Сбой поставки", "Критический (новое имя)"], ["i-6", "Рост цен", "Низкий"], ["i-6", "Простой", ""],
   ]);
 });
 

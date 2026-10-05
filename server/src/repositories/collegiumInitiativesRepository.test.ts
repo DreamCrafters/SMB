@@ -114,3 +114,25 @@ test("collegium reference returns archived values with flags", async () => {
   assert.deepEqual(reference.kpi, [{ code: "loss", label: "Потери", unit: "%" }]);
   assert.deepEqual(reference.site, []);
 });
+
+test("every reader normalizes legacy string risks", async () => {
+  const legacyCard = { title: "Идея", risks: ["Срыв поставок"] };
+  const at = "2026-10-05T09:00:00.000Z";
+  const pool = {
+    async query(sql: string) {
+      if (sql.includes("from collegium_initiatives where")) {
+        return [[{ id: "i", number: "И-2026-0001", status: "ready", revision: 2, created_by_user_id: "a", payload: JSON.stringify(legacyCard), workflow: null, created_at: at, updated_at: at }], []];
+      }
+      if (sql.includes("from collegium_initiative_revisions")) {
+        return [[{ revision: 1, payload: JSON.stringify({ card: legacyCard, status: "draft" }), created_at: at }], []];
+      }
+      return [[{ id: "m", number: "КЗ-2026-01", status: "planned", revision: 1, created_at: at, updated_at: at,
+        payload: JSON.stringify({ items: [{ id: "item", snapshot: { revision: 2, card: legacyCard } }] }) }], []];
+    },
+  } as unknown as DatabasePool;
+  const repository = createCollegiumInitiativesRepository(pool);
+  const expected = [{ text: "Срыв поставок", levelCode: "", levelLabel: "" }];
+  assert.deepEqual((await repository.read("i"))?.card.risks, expected);
+  assert.deepEqual((await repository.listRevisions("i"))[0].card.risks, expected);
+  assert.deepEqual((await repository.listMeetings())[0].items[0].snapshot.card.risks, expected);
+});
