@@ -48,7 +48,7 @@ test("notification settings repository expands missing rows from the server cata
   const result = await createNotificationSettingsRepository(pool)
     .readUserSettings("general-director-user");
 
-  assert.equal(result?.settings.length, 11);
+  assert.equal(result?.settings.length, 12);
   assert.equal(result?.isProtected, false);
   assert.match(
     userSql,
@@ -314,7 +314,7 @@ test("position notification list groups accounts and enabled types by position",
   assert.equal(positions[0]?.accounts.length, 1);
   assert.equal(positions[0]?.accounts[0]?.userId, "accountant-user");
   assert.equal(positions[0]?.accounts[0]?.email, "accountant@example.com");
-  assert.equal(positions[0]?.accounts[0]?.channels.length, 11);
+  assert.equal(positions[0]?.accounts[0]?.channels.length, 12);
   assert.deepEqual(
     positions[0]?.accounts[0]?.channels.find(
       ({ type }) => type === "incidents",
@@ -327,7 +327,7 @@ test("position notification list groups accounts and enabled types by position",
     ),
     { type: "visitors", emailEnabled: false, maxEnabled: false },
   );
-  assert.equal(positions[0]?.permissions.length, 11);
+  assert.equal(positions[0]?.permissions.length, 12);
   assert.equal(
     positions[0]?.permissions.find(({ type }) => type === "incidents")
       ?.adminEnabled,

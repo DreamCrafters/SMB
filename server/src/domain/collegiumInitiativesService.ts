@@ -12,6 +12,7 @@ import {
   type CollegiumInitiative,
   type CollegiumInitiativeCard,
   type CollegiumInitiativeComment,
+  type CollegiumInitiativeAction,
   type CollegiumInitiativeDetailResponse,
   type CollegiumInitiativeFilters,
   type CollegiumInitiativeListResponse,
@@ -37,6 +38,17 @@ import {
 } from "./collegiumAttachment.js";
 import { recordCollegiumInitiativeEvent } from "./collegiumInitiativeEvents.js";
 import { filterCollegiumInitiatives } from "./collegiumRegistry.js";
+import {
+  buildAssignmentCreatedNotification,
+  buildHiddenRoleNotifications,
+  buildOutcomeNotification,
+  buildResultConfirmationNotification,
+  buildReworkNotification,
+  buildRoleAssignmentNotifications,
+  buildSubmittedNotification,
+  type CollegiumNotification,
+  type CollegiumOutbox,
+} from "./collegiumNotifications.js";
 import type { DatabaseTransactionRunner } from "../db/transactionContext.js";
 import type { AuditRepository } from "../repositories/auditRepository.js";
 import type { CollegiumInitiativesRepository } from "../repositories/collegiumInitiativesRepository.js";
@@ -71,6 +83,36 @@ const assignableStatuses: readonly CollegiumInitiative["status"][] = [
   "approved_implementation",
   "in_progress",
 ];
+
+/** Уведомления о смене статуса (ТЗ 12.1); отправляет их HTTP-слой после ответа. */
+function buildActionNotifications(
+  before: CollegiumInitiative,
+  after: CollegiumInitiative,
+  action: CollegiumInitiativeAction,
+  actorUserId: string,
+): CollegiumNotification[] {
+  switch (action) {
+    case "submit_for_review":
+      return [
+        buildSubmittedNotification(after, actorUserId),
+        ...(before.workflow.submittedAt === undefined ? buildHiddenRoleNotifications(after, actorUserId) : []),
+      ];
+    case "return_for_rework":
+      return [buildReworkNotification(after, actorUserId)];
+    case "complete_work":
+      return [buildResultConfirmationNotification(after, actorUserId)];
+    case "confirm_effect":
+      return [buildOutcomeNotification(after, "Эффект подтверждён", actorUserId)];
+    case "reject_effect":
+      return [buildOutcomeNotification(after, "Эффект признан неподтверждённым", actorUserId)];
+    case "board_reject":
+      return [buildOutcomeNotification(after, "Совет директоров отклонил инициативу", actorUserId)];
+    case "close":
+      return [buildOutcomeNotification(after, "Инициатива закрыта", actorUserId)];
+    default:
+      return [];
+  }
+}
 
 export function createCollegiumInitiativesService({
   repository,
@@ -367,6 +409,23 @@ export function createCollegiumInitiativesService({
       };
     },
 
+    /** Адресаты уведомлений по capability (для доставки после ответа). */
+    listUserIdsWithCapability(capability: string) {
+      return repository.listUserIdsWithCapability(capability);
+    },
+
+    /** Уведомление о поручении из инициативы; HTTP-ветка реестра вызывает после сохранения. */
+    async assignmentCreatedNotifications(
+      profile: ServerUserProfile,
+      initiativeId: string,
+      assignmentNumber: string,
+    ): Promise<CollegiumNotification[]> {
+      const initiative = await repository.read(initiativeId);
+      return initiative === undefined
+        ? []
+        : [buildAssignmentCreatedNotification(initiative, assignmentNumber, profile.userId)];
+    },
+
     /** Карточка для печатной формы с именами людей. */
     async printCard(profile: ServerUserProfile, id: string) {
       const detail = await readDetail(profile, id);
@@ -384,7 +443,7 @@ export function createCollegiumInitiativesService({
       return readDetail(profile, id);
     },
 
-    async create(profile: ServerUserProfile, body: unknown) {
+    async create(profile: ServerUserProfile, body: unknown, outbox?: CollegiumOutbox) {
       const permissions = requireView(profile);
       if (!permissions.canParticipate) {
         throw new CollegiumInitiativeError("Создавать инициативы может участник Коллегии.", 403);
@@ -414,6 +473,7 @@ export function createCollegiumInitiativesService({
           updatedAt: createdAt.toISOString(),
         };
         await repository.insert(initiative);
+        outbox?.push(...buildRoleAssignmentNotifications(initiative, undefined, profile.userId));
         await repository.insertRevision(initiative.id, {
           id: randomUUID(),
           revision: 1,
@@ -435,7 +495,7 @@ export function createCollegiumInitiativesService({
       });
     },
 
-    async update(profile: ServerUserProfile, id: string, body: unknown) {
+    async update(profile: ServerUserProfile, id: string, body: unknown, outbox?: CollegiumOutbox) {
       const request = readSaveRequest(body);
       if (request.revision === undefined) {
         throw new CollegiumInitiativeError("Передайте ревизию изменяемой карточки.");
@@ -471,6 +531,7 @@ export function createCollegiumInitiativesService({
           updatedAt: updatedAt.toISOString(),
         };
         await repository.update(updated, initiative.revision);
+        outbox?.push(...buildRoleAssignmentNotifications(updated, initiative.card, profile.userId));
         await repository.insertRevision(initiative.id, {
           id: randomUUID(),
           revision: updated.revision,
@@ -496,7 +557,7 @@ export function createCollegiumInitiativesService({
       });
     },
 
-    async act(profile: ServerUserProfile, id: string, body: unknown) {
+    async act(profile: ServerUserProfile, id: string, body: unknown, outbox?: CollegiumOutbox) {
       const request = readCollegiumActionRequest(body, today());
       return transaction.run(async () => {
         const { initiative, permissions } = await requireInitiative(profile, id, true);
@@ -580,6 +641,7 @@ export function createCollegiumInitiativesService({
             ...(request.comment === "" ? [] : [{ label: "Комментарий", value: request.comment }]),
           ],
         );
+        outbox?.push(...buildActionNotifications(initiative, updated, request.action, profile.userId));
         return updated;
       });
     },

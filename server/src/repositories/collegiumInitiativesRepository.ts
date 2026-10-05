@@ -167,6 +167,22 @@ export function createCollegiumInitiativesRepository(pool: DatabasePool) {
       return (await people(accountId.slice("account:".length), lock))[0];
     },
 
+    /** Active accounts whose current positions (any of them) grant the capability. */
+    async listUserIdsWithCapability(capability: string) {
+      const [rows] = await pool.query<(RowDataPacket & { user_id: string })[]>(`
+        select distinct users.id as user_id
+        from app_users users
+        join account_accesses accesses on accesses.user_id = users.id
+        join account_positions positions on json_contains(
+          coalesce(accesses.position_codes, json_array(accesses.position_code)),
+          json_quote(positions.id)
+        )
+        where users.status = 'active' and accesses.is_active = 1
+          and json_contains(positions.capabilities, json_quote(?))`,
+        [capability]);
+      return rows.map((row) => row.user_id);
+    },
+
     /** Year counter of a number series; runs in the caller's transaction. */
     /**
      * One upsert takes the exclusive row lock at once: `insert ignore` followed

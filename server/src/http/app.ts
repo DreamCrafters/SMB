@@ -10,6 +10,8 @@ import type { CollegiumInitiativesService } from "../domain/collegiumInitiatives
 import type { CollegiumMeetingsService } from "../domain/collegiumMeetingsService.js";
 import { CollegiumInitiativeError } from "../domain/collegiumInitiative.js";
 import { readCollegiumInitiativeFilters } from "../domain/collegiumRegistry.js";
+import type { CollegiumNotification, CollegiumOutbox } from "../domain/collegiumNotifications.js";
+import { deliverCollegiumNotifications } from "../integrations/collegiumNotificationDelivery.js";
 import {
   buildCollegiumRegistryXlsx,
   renderCollegiumInitiativeCardPdf,
@@ -979,6 +981,22 @@ export function createApiServer({
         return;
       }
 
+      /** Уведомления «Инициатив Коллегии» уходят после ответа; сбой не меняет результат. */
+      const deliverCollegiumOutbox = async (outbox: readonly CollegiumNotification[]) => {
+        if (outbox.length === 0 || notificationSettings === undefined || collegiumInitiatives === undefined) return;
+        try {
+          await deliverCollegiumNotifications({
+            notifications: outbox,
+            people: collegiumInitiatives,
+            notificationSettings,
+            emailService: emailNotificationService,
+            maxService: maxNotificationService,
+          });
+        } catch {
+          console.warn("collegium_notifications.delivery_failed");
+        }
+      };
+
       if (
         url.pathname === collegiumInitiativesApiPath ||
         url.pathname.startsWith(`${collegiumInitiativesApiPath}/`)
@@ -1019,7 +1037,9 @@ export function createApiServer({
           if (id && section === "result" && !itemId && req.method === "POST") {
             sendJson(res, 200, { initiative: await collegiumInitiatives.recordResult(access.profile, id, await readJsonBody(req)) });
           } else if (id && section === "actions" && !itemId && req.method === "POST") {
-            sendJson(res, 200, { initiative: await collegiumInitiatives.act(access.profile, id, await readJsonBody(req)) });
+            const outbox: CollegiumOutbox = [];
+            sendJson(res, 200, { initiative: await collegiumInitiatives.act(access.profile, id, await readJsonBody(req), outbox) });
+            await deliverCollegiumOutbox(outbox);
           } else if (id && section === "comments" && !itemId && req.method === "POST") {
             sendJson(res, 201, { comment: await collegiumInitiatives.comment(access.profile, id, await readJsonBody(req)) });
           } else if (id && section === "comments" && itemId && itemAction === "resolve" && req.method === "POST") {
@@ -1058,9 +1078,17 @@ export function createApiServer({
             sendJson(res, 200, { ok: true });
           } else if (section) throw new CollegiumInitiativeError("Действие недоступно.", 405);
           else if (!id && req.method === "GET") sendJson(res, 200, await collegiumInitiatives.list(access.profile, readCollegiumInitiativeFilters(url.searchParams)));
-          else if (!id && req.method === "POST") sendJson(res, 201, { initiative: await collegiumInitiatives.create(access.profile, await readJsonBody(req)) });
+          else if (!id && req.method === "POST") {
+            const outbox: CollegiumOutbox = [];
+            sendJson(res, 201, { initiative: await collegiumInitiatives.create(access.profile, await readJsonBody(req), outbox) });
+            await deliverCollegiumOutbox(outbox);
+          }
           else if (id && req.method === "GET") sendJson(res, 200, await collegiumInitiatives.read(access.profile, id));
-          else if (id && req.method === "PATCH") sendJson(res, 200, { initiative: await collegiumInitiatives.update(access.profile, id, await readJsonBody(req)) });
+          else if (id && req.method === "PATCH") {
+            const outbox: CollegiumOutbox = [];
+            sendJson(res, 200, { initiative: await collegiumInitiatives.update(access.profile, id, await readJsonBody(req), outbox) });
+            await deliverCollegiumOutbox(outbox);
+          }
           else throw new CollegiumInitiativeError("Действие недоступно.", 405);
         } catch (error) {
           if (isDatabaseLockConflict(error)) {
@@ -1107,7 +1135,9 @@ export function createApiServer({
             else if (req.method === "PATCH") sendJson(res, 200, { meeting: await collegiumMeetings.updateDetails(profile, id, await readJsonBody(req)) });
             else throw new CollegiumInitiativeError("Действие недоступно.", 405);
           } else if (section === "items" && !itemId && req.method === "POST") {
-            sendJson(res, 200, { meeting: await collegiumMeetings.addItem(profile, id, await readJsonBody(req)) });
+            const outbox: CollegiumOutbox = [];
+            sendJson(res, 200, { meeting: await collegiumMeetings.addItem(profile, id, await readJsonBody(req), outbox) });
+            await deliverCollegiumOutbox(outbox);
           } else if (section === "items" && itemId && itemAction && req.method === "POST") {
             const body = await readJsonBody(req);
             const meeting = itemAction === "remove"
@@ -1121,7 +1151,9 @@ export function createApiServer({
           } else if (section === "protocol" && itemId === "draft" && !itemAction && req.method === "POST") {
             sendJson(res, 200, { meeting: await collegiumMeetings.generateProtocol(profile, id, await readJsonBody(req)) });
           } else if (section === "protocol" && itemId === "approve" && !itemAction && req.method === "POST") {
-            sendJson(res, 200, { meeting: await collegiumMeetings.approveProtocol(profile, id, await readJsonBody(req)) });
+            const outbox: CollegiumOutbox = [];
+            sendJson(res, 200, { meeting: await collegiumMeetings.approveProtocol(profile, id, await readJsonBody(req), outbox) });
+            await deliverCollegiumOutbox(outbox);
           } else if (section === "cancel" && !itemId && req.method === "POST") {
             sendJson(res, 200, { meeting: await collegiumMeetings.cancel(profile, id, await readJsonBody(req)) });
           } else if (section === "attachments" && !itemId && req.method === "POST") {
@@ -1212,7 +1244,16 @@ export function createApiServer({
             else throw new DirectorAssignmentError("Действие недоступно.", 405);
           } else if (section === "personnel") throw new DirectorAssignmentError("Действие недоступно.", 405);
           else if (!id && req.method === "GET") sendJson(res, 200, await assignmentsService.list(profile));
-          else if (!id && req.method === "POST") sendJson(res, 201, { assignment: await assignmentsService.save(profile, await readJsonBody(req)) });
+          else if (!id && req.method === "POST") {
+            const assignment = await assignmentsService.save(profile, await readJsonBody(req));
+            sendJson(res, 201, { assignment });
+            // Задача 135: поручение из инициативы — уведомление после сохранения.
+            if (registryId === "collegium" && assignment.sourceInitiativeId && collegiumInitiatives) {
+              await deliverCollegiumOutbox(
+                await collegiumInitiatives.assignmentCreatedNotifications(profile, assignment.sourceInitiativeId, assignment.number),
+              );
+            }
+          }
           else if (id === "completions" && req.method === "GET") sendJson(res, 200, { completions: await assignmentsService.completions(profile) });
           else if (id && action === "action" && req.method === "POST") {
             const body = await readJsonBody(req);

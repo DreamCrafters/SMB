@@ -12,6 +12,7 @@ export const notificationTypes = [
   { id: "board_assignments", label: "Поручения Совета директоров" },
   { id: "general_director_assignments", label: "Поручения Гендиректора" },
   { id: "collegium_assignments", label: "Поручения Коллегии" },
+  { id: "collegium_initiatives", label: "Инициативы Коллегии" },
 ] as const;
 
 export type NotificationType = (typeof notificationTypes)[number]["id"];

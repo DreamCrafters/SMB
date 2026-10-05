@@ -543,3 +543,44 @@ test("the registry filters on the server by meeting and overdue assignments", as
   assert.deepEqual(exported.initiatives.map(({ id }) => id), [approved.id]);
   assert.equal(exported.name("account:owner"), "ФИО owner");
 });
+
+test("services queue notifications instead of sending them inside the transaction", async () => {
+  const { initiatives, meetings, createMeeting, memory } = createHarness();
+  const created: unknown[] = [];
+  const draft = await initiatives.create(author, { card: completeCard("Уведомления") }, created as never);
+  // While private, only the owner learns about the role.
+  assert.deepEqual((created as Array<{ userIds: string[] }>).map(({ userIds }) => userIds), [["owner"]]);
+
+  const submitted: Array<{ subject: string; userIds: string[]; audienceCapability?: string }> = [];
+  await initiatives.act(author, draft.id, { action: "submit_for_review", revision: 1 }, submitted as never);
+  assert.equal(submitted[0].audienceCapability, "business.manage_collegium_initiatives");
+  // The author is excluded later, at delivery time.
+  assert.deepEqual(submitted.slice(1).map(({ userIds }) => userIds).sort(), [["author"], ["chair"], ["secretary"]]);
+
+  const reworked: Array<{ userIds: string[] }> = [];
+  await initiatives.act(secretary, draft.id, {
+    action: "return_for_rework", revision: 2, comment: "Нужны данные",
+    rework: { remarks: ["Добавить расчёт"], responsibleId: "account:owner", dueDate: "2026-10-20", readinessCriterion: "Расчёт" },
+  }, reworked as never);
+  assert.deepEqual(reworked[0].userIds, ["author", "owner"]);
+
+  const resubmitted: unknown[] = [];
+  await initiatives.act(author, draft.id, { action: "submit_for_review", revision: 3 }, resubmitted as never);
+  assert.equal(resubmitted.length, 1, "Roles are announced only on the first submission.");
+  const ready = await initiatives.act(chair, draft.id, { action: "admit", revision: 4 });
+
+  const meeting = await createMeeting();
+  const agenda: Array<{ userIds: string[] }> = [];
+  let current = await meetings.addItem(secretary, meeting.id, { revision: 1, initiativeId: ready.id, speakerId: "account:secretary" }, agenda as never);
+  assert.deepEqual(agenda[0].userIds, ["author", "owner", "secretary"]);
+  const itemId = current.items[0].id;
+  current = await meetings.startDiscussion(secretary, meeting.id, itemId, { revision: current.revision });
+  current = await meetings.setDecision(secretary, meeting.id, itemId, { revision: current.revision, decision: "implement", responsibleIds: ["account:author"] });
+  current = await meetings.generateProtocol(secretary, meeting.id, { revision: current.revision });
+  const protocol: Array<{ userIds: string[]; lines: string[] }> = [];
+  await meetings.approveProtocol(chair, meeting.id, { revision: current.revision }, protocol as never);
+  // One combined message per participant, initiator, owner and responsible.
+  assert.deepEqual(protocol.map(({ userIds }) => userIds[0]).sort(), ["author", "chair", "owner", "secretary"]);
+  assert.match(protocol[0].lines.join("\n"), /Утвердить внедрение/u);
+  assert.equal(memory.initiatives.get(ready.id)!.status, "approved_implementation");
+});

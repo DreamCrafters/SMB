@@ -25,6 +25,11 @@ import {
 } from "./collegiumAttachment.js";
 import { collegiumInitiativePermissions, CollegiumInitiativeError } from "./collegiumInitiative.js";
 import { recordCollegiumInitiativeEvent } from "./collegiumInitiativeEvents.js";
+import {
+  buildAgendaNotification,
+  buildProtocolNotifications,
+  type CollegiumOutbox,
+} from "./collegiumNotifications.js";
 import { listCollegiumAdmissionGaps } from "./collegiumInitiativeWorkflow.js";
 import {
   buildCollegiumProtocolDraft,
@@ -278,7 +283,7 @@ export function createCollegiumMeetingsService({
       });
     },
 
-    async addItem(profile: ServerUserProfile, id: string, body: unknown) {
+    async addItem(profile: ServerUserProfile, id: string, body: unknown, outbox?: CollegiumOutbox) {
       const request = readCollegiumAgendaItemRequest(body);
       return transaction.run(async () => {
         const meeting = await requirePlannedMeeting(profile, id, request.revision);
@@ -336,6 +341,7 @@ export function createCollegiumMeetingsService({
           updated,
           `В повестку ${meeting.number} включена инициатива ${initiative.number}`,
         );
+        outbox?.push(buildAgendaNotification(initiative, updated, request.speakerId, profile.userId));
         return updated;
       });
     },
@@ -462,7 +468,7 @@ export function createCollegiumMeetingsService({
      * Утверждение: блокирует заседание, затем инициативы по id, применяет все
      * решения с событиями истории и только потом фиксирует номер протокола.
      */
-    async approveProtocol(profile: ServerUserProfile, id: string, body: unknown) {
+    async approveProtocol(profile: ServerUserProfile, id: string, body: unknown, outbox?: CollegiumOutbox) {
       const revision = readCollegiumMeetingRevision(body);
       if (!collegiumInitiativePermissions(profile).canApprove) {
         throw new CollegiumInitiativeError("Протокол утверждает председатель Коллегии.", 403);
@@ -567,6 +573,7 @@ export function createCollegiumMeetingsService({
           `Утверждён протокол ${meeting.number}`,
           [{ label: "Вопросов", value: String(items.length) }],
         );
+        outbox?.push(...buildProtocolNotifications(updated, profile.userId));
         return updated;
       });
     },

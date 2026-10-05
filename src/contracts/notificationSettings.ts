@@ -12,6 +12,7 @@ export const notificationTypes = [
   "board_assignments",
   "general_director_assignments",
   "collegium_assignments",
+  "collegium_initiatives",
 ] as const;
 
 export type NotificationType = (typeof notificationTypes)[number];
