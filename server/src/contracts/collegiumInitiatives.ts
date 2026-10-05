@@ -421,6 +421,9 @@ export type CollegiumInitiativeActionRequest = {
 /** Служебное состояние маршрута, которое не входит в карточку. */
 export type CollegiumInitiativeWorkflow = {
   suspendedFrom?: CollegiumInitiativeStatus;
+  /** Текущий вопрос повестки, пока инициатива `on_agenda`/`in_discussion`. */
+  agenda?: { meetingId: string; meetingNumber: string; itemId: string };
+  lastDecision?: CollegiumInitiativeLastDecision;
   rework?: CollegiumReworkRequest & {
     requestedByDisplayName: string;
     requestedAt: string;
@@ -428,7 +431,7 @@ export type CollegiumInitiativeWorkflow = {
 };
 
 export type CollegiumInitiativeEvent = {
-  action: CollegiumInitiativeAction;
+  action: CollegiumInitiativeAction | CollegiumAgendaEvent;
   fromStatus: CollegiumInitiativeStatus;
   toStatus: CollegiumInitiativeStatus;
 };
@@ -489,3 +492,157 @@ export type CollegiumAttachment = {
   createdByDisplayName: string;
   createdAt: string;
 };
+
+/** События повестки в истории инициативы (срез 3). */
+export const collegiumAgendaEvents = [
+  "add_to_agenda",
+  "remove_from_agenda",
+  "start_discussion",
+  "meeting_decision",
+  "meeting_cancelled",
+] as const;
+
+export type CollegiumAgendaEvent = (typeof collegiumAgendaEvents)[number];
+
+export const collegiumAgendaEventLabels: Record<CollegiumAgendaEvent, string> = {
+  add_to_agenda: "Включена в повестку",
+  remove_from_agenda: "Снята с повестки",
+  start_discussion: "Начато обсуждение",
+  meeting_decision: "Решение Коллегии по протоколу",
+  meeting_cancelled: "Заседание отменено",
+};
+
+/** Решения, которые Коллегия принимает по вопросу повестки. */
+export const collegiumMeetingDecisions = [
+  "accept_elaboration",
+  "return_for_rework",
+  "pilot",
+  "implement",
+  "board_materials",
+  "suspend",
+  "reject",
+] as const satisfies readonly CollegiumDecision[];
+
+export type CollegiumMeetingDecision = (typeof collegiumMeetingDecisions)[number];
+
+export const collegiumMeetingDecisionStatuses: Record<
+  CollegiumMeetingDecision,
+  CollegiumInitiativeStatus
+> = {
+  accept_elaboration: "needs_elaboration",
+  return_for_rework: "rework",
+  pilot: "approved_pilot",
+  implement: "approved_implementation",
+  board_materials: "board_referral",
+  suspend: "suspended",
+  reject: "rejected",
+};
+
+export const collegiumMeetingDecisionsRequiringComment: readonly CollegiumMeetingDecision[] = [
+  "return_for_rework",
+  "suspend",
+  "reject",
+];
+
+export const collegiumMeetingFormats = ["in_person", "video", "mixed"] as const;
+export type CollegiumMeetingFormat = (typeof collegiumMeetingFormats)[number];
+export const collegiumMeetingFormatLabels: Record<CollegiumMeetingFormat, string> = {
+  in_person: "Очно",
+  video: "ВКС",
+  mixed: "Смешанно",
+};
+
+export const collegiumMeetingStatuses = ["planned", "approved", "cancelled"] as const;
+export type CollegiumMeetingStatus = (typeof collegiumMeetingStatuses)[number];
+export const collegiumMeetingStatusLabels: Record<CollegiumMeetingStatus, string> = {
+  planned: "Запланировано",
+  approved: "Протокол утверждён",
+  cancelled: "Отменено",
+};
+
+export type CollegiumMeetingDetailsInput = {
+  meetingDate: string;
+  meetingTime: string;
+  format: CollegiumMeetingFormat;
+  location: string;
+  participantIds: string[];
+  absentIds: string[];
+  quorumNote: string;
+};
+
+export type CollegiumItemDecision = {
+  decision: CollegiumMeetingDecision;
+  comment: string;
+  responsibleIds: string[];
+  dueDate: string;
+  kpi: string;
+  dissent: string;
+  rework?: CollegiumReworkRequest;
+};
+
+export type CollegiumMeetingItem = {
+  id: string;
+  order: number;
+  initiativeId: string;
+  initiativeNumber: string;
+  /** «Версия для заседания»: карточка на момент включения в повестку. */
+  snapshot: { revision: number; card: CollegiumInitiativeCard };
+  speakerId: string;
+  participantIds: string[];
+  durationMinutes: number;
+  discussionStartedAt?: string;
+  decision?: CollegiumItemDecision;
+  removedAt?: string;
+  removedByDisplayName?: string;
+};
+
+export type CollegiumProtocol = {
+  text: string;
+  /** Номер протокола равен номеру заседания; присваивается при утверждении. */
+  number?: string;
+  approvedAt?: string;
+  approvedByDisplayName?: string;
+};
+
+export type CollegiumMeeting = CollegiumMeetingDetailsInput & {
+  id: string;
+  number: string;
+  status: CollegiumMeetingStatus;
+  revision: number;
+  items: CollegiumMeetingItem[];
+  protocol: CollegiumProtocol;
+  cancelComment?: string;
+  createdByDisplayName: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type CollegiumMeetingListResponse = {
+  meetings: Array<Pick<
+    CollegiumMeeting,
+    "id" | "number" | "status" | "meetingDate" | "meetingTime" | "format" | "updatedAt"
+  > & { itemCount: number }>;
+  permissions: CollegiumInitiativePermissions;
+};
+
+export type CollegiumMeetingDetailResponse = {
+  meeting: CollegiumMeeting;
+  attachments: CollegiumAttachment[];
+  people: CollegiumPerson[];
+  /** Инициативы, которые секретарь может включить в повестку. */
+  readyInitiatives: Array<Pick<CollegiumInitiative, "id" | "number" | "revision"> & { title: string }>;
+  canManage: boolean;
+  canApprove: boolean;
+};
+
+/** Последнее решение Коллегии в инициативе — для предзаполнения поручений. */
+export type CollegiumInitiativeLastDecision = {
+  meetingId: string;
+  meetingNumber: string;
+  meetingDate: string;
+  protocolNumber: string;
+  itemOrder: number;
+  decision: CollegiumMeetingDecision;
+};
+
+export const collegiumMeetingsApiPath = "/api/collegium-meetings";

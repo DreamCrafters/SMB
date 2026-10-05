@@ -107,6 +107,7 @@ import type { RailwayWagonOrder } from "../contracts/railwayWagons.js";
 import { createApiServer } from "./app.js";
 import { createDirectorAssignmentsService } from "../domain/directorAssignmentsService.js";
 import type { CollegiumInitiativesService } from "../domain/collegiumInitiativesService.js";
+import type { CollegiumMeetingsService } from "../domain/collegiumMeetingsService.js";
 import { CollegiumInitiativeError } from "../domain/collegiumInitiative.js";
 import type { DirectorAssignmentsRepository } from "../repositories/directorAssignmentsRepository.js";
 
@@ -16187,6 +16188,78 @@ test("collegium initiatives API routes requests and maps module errors", async (
     assert.equal(download.headers.get("x-content-type-options"), "nosniff");
     assert.match(download.headers.get("content-disposition") ?? "", /^attachment; filename="Raschet-effekta\.pdf"|^attachment; filename="/u);
     assert.match(download.headers.get("content-disposition") ?? "", /filename\*=UTF-8''%D0%A0/u);
+  } finally {
+    server.close();
+    await once(server, "close");
+  }
+});
+
+test("collegium meetings API routes every meeting action to the service", async () => {
+  const profile = buildProductionProfile("business_owner");
+  const calls: string[] = [];
+  const meeting = { id: "m-1" };
+  const record = (name: string) => async (..._args: unknown[]) => {
+    calls.push(name);
+    return meeting;
+  };
+  const collegiumMeetings = {
+    list: record("list"),
+    create: record("create"),
+    read: record("read"),
+    updateDetails: record("update"),
+    addItem: record("add-item"),
+    removeItem: record("remove"),
+    startDiscussion: record("discussion"),
+    setDecision: record("decision"),
+    generateProtocol: record("protocol-draft"),
+    updateProtocol: record("protocol-update"),
+    approveProtocol: async () => {
+      calls.push("approve");
+      throw new CollegiumInitiativeError("Протокол утверждает председатель Коллегии.", 403);
+    },
+    cancel: record("cancel"),
+  } as unknown as CollegiumMeetingsService;
+  const server = createApiServer({
+    config: productionConfig,
+    dispatcherSubmissions,
+    authService: buildAuthService({ profile }),
+    collegiumMeetings,
+    audit: { async record() {}, async listReport() { throw new Error("not used"); } },
+    databaseTransaction: { async run(operation) { return operation(); } },
+  });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}/api/collegium-meetings`;
+  const headers = {
+    "Content-Type": "application/json",
+    Cookie: `${productionConfig.session.cookieName}=prod-session`,
+  };
+  const send = (path: string, method = "POST") =>
+    fetch(`${baseUrl}${path}`, { method, headers, ...(method === "GET" || method === "DELETE" ? {} : { body: "{}" }) });
+
+  try {
+    assert.equal((await fetch(baseUrl)).status, 401);
+    const statuses = [
+      (await send("", "GET")).status,
+      (await send("")).status,
+      (await send("/m-1", "GET")).status,
+      (await send("/m-1", "PATCH")).status,
+      (await send("/m-1/items")).status,
+      (await send("/m-1/items/i-1/remove")).status,
+      (await send("/m-1/items/i-1/discussion")).status,
+      (await send("/m-1/items/i-1/decision")).status,
+      (await send("/m-1/protocol/draft")).status,
+      (await send("/m-1/protocol", "PATCH")).status,
+      (await send("/m-1/protocol/approve")).status,
+      (await send("/m-1/cancel")).status,
+      (await send("/m-1/items/i-1/delete")).status,
+      (await send("/m-1/protocol", "DELETE")).status,
+    ];
+    assert.deepEqual(statuses, [200, 201, 200, 200, 200, 200, 200, 200, 200, 200, 403, 200, 404, 405]);
+    assert.deepEqual(calls, [
+      "list", "create", "read", "update", "add-item", "remove", "discussion",
+      "decision", "protocol-draft", "protocol-update", "approve", "cancel",
+    ]);
   } finally {
     server.close();
     await once(server, "close");

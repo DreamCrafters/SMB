@@ -4,6 +4,7 @@ import { createMaxNotificationService } from "./integrations/maxNotifications.js
 import { createDirectorAssignmentsService } from "./domain/directorAssignmentsService.js";
 import { createDirectorAssignmentsRepository } from "./repositories/directorAssignmentsRepository.js";
 import { createCollegiumInitiativesService } from "./domain/collegiumInitiativesService.js";
+import { createCollegiumMeetingsService } from "./domain/collegiumMeetingsService.js";
 import { createCollegiumInitiativesRepository } from "./repositories/collegiumInitiativesRepository.js";
 import { createTableLayoutsRepository } from "./repositories/tableLayoutsRepository.js";
 import { readServerConfig } from "./config/env.js";
@@ -161,6 +162,7 @@ const server = createApiServer({
   directorAssignments: createDirectorAssignmentsService({ repository: directorAssignmentsRepository, boardAssignments: createBoardAssignmentsRepository(pool), transaction: database.transaction, audit: createAuditRepository(pool) }),
   collegiumAssignments: createDirectorAssignmentsService({ repository: collegiumAssignmentsRepository, transaction: database.transaction, audit: createAuditRepository(pool) }),
   collegiumInitiatives: createCollegiumInitiativesService({ repository: createCollegiumInitiativesRepository(pool), transaction: database.transaction, audit: createAuditRepository(pool) }),
+  collegiumMeetings: createCollegiumMeetingsService({ repository: createCollegiumInitiativesRepository(pool), transaction: database.transaction, audit: createAuditRepository(pool) }),
   boardAssignments: createBoardAssignmentsRepository(pool),
   warehouse1c: warehouse1cReadOnlyPool === undefined
     ? createWarehouse1cRepository(pool)

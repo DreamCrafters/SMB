@@ -1,5 +1,6 @@
 import {
   collegiumInitiativesApiPath,
+  collegiumMeetingsApiPath,
   type CollegiumAttachment,
   type CollegiumCommentKind,
   type CollegiumInitiative,
@@ -8,6 +9,9 @@ import {
   type CollegiumInitiativeDetailResponse,
   type CollegiumInitiativeListResponse,
   type CollegiumInitiativeSaveRequest,
+  type CollegiumMeeting,
+  type CollegiumMeetingDetailResponse,
+  type CollegiumMeetingListResponse,
 } from "../contracts/collegiumInitiatives.js";
 import { buildDevAccessHeaders } from "./devAccessSessionStorage.js";
 import { describeRemoteNetworkFailure, resolveApiEndpoint } from "./remoteServer.js";
@@ -121,71 +125,109 @@ export async function resolveCollegiumInitiativeComment(id: string, commentId: s
   return result.comment;
 }
 
-function attachmentsPath(id: string, attachmentId?: string) {
-  const base = `${collegiumInitiativesApiPath}/${encodeURIComponent(id)}/attachments`;
-  return attachmentId === undefined ? base : `${base}/${encodeURIComponent(attachmentId)}`;
+/** Вложения инициативы или заседания: владелец задаётся базовым путём API. */
+export type CollegiumAttachmentsApi = {
+  upload: (file: File) => Promise<CollegiumAttachment>;
+  addLink: (link: { url: string; label: string }) => Promise<CollegiumAttachment>;
+  download: (attachmentId: string) => Promise<Blob>;
+  remove: (attachmentId: string) => Promise<void>;
+};
+
+export function createCollegiumAttachmentsApi(ownerPath: string): CollegiumAttachmentsApi {
+  const base = `${ownerPath}/attachments`;
+  const itemPath = (attachmentId: string) => `${base}/${encodeURIComponent(attachmentId)}`;
+  return {
+    async upload(file) {
+      const path = `${base}?fileName=${encodeURIComponent(file.name)}`;
+      let response: Response;
+      try {
+        response = await fetch(resolveApiEndpoint(path, path, {}), {
+          method: "POST",
+          credentials: "include",
+          headers: buildDevAccessHeaders({
+            Accept: "application/json",
+            "Content-Type": "application/octet-stream",
+          }),
+          body: file,
+        });
+      } catch {
+        throw new CollegiumInitiativesRequestError(
+          describeRemoteNetworkFailure("Не удалось связаться с сервером.", {}),
+          0,
+        );
+      }
+      const payload: unknown = await response.json().catch(() => undefined);
+      if (!response.ok) throw readRequestError(payload, response.status, "Не удалось загрузить файл.");
+      return (payload as { attachment: CollegiumAttachment }).attachment;
+    },
+    async addLink(link) {
+      const result = await request<{ attachment: CollegiumAttachment }>(`${base}/links`, "POST", link);
+      return result.attachment;
+    },
+    async download(attachmentId) {
+      const path = itemPath(attachmentId);
+      const response = await fetch(resolveApiEndpoint(path, path, {}), {
+        credentials: "include",
+        headers: buildDevAccessHeaders({}),
+      });
+      if (!response.ok) {
+        const payload: unknown = await response.json().catch(() => undefined);
+        throw readRequestError(payload, response.status, "Не удалось открыть файл.");
+      }
+      return response.blob();
+    },
+    async remove(attachmentId) {
+      await request<{ ok: true }>(itemPath(attachmentId), "DELETE");
+    },
+  };
 }
 
-export async function uploadCollegiumAttachment(id: string, file: File) {
-  const path = `${attachmentsPath(id)}?fileName=${encodeURIComponent(file.name)}`;
-  let response: Response;
-  try {
-    response = await fetch(resolveApiEndpoint(path, path, {}), {
-      method: "POST",
-      credentials: "include",
-      headers: buildDevAccessHeaders({
-        Accept: "application/json",
-        "Content-Type": "application/octet-stream",
-      }),
-      body: file,
-    });
-  } catch {
-    throw new CollegiumInitiativesRequestError(
-      describeRemoteNetworkFailure("Не удалось связаться с сервером.", {}),
-      0,
-    );
-  }
-  const payload: unknown = await response.json().catch(() => undefined);
-  if (!response.ok) {
-    throw new CollegiumInitiativesRequestError(
-      isRecord(payload) && isRecord(payload.error) && typeof payload.error.message === "string"
-        ? payload.error.message
-        : "Не удалось загрузить файл.",
-      response.status,
-    );
-  }
-  return (payload as { attachment: CollegiumAttachment }).attachment;
+export function collegiumInitiativeAttachmentsApi(id: string) {
+  return createCollegiumAttachmentsApi(`${collegiumInitiativesApiPath}/${encodeURIComponent(id)}`);
 }
 
-export async function addCollegiumAttachmentLink(id: string, link: { url: string; label: string }) {
-  const result = await request<{ attachment: CollegiumAttachment }>(
-    `${attachmentsPath(id)}/links`,
-    "POST",
-    link,
+export function collegiumMeetingAttachmentsApi(id: string) {
+  return createCollegiumAttachmentsApi(`${collegiumMeetingsApiPath}/${encodeURIComponent(id)}`);
+}
+
+export function requestCollegiumMeetings(signal?: AbortSignal) {
+  return request<CollegiumMeetingListResponse>(collegiumMeetingsApiPath, "GET", undefined, signal);
+}
+
+export function requestCollegiumMeeting(id: string, signal?: AbortSignal) {
+  return request<CollegiumMeetingDetailResponse>(
+    `${collegiumMeetingsApiPath}/${encodeURIComponent(id)}`,
+    "GET",
+    undefined,
+    signal,
   );
-  return result.attachment;
 }
 
-export async function downloadCollegiumAttachment(id: string, attachmentId: string) {
-  const path = attachmentsPath(id, attachmentId);
-  const response = await fetch(resolveApiEndpoint(path, path, {}), {
-    credentials: "include",
-    headers: buildDevAccessHeaders({}),
-  });
-  if (!response.ok) {
-    const payload: unknown = await response.json().catch(() => undefined);
-    throw new CollegiumInitiativesRequestError(
-      isRecord(payload) && isRecord(payload.error) && typeof payload.error.message === "string"
-        ? payload.error.message
-        : "Не удалось открыть файл.",
-      response.status,
-    );
-  }
-  return response.blob();
+/** Изменение заседания: путь действия относительно заседания и тело с ревизией. */
+export async function sendCollegiumMeetingRequest(
+  id: string | undefined,
+  action: string,
+  method: "POST" | "PATCH",
+  body: unknown,
+) {
+  const base = id === undefined
+    ? collegiumMeetingsApiPath
+    : `${collegiumMeetingsApiPath}/${encodeURIComponent(id)}`;
+  const result = await request<{ meeting: CollegiumMeeting }>(
+    action === "" ? base : `${base}/${action}`,
+    method,
+    body,
+  );
+  return result.meeting;
 }
 
-export async function deleteCollegiumAttachment(id: string, attachmentId: string) {
-  await request<{ ok: true }>(attachmentsPath(id, attachmentId), "DELETE");
+function readRequestError(payload: unknown, status: number, fallback: string) {
+  return new CollegiumInitiativesRequestError(
+    isRecord(payload) && isRecord(payload.error) && typeof payload.error.message === "string"
+      ? payload.error.message
+      : fallback,
+    status,
+  );
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

@@ -2,12 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   resolveCollegiumInitiativeCapabilities,
-  type CollegiumInitiative,
   type CollegiumInitiativeAccess,
   type CollegiumInitiativeCardInput,
-  type CollegiumAttachment,
-  type CollegiumInitiativeComment,
-  type CollegiumInitiativeRevision,
   type CollegiumPerson,
   type CollegiumReference,
 } from "../contracts/collegiumInitiatives.js";
@@ -19,7 +15,7 @@ import {
   readCollegiumInitiativeCardInput,
 } from "./collegiumInitiative.js";
 import { createCollegiumInitiativesService } from "./collegiumInitiativesService.js";
-import type { CollegiumInitiativesRepository } from "../repositories/collegiumInitiativesRepository.js";
+import { createCollegiumMemoryRepository } from "./testing/collegiumMemoryRepository.js";
 
 const reference: CollegiumReference = {
   direction: [{ code: "production", label: "Производство" }],
@@ -54,12 +50,7 @@ function card(overrides: Partial<CollegiumInitiativeCardInput> = {}) {
 }
 
 function createHarness(activeUsers = ["author", "other", "secretary", "owner", "chair"]) {
-  const initiatives = new Map<string, CollegiumInitiative>();
-  const revisions: Array<{ initiativeId: string; revision: Omit<CollegiumInitiativeRevision, "createdAt"> }> = [];
   const auditEvents: AuditEventDraft[] = [];
-  const counters = new Map<string, number>();
-  const comments: Array<{ initiativeId: string; comment: CollegiumInitiativeComment }> = [];
-  const attachments = new Map<string, { ownerId: string; attachment: CollegiumAttachment; deleted: boolean; content?: Buffer }>();
   let transactions = 0;
   const people: CollegiumPerson[] = activeUsers.map((userId) => ({
     id: `account:${userId}`,
@@ -67,83 +58,8 @@ function createHarness(activeUsers = ["author", "other", "secretary", "owner", "
     position: "Член Коллегии",
     hasInitiativesTab: true,
   }));
-  const repository = {
-    async listReference() { return reference; },
-    async listPeople() { return people; },
-    async readPerson(accountId: string) {
-      return people.find(({ id }) => id === accountId);
-    },
-    async nextNumber(kind: string, year: number) {
-      const key = `${kind}:${year}`;
-      const next = (counters.get(key) ?? 0) + 1;
-      counters.set(key, next);
-      return next;
-    },
-    async list() { return [...initiatives.values()]; },
-    async read(id: string) {
-      const initiative = initiatives.get(id);
-      return initiative === undefined ? undefined : structuredClone(initiative);
-    },
-    async insert(initiative: CollegiumInitiative) {
-      initiatives.set(initiative.id, structuredClone(initiative));
-    },
-    async update(initiative: CollegiumInitiative, expectedRevision: number) {
-      if (initiatives.get(initiative.id)?.revision !== expectedRevision) {
-        throw new CollegiumInitiativeError("conflict", 409);
-      }
-      initiatives.set(initiative.id, structuredClone(initiative));
-    },
-    async insertRevision(initiativeId: string, revision: { createdAt: Date } & Omit<CollegiumInitiativeRevision, "createdAt">) {
-      const { createdAt: _createdAt, ...rest } = revision;
-      revisions.push({ initiativeId, revision: rest });
-    },
-    async listComments(initiativeId: string) {
-      return comments.filter((entry) => entry.initiativeId === initiativeId).map(({ comment }) => comment);
-    },
-    async readComment(initiativeId: string, commentId: string) {
-      return comments.find((entry) => entry.initiativeId === initiativeId && entry.comment.id === commentId)?.comment;
-    },
-    async insertComment(initiativeId: string, comment: CollegiumInitiativeComment) {
-      comments.push({ initiativeId, comment: { ...comment } });
-    },
-    async resolveComment(initiativeId: string, commentId: string, resolvedAt: Date, resolvedByDisplayName: string) {
-      const entry = comments.find((item) => item.initiativeId === initiativeId && item.comment.id === commentId);
-      if (entry === undefined || entry.comment.resolvedAt !== undefined) return false;
-      entry.comment.resolvedAt = resolvedAt.toISOString();
-      entry.comment.resolvedByDisplayName = resolvedByDisplayName;
-      return true;
-    },
-    async listAttachments(owner: { id: string }) {
-      return [...attachments.values()]
-        .filter((entry) => entry.ownerId === owner.id && !entry.deleted)
-        .map(({ attachment }) => attachment);
-    },
-    async readAttachment(owner: { id: string }, attachmentId: string) {
-      const entry = attachments.get(attachmentId);
-      return entry?.ownerId === owner.id && !entry.deleted ? entry.attachment : undefined;
-    },
-    async readAttachmentContent(attachmentId: string) {
-      return attachments.get(attachmentId)?.content;
-    },
-    async readAttachmentUsage(owner: { id: string }) {
-      const live = [...attachments.values()].filter((entry) => entry.ownerId === owner.id && !entry.deleted);
-      return { items: live.length, bytes: live.reduce((total, { attachment }) => total + (attachment.sizeBytes ?? 0), 0) };
-    },
-    async insertAttachment(owner: { id: string }, attachment: CollegiumAttachment, content?: Buffer) {
-      attachments.set(attachment.id, { ownerId: owner.id, attachment, deleted: false, content });
-    },
-    async deleteAttachment(owner: { id: string }, attachmentId: string) {
-      const entry = attachments.get(attachmentId);
-      if (entry === undefined || entry.ownerId !== owner.id || entry.deleted) return false;
-      entry.deleted = true;
-      return true;
-    },
-    async listRevisions(initiativeId: string) {
-      return revisions
-        .filter((entry) => entry.initiativeId === initiativeId)
-        .map(({ revision }) => ({ ...revision, createdAt: "2026-10-05T09:00:00.000Z" }));
-    },
-  } as unknown as CollegiumInitiativesRepository;
+  const memory = createCollegiumMemoryRepository({ reference, people });
+  const { repository, initiatives, revisions, comments, attachments } = memory;
   const service = createCollegiumInitiativesService({
     repository,
     transaction: {

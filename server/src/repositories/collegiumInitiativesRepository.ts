@@ -8,6 +8,7 @@ import {
   type CollegiumInitiative,
   type CollegiumInitiativeComment,
   type CollegiumInitiativeRevision,
+  type CollegiumMeeting,
   type CollegiumPerson,
   type CollegiumReference,
   type CollegiumReferenceKind,
@@ -48,6 +49,21 @@ type AttachmentRow = RowDataPacket & {
   created_by_display_name: string;
   created_at: Date | string;
 };
+
+type MeetingRow = RowDataPacket & {
+  id: string;
+  number: string;
+  status: CollegiumMeeting["status"];
+  revision: number;
+  payload: string | object;
+  created_at: Date | string;
+  updated_at: Date | string;
+};
+
+type MeetingPayload = Omit<
+  CollegiumMeeting,
+  "id" | "number" | "status" | "revision" | "createdAt" | "updatedAt"
+>;
 
 export type CollegiumAttachmentOwner = { type: "initiative" | "meeting"; id: string };
 
@@ -385,6 +401,62 @@ export function createCollegiumInitiativesRepository(pool: DatabasePool) {
       return result.affectedRows === 1;
     },
 
+    async listMeetings(): Promise<CollegiumMeeting[]> {
+      const [rows] = await pool.query<MeetingRow[]>(
+        `select id, number, status, revision, payload, created_at, updated_at
+         from collegium_meetings order by meeting_date desc, sequence_id desc`,
+      );
+      return rows.map(mapMeeting);
+    },
+
+    async readMeeting(id: string, lock = false) {
+      const [rows] = await pool.query<MeetingRow[]>(
+        `select id, number, status, revision, payload, created_at, updated_at
+         from collegium_meetings where id = ? ${lock ? "for update" : ""}`,
+        [id],
+      );
+      return rows[0] === undefined ? undefined : mapMeeting(rows[0]);
+    },
+
+    async insertMeeting(meeting: CollegiumMeeting) {
+      await pool.query(
+        `insert into collegium_meetings
+          (id, number, status, revision, meeting_date, payload, created_at, updated_at)
+         values (?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          meeting.id,
+          meeting.number,
+          meeting.status,
+          meeting.revision,
+          meeting.meetingDate,
+          JSON.stringify(meetingPayload(meeting)),
+          new Date(meeting.createdAt),
+          new Date(meeting.updatedAt),
+        ],
+      );
+    },
+
+    /** Optimistic lock: the stored revision must be the one the client edited. */
+    async updateMeeting(meeting: CollegiumMeeting, expectedRevision: number) {
+      const [result] = await pool.query<ResultSetHeader>(
+        `update collegium_meetings
+         set status = ?, revision = ?, meeting_date = ?, payload = ?, updated_at = ?
+         where id = ? and revision = ?`,
+        [
+          meeting.status,
+          meeting.revision,
+          meeting.meetingDate,
+          JSON.stringify(meetingPayload(meeting)),
+          new Date(meeting.updatedAt),
+          meeting.id,
+          expectedRevision,
+        ],
+      );
+      if (result.affectedRows !== 1) {
+        throw new CollegiumInitiativeError("Заседание уже изменено. Обновите страницу.", 409);
+      }
+    },
+
     async listRevisions(initiativeId: string): Promise<CollegiumInitiativeRevision[]> {
       const [rows] = await pool.query<RevisionRow[]>(
         `select revision, payload, created_at from collegium_initiative_revisions
@@ -415,6 +487,31 @@ function mapInitiative(row: InitiativeRow): CollegiumInitiative {
       ? {}
       : readJson(row.workflow),
     createdByUserId: row.created_by_user_id,
+    createdAt: toIsoString(row.created_at),
+    updatedAt: toIsoString(row.updated_at),
+  };
+}
+
+function meetingPayload(meeting: CollegiumMeeting): MeetingPayload {
+  const {
+    id: _id,
+    number: _number,
+    status: _status,
+    revision: _revision,
+    createdAt: _createdAt,
+    updatedAt: _updatedAt,
+    ...payload
+  } = meeting;
+  return payload;
+}
+
+function mapMeeting(row: MeetingRow): CollegiumMeeting {
+  return {
+    ...readJson<MeetingPayload>(row.payload),
+    id: row.id,
+    number: row.number,
+    status: row.status,
+    revision: Number(row.revision),
     createdAt: toIsoString(row.created_at),
     updatedAt: toIsoString(row.updated_at),
   };

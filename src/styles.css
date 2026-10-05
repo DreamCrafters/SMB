@@ -9898,3 +9898,79 @@ p {
   padding: var(--density-3);
   background: var(--surface-subtle);
 }
+
+.collegium-section-tabs {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: var(--density-1);
+  margin-top: var(--density-2);
+}
+
+.collegium-section-tabs button {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 6px 12px;
+  background: var(--surface-raised);
+  color: var(--text);
+  font-weight: 700;
+}
+
+.collegium-section-tabs button.is-active {
+  border-color: var(--nav);
+  background: var(--nav);
+  color: #ffffff;
+}
+
+.collegium-agenda {
+  display: grid;
+  gap: var(--density-3);
+  margin: 0;
+  padding-left: 20px;
+}
+
+.collegium-agenda-item {
+  display: grid;
+  gap: var(--density-2);
+}
+
+.collegium-agenda-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--density-2);
+  align-items: baseline;
+}
+
+.collegium-agenda-decision {
+  margin: 0;
+  border-left: 3px solid var(--blue-gray);
+  padding-left: var(--density-2);
+  font-size: 13px;
+}
+
+.collegium-protocol-editor {
+  width: 100%;
+  min-height: 240px;
+  resize: vertical;
+  font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.collegium-protocol-text {
+  margin: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: var(--density-3);
+  background: var(--surface-subtle);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.collegium-meeting-status-approved {
+  background: var(--emerald-soft);
+  color: var(--emerald);
+}
+
+.collegium-meeting-status-cancelled {
+  background: var(--surface-subtle);
+  color: var(--muted);
+}

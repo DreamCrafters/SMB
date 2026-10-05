@@ -213,7 +213,7 @@ export function readCollegiumActionRequest(
   return { action: typedAction, revision, comment, rework: readReworkRequest(record.rework, today) };
 }
 
-function readReworkRequest(value: unknown, today: string): CollegiumReworkRequest {
+export function readReworkRequest(value: unknown, today: string): CollegiumReworkRequest {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
     throw new CollegiumInitiativeError("Заполните запрос на доработку.");
   }

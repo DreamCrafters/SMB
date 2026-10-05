@@ -4,6 +4,7 @@ import {
   type CollegiumAttachmentFileType,
 } from "../contracts/collegiumInitiatives.js";
 import { listZipEntryNames } from "../integrations/xlsxWorkbook.js";
+import type { CollegiumAttachmentOwner } from "../repositories/collegiumInitiativesRepository.js";
 import { CollegiumInitiativeError } from "./collegiumInitiative.js";
 
 /**
@@ -48,6 +49,25 @@ export function detectCollegiumAttachmentType(
     );
   }
   return detected;
+}
+
+/** Лимиты числа и объёма материалов владельца; вызывать под блокировкой владельца. */
+export async function assertCollegiumAttachmentRoom(
+  repository: {
+    readAttachmentUsage: (owner: CollegiumAttachmentOwner) => Promise<{ items: number; bytes: number }>;
+  },
+  owner: CollegiumAttachmentOwner,
+  addedBytes: number,
+) {
+  const usage = await repository.readAttachmentUsage(owner);
+  if (usage.items >= collegiumAttachmentLimits.maxOwnerItems) {
+    throw new CollegiumInitiativeError(
+      `Можно приложить не больше ${collegiumAttachmentLimits.maxOwnerItems} материалов.`,
+    );
+  }
+  if (usage.bytes + addedBytes > collegiumAttachmentLimits.maxOwnerBytes) {
+    throw new CollegiumInitiativeError("Общий объём файлов не должен превышать 50 МБ.", 413);
+  }
 }
 
 export function readCollegiumAttachmentLink(body: unknown) {

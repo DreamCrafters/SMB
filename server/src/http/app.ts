@@ -5,8 +5,9 @@ import { renderBoardAssignmentsPdf } from "../integrations/boardAssignmentsPdf.j
 import { renderDirectorAssignmentsPdf } from "../integrations/directorAssignmentsPdf.js";
 import { assignmentInboxNavigationItem, assignmentInboxSourceOptions, assignmentRegistries, isAssignmentInboxAccess, type AssignmentRegistryId } from "../contracts/directorAssignments.js";
 import type { DirectorAssignmentsService } from "../domain/directorAssignmentsService.js";
-import { collegiumAttachmentLimits, collegiumInitiativeAccessOptions, collegiumInitiativesApiPath, collegiumInitiativesNavigationItem, isCollegiumInitiativeAccess } from "../contracts/collegiumInitiatives.js";
+import { collegiumAttachmentLimits, collegiumInitiativeAccessOptions, collegiumInitiativesApiPath, collegiumMeetingsApiPath, collegiumInitiativesNavigationItem, isCollegiumInitiativeAccess } from "../contracts/collegiumInitiatives.js";
 import type { CollegiumInitiativesService } from "../domain/collegiumInitiativesService.js";
+import type { CollegiumMeetingsService } from "../domain/collegiumMeetingsService.js";
 import { CollegiumInitiativeError } from "../domain/collegiumInitiative.js";
 import { DirectorAssignmentError } from "../domain/directorAssignment.js";
 import { isAdminDatabaseLayoutColumn } from "../repositories/adminDatabaseRepository.js";
@@ -481,6 +482,7 @@ type AppDependencies = {
   directorAssignments?: DirectorAssignmentsService;
   collegiumAssignments?: DirectorAssignmentsService;
   collegiumInitiatives?: CollegiumInitiativesService;
+  collegiumMeetings?: CollegiumMeetingsService;
   boardAssignments?: BoardAssignmentsRepository;
   warehouse1c?: Warehouse1cRepository;
   railwayWagons?: RailwayWagonsRepository;
@@ -610,6 +612,7 @@ export function createApiServer({
   directorAssignments,
   collegiumAssignments,
   collegiumInitiatives,
+  collegiumMeetings,
   boardAssignments,
   warehouse1c,
   railwayWagons,
@@ -1027,6 +1030,80 @@ export function createApiServer({
           else if (id && req.method === "GET") sendJson(res, 200, await collegiumInitiatives.read(access.profile, id));
           else if (id && req.method === "PATCH") sendJson(res, 200, { initiative: await collegiumInitiatives.update(access.profile, id, await readJsonBody(req)) });
           else throw new CollegiumInitiativeError("Действие недоступно.", 405);
+        } catch (error) {
+          if (!(error instanceof CollegiumInitiativeError)) throw error;
+          sendJson(res, error.status, { error: { code: error.status === 403 ? "access_denied" : "invalid_response", message: error.message } });
+        }
+        return;
+      }
+
+      if (
+        url.pathname === collegiumMeetingsApiPath ||
+        url.pathname.startsWith(`${collegiumMeetingsApiPath}/`)
+      ) {
+        const access = await requireAuthentication(req, res, { config, devSessions, authService, accounts });
+        if (!access) return;
+        if (!collegiumMeetings) {
+          sendJson(res, 503, { error: { code: "server_error", message: "Раздел временно недоступен." } });
+          return;
+        }
+        try {
+          const match = /^\/api\/collegium-meetings(?:\/([a-zA-Z0-9-]{1,100})(?:\/(items|protocol|cancel|attachments)(?:\/([a-zA-Z0-9-]{1,100})(?:\/(remove|discussion|decision))?)?)?)?$/u.exec(url.pathname);
+          if (!match) throw new CollegiumInitiativeError("Страница не найдена.", 404);
+          const [, id, section, itemId, itemAction] = match;
+          const profile = access.profile;
+          if (!id) {
+            if (req.method === "GET") sendJson(res, 200, await collegiumMeetings.list(profile));
+            else if (req.method === "POST") sendJson(res, 201, { meeting: await collegiumMeetings.create(profile, await readJsonBody(req)) });
+            else throw new CollegiumInitiativeError("Действие недоступно.", 405);
+          } else if (!section) {
+            if (req.method === "GET") sendJson(res, 200, await collegiumMeetings.read(profile, id));
+            else if (req.method === "PATCH") sendJson(res, 200, { meeting: await collegiumMeetings.updateDetails(profile, id, await readJsonBody(req)) });
+            else throw new CollegiumInitiativeError("Действие недоступно.", 405);
+          } else if (section === "items" && !itemId && req.method === "POST") {
+            sendJson(res, 200, { meeting: await collegiumMeetings.addItem(profile, id, await readJsonBody(req)) });
+          } else if (section === "items" && itemId && itemAction && req.method === "POST") {
+            const body = await readJsonBody(req);
+            const meeting = itemAction === "remove"
+              ? await collegiumMeetings.removeItem(profile, id, itemId, body)
+              : itemAction === "discussion"
+                ? await collegiumMeetings.startDiscussion(profile, id, itemId, body)
+                : await collegiumMeetings.setDecision(profile, id, itemId, body);
+            sendJson(res, 200, { meeting });
+          } else if (section === "protocol" && !itemId && req.method === "PATCH") {
+            sendJson(res, 200, { meeting: await collegiumMeetings.updateProtocol(profile, id, await readJsonBody(req)) });
+          } else if (section === "protocol" && itemId === "draft" && !itemAction && req.method === "POST") {
+            sendJson(res, 200, { meeting: await collegiumMeetings.generateProtocol(profile, id, await readJsonBody(req)) });
+          } else if (section === "protocol" && itemId === "approve" && !itemAction && req.method === "POST") {
+            sendJson(res, 200, { meeting: await collegiumMeetings.approveProtocol(profile, id, await readJsonBody(req)) });
+          } else if (section === "cancel" && !itemId && req.method === "POST") {
+            sendJson(res, 200, { meeting: await collegiumMeetings.cancel(profile, id, await readJsonBody(req)) });
+          } else if (section === "attachments" && !itemId && req.method === "POST") {
+            let fileName: string;
+            try {
+              fileName = await collegiumMeetings.prepareFileUpload(profile, id, url.searchParams.get("fileName"), Number(req.headers["content-length"]));
+            } catch (error) {
+              req.resume();
+              throw error;
+            }
+            let content: Buffer;
+            try {
+              content = await readBinaryBody(req, collegiumAttachmentLimits.maxFileBytes);
+            } catch (error) {
+              if (error instanceof RequestBodyTooLargeError) {
+                throw new CollegiumInitiativeError("Размер одного файла не должен превышать 10 МБ.", 413);
+              }
+              throw error;
+            }
+            sendJson(res, 201, { attachment: await collegiumMeetings.addFile(profile, id, fileName, content) });
+          } else if (section === "attachments" && itemId === "links" && !itemAction && req.method === "POST") {
+            sendJson(res, 201, { attachment: await collegiumMeetings.addLink(profile, id, await readJsonBody(req)) });
+          } else if (section === "attachments" && itemId && !itemAction && req.method === "GET") {
+            sendCollegiumAttachment(res, await collegiumMeetings.readFile(profile, id, itemId));
+          } else if (section === "attachments" && itemId && !itemAction && req.method === "DELETE") {
+            await collegiumMeetings.deleteAttachment(profile, id, itemId);
+            sendJson(res, 200, { ok: true });
+          } else throw new CollegiumInitiativeError("Действие недоступно.", 405);
         } catch (error) {
           if (!(error instanceof CollegiumInitiativeError)) throw error;
           sendJson(res, error.status, { error: { code: error.status === 403 ? "access_denied" : "invalid_response", message: error.message } });

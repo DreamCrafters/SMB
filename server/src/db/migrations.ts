@@ -4639,6 +4639,30 @@ const migrations: Migration[] = [
       ) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci;`,
     ],
   },
+  {
+    /**
+     * Задача 135, срез 3: заседания Коллегии. Повестка, снимки «версии для
+     * заседания», проекты решений и протокол хранятся в одной записи с
+     * ревизией: заседание блокируется первым и меняется целиком.
+     */
+    id: "093_collegium_meetings",
+    statements: [
+      `create table if not exists collegium_meetings (
+        sequence_id bigint unsigned not null auto_increment primary key,
+        id varchar(100) not null,
+        number varchar(40) not null,
+        status varchar(20) not null,
+        revision int unsigned not null,
+        meeting_date date not null,
+        payload longtext not null check (json_valid(payload)),
+        created_at timestamp(3) not null,
+        updated_at timestamp(3) not null,
+        unique key uniq_collegium_meeting_id (id),
+        unique key uniq_collegium_meeting_number (number),
+        key idx_collegium_meeting_date (meeting_date)
+      ) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci;`,
+    ],
+  },
 ];
 
 function removePositionJsonValue(

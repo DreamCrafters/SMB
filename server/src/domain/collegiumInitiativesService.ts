@@ -24,10 +24,12 @@ import {
   readCollegiumActionRequest,
 } from "./collegiumInitiativeWorkflow.js";
 import {
+  assertCollegiumAttachmentRoom,
   detectCollegiumAttachmentType,
   readCollegiumAttachmentFileName,
   readCollegiumAttachmentLink,
 } from "./collegiumAttachment.js";
+import { recordCollegiumInitiativeEvent } from "./collegiumInitiativeEvents.js";
 import type { DatabaseTransactionRunner } from "../db/transactionContext.js";
 import type { AuditRepository } from "../repositories/auditRepository.js";
 import type { CollegiumInitiativesRepository } from "../repositories/collegiumInitiativesRepository.js";
@@ -177,17 +179,8 @@ export function createCollegiumInitiativesService({
     return found;
   }
 
-  async function assertAttachmentRoom(id: string, addedBytes: number) {
-    const usage = await repository.readAttachmentUsage({ type: "initiative", id });
-    if (usage.items >= collegiumAttachmentLimits.maxOwnerItems) {
-      throw new CollegiumInitiativeError(
-        `К карточке можно приложить не больше ${collegiumAttachmentLimits.maxOwnerItems} материалов.`,
-      );
-    }
-    if (usage.bytes + addedBytes > collegiumAttachmentLimits.maxOwnerBytes) {
-      throw new CollegiumInitiativeError("Общий объём файлов карточки не должен превышать 50 МБ.", 413);
-    }
-  }
+  const assertAttachmentRoom = (id: string, addedBytes: number) =>
+    assertCollegiumAttachmentRoom(repository, { type: "initiative", id }, addedBytes);
 
   function canResolveComments(
     initiative: CollegiumInitiative,
@@ -396,25 +389,16 @@ export function createCollegiumInitiativesService({
             });
           }
         }
-        const updated: CollegiumInitiative = {
-          ...initiative,
-          status: toStatus,
+        const updated = await recordCollegiumInitiativeEvent({
+          repository,
+          profile,
+          initiative,
+          toStatus,
           workflow,
-          revision: initiative.revision + 1,
-          updatedAt: changedAt.toISOString(),
-        };
-        await repository.update(updated, initiative.revision);
-        await repository.insertRevision(initiative.id, {
-          id: randomUUID(),
-          revision: updated.revision,
-          createdAt: changedAt,
-          authorDisplayName: profile.displayName,
-          status: toStatus,
-          changedFields: [],
+          action: request.action,
           reason: collegiumInitiativeActionLabels[request.action],
           comment: request.comment,
-          card: initiative.card,
-          event: { action: request.action, fromStatus: initiative.status, toStatus },
+          at: changedAt,
         });
         await recordAudit(
           profile,

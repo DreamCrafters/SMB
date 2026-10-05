@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
 import {
   collegiumActionsRequiringComment,
-  collegiumAttachmentLimits,
   collegiumCommentKindLabels,
   collegiumCommentKinds,
   collegiumInitiativeActionLabels,
@@ -26,15 +25,13 @@ import {
   type CollegiumPerson,
 } from "./contracts/collegiumInitiatives";
 import type { ServerUserProfile } from "./contracts";
+import { CollegiumMeetingsView } from "./CollegiumMeetings";
 import { LoadingIndicator } from "./LoadingIndicator";
 import { ManagedTable } from "./ManagedTable";
 import { TableCell, TableHeader } from "./TableCell";
 import {
   actOnCollegiumInitiative,
-  addCollegiumAttachmentLink,
-  deleteCollegiumAttachment,
-  downloadCollegiumAttachment,
-  uploadCollegiumAttachment,
+  collegiumInitiativeAttachmentsApi,
   commentCollegiumInitiative,
   requestCollegiumInitiative,
   resolveCollegiumInitiativeComment,
@@ -43,6 +40,13 @@ import {
 } from "./services/collegiumInitiatives";
 import type { ShowToast } from "./services/toastStack";
 import { readShortUserMessage } from "./services/userFacingMessages";
+import {
+  AttachmentsSection,
+  formatAmount,
+  formatDate,
+  formatDateTime,
+  usePeopleIndex,
+} from "./CollegiumShared";
 
 type View =
   | { kind: "registry" }
@@ -72,6 +76,7 @@ export function CollegiumInitiativesWorkspace({
   });
   const [refreshVersion, setRefreshVersion] = useState(0);
   const [view, setView] = useState<View>({ kind: "registry" });
+  const [section, setSection] = useState<"initiatives" | "meetings">("initiatives");
 
   useEffect(() => {
     const controller = new AbortController();
@@ -118,8 +123,34 @@ export function CollegiumInitiativesWorkspace({
       <header className="collegium-initiatives-header">
         <span className="eyebrow">Коллегия</span>
         <h2>Инициативы Коллегии</h2>
+        <div className="collegium-section-tabs" role="tablist">
+          {([
+            ["initiatives", "Инициативы"],
+            ["meetings", "Заседания"],
+          ] as const).map(([id, label]) => (
+            <button
+              aria-selected={section === id}
+              className={section === id ? "is-active" : undefined}
+              key={id}
+              role="tab"
+              type="button"
+              onClick={() => {
+                setSection(id);
+                setView({ kind: "registry" });
+              }}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
       </header>
-      {view.kind === "registry" ? (
+      {section === "meetings" ? (
+        <CollegiumMeetingsView
+          permissions={data.permissions}
+          onInitiativesChanged={() => setRefreshVersion((version) => version + 1)}
+          onShowToast={onShowToast}
+        />
+      ) : view.kind === "registry" ? (
         <InitiativeRegistry
           data={data}
           profile={profile}
@@ -425,7 +456,10 @@ function InitiativeCardView({
       </CardSection>
 
       <AttachmentsSection
-        detail={detail.data}
+        api={collegiumInitiativeAttachmentsApi(initiative.id)}
+        attachments={detail.data.attachments}
+        canAttach={detail.data.canAttach}
+        ownerLabel={`${initiative.number} · ${card.title}`}
         onChanged={reload}
         onShowToast={onShowToast}
       />
@@ -714,192 +748,6 @@ function WorkflowPanel({
       )}
     </section>
   );
-}
-
-function AttachmentsSection({
-  detail,
-  onChanged,
-  onShowToast,
-}: {
-  detail: CollegiumInitiativeDetailResponse;
-  onChanged: () => void;
-  onShowToast: ShowToast;
-}) {
-  const { initiative, attachments, canAttach } = detail;
-  const [linkUrl, setLinkUrl] = useState("");
-  const [linkLabel, setLinkLabel] = useState("");
-  const [message, setMessage] = useState("");
-  const [isSaving, setIsSaving] = useState(false);
-  const isFull = attachments.length >= collegiumAttachmentLimits.maxOwnerItems;
-
-  async function run(operation: () => Promise<unknown>, success?: string) {
-    setIsSaving(true);
-    setMessage("");
-    try {
-      await operation();
-      if (success !== undefined) {
-        onShowToast(success, `${initiative.number} · ${initiative.card.title}`, "success");
-        onChanged();
-      }
-      return true;
-    } catch (error) {
-      setMessage(readShortUserMessage(
-        error instanceof Error ? error.message : "",
-        "Не удалось сохранить материал.",
-      ));
-      return false;
-    } finally {
-      setIsSaving(false);
-    }
-  }
-
-  return (
-    <section className="collegium-card-section">
-      <h4>Материалы</h4>
-      {attachments.length === 0 ? (
-        <p className="collegium-empty-note">Материалов пока нет.</p>
-      ) : (
-        <ul className="collegium-attachments">
-          {attachments.map((attachment) => (
-            <li key={attachment.id}>
-              {attachment.kind === "link" ? (
-                <a href={attachment.url} rel="noreferrer noopener" target="_blank">{attachment.label}</a>
-              ) : (
-                <button
-                  className="board-assignment-link"
-                  disabled={isSaving}
-                  type="button"
-                  onClick={() => void run(async () => {
-                    const blob = await downloadCollegiumAttachment(initiative.id, attachment.id);
-                    saveBlob(blob, attachment.fileName ?? attachment.label);
-                  })}
-                >
-                  {attachment.label}
-                </button>
-              )}
-              <span className="collegium-attachment-meta">
-                {[
-                  attachment.kind === "link" ? "ссылка" : formatFileSize(attachment.sizeBytes ?? 0),
-                  attachment.createdByDisplayName,
-                  formatDateTime(attachment.createdAt),
-                ].join(" · ")}
-              </span>
-              {canAttach ? (
-                <button
-                  className="secondary-button"
-                  disabled={isSaving}
-                  type="button"
-                  onClick={() => void run(
-                    () => deleteCollegiumAttachment(initiative.id, attachment.id),
-                    "Материал удалён",
-                  )}
-                >
-                  Удалить
-                </button>
-              ) : null}
-            </li>
-          ))}
-        </ul>
-      )}
-      {canAttach ? (
-        <div className="collegium-attachment-controls">
-          <label className="collegium-field">
-            <span>Приложить файл (PDF, DOCX, XLSX, PNG, JPEG до 10 МБ)</span>
-            <input
-              accept=".pdf,.docx,.xlsx,.png,.jpg,.jpeg"
-              disabled={isSaving || isFull}
-              type="file"
-              onChange={(event) => {
-                const file = event.currentTarget.files?.[0];
-                event.currentTarget.value = "";
-                if (file === undefined) return;
-                if (file.size > collegiumAttachmentLimits.maxFileBytes) {
-                  setMessage("Размер одного файла не должен превышать 10 МБ.");
-                  return;
-                }
-                void run(() => uploadCollegiumAttachment(initiative.id, file), "Файл приложен");
-              }}
-            />
-          </label>
-          <form
-            className="collegium-field-grid"
-            noValidate
-            onSubmit={(event) => {
-              event.preventDefault();
-              if (linkUrl.trim() === "" || linkLabel.trim() === "") {
-                setMessage("Укажите ссылку и подпись.");
-                return;
-              }
-              void run(
-                () => addCollegiumAttachmentLink(initiative.id, { url: linkUrl.trim(), label: linkLabel.trim() }),
-                "Ссылка добавлена",
-              ).then((saved) => {
-                if (saved) {
-                  setLinkUrl("");
-                  setLinkLabel("");
-                }
-              });
-            }}
-          >
-            <label className="collegium-field">
-              <span>Ссылка (Google Drive, Яндекс Диск и т. п.)</span>
-              <input
-                disabled={isSaving || isFull}
-                inputMode="url"
-                maxLength={collegiumAttachmentLimits.maxUrlLength}
-                placeholder="https://"
-                value={linkUrl}
-                onChange={(event) => {
-                  const value = event.currentTarget.value;
-                  setLinkUrl(value);
-                }}
-              />
-            </label>
-            <label className="collegium-field">
-              <span>Подпись ссылки</span>
-              <input
-                disabled={isSaving || isFull}
-                maxLength={collegiumAttachmentLimits.maxLabelLength}
-                value={linkLabel}
-                onChange={(event) => {
-                  const value = event.currentTarget.value;
-                  setLinkLabel(value);
-                }}
-              />
-            </label>
-            <div className="collegium-form-actions">
-              <button className="secondary-button" disabled={isSaving || isFull} type="submit">
-                Добавить ссылку
-              </button>
-            </div>
-          </form>
-          {isFull ? (
-            <p className="collegium-note">
-              {`Приложено максимальное число материалов: ${collegiumAttachmentLimits.maxOwnerItems}.`}
-            </p>
-          ) : null}
-        </div>
-      ) : null}
-      {message === "" ? null : <p className="form-message is-error" role="alert">{message}</p>}
-    </section>
-  );
-}
-
-function saveBlob(blob: Blob, fileName: string) {
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = fileName;
-  document.body.append(link);
-  link.click();
-  link.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
-}
-
-function formatFileSize(bytes: number) {
-  return bytes >= 1024 * 1024
-    ? `${(bytes / (1024 * 1024)).toLocaleString("ru-RU", { maximumFractionDigits: 1 })} МБ`
-    : `${Math.max(1, Math.round(bytes / 1024))} КБ`;
 }
 
 function CommentsSection({
@@ -1466,13 +1314,6 @@ function useInitiativeDetail(id: string | undefined, refreshVersion: number) {
   return state;
 }
 
-function usePeopleIndex(people: CollegiumPerson[]) {
-  return useMemo(() => {
-    const names = new Map(people.map((person) => [person.id, person.displayName]));
-    return { name: (accountId: string) => names.get(accountId) ?? "" };
-  }, [people]);
-}
-
 function CardSection({ title, children }: { title: string; children: ReactNode }) {
   return (
     <section className="collegium-card-section">
@@ -1549,32 +1390,6 @@ function formFromCard(card: CollegiumInitiativeCard): FormState {
   };
 }
 
-const amountFormatter = new Intl.NumberFormat("ru-RU", {
-  minimumFractionDigits: 2,
-  maximumFractionDigits: 2,
-});
-
-function formatAmount(value: string, empty = "—") {
-  return value === "" ? empty : `${amountFormatter.format(Number(value))} ₽`;
-}
-
 function formatAmountInput(value: string) {
   return value === "" ? "" : value.replace(".", ",");
-}
-
-function formatDate(value: string, empty = "—") {
-  if (value === "") return empty;
-  const [year, month, day] = value.split("-");
-  return `${day}.${month}.${year}`;
-}
-
-function formatDateTime(value: string) {
-  return new Intl.DateTimeFormat("ru-RU", {
-    timeZone: "Europe/Moscow",
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(new Date(value));
 }
