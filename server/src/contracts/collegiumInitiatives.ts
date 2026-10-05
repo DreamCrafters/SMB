@@ -1,0 +1,361 @@
+/**
+ * Задача 135: модуль «Инициативы Коллегии». Проектная основа и решения —
+ * `docs/collegium-initiatives.md`.
+ */
+
+export const collegiumInitiativesNavigationItem =
+  "business.collegium_initiatives";
+
+/**
+ * Уровень вкладки — одно иерархическое значение, как у поручений СД:
+ * старший уровень включает права младших, поэтому объединение должностей
+ * даёт максимум, а уровень читается обратно по старшей capability.
+ */
+export const collegiumInitiativeAccessLevels = [
+  "none",
+  "view",
+  "participant",
+  "secretary",
+  "chair",
+] as const;
+
+export type CollegiumInitiativeAccess =
+  (typeof collegiumInitiativeAccessLevels)[number];
+
+/** Подписи уровней для формы должности и журнала действий. */
+export const collegiumInitiativeAccessOptions: ReadonlyArray<{
+  id: Exclude<CollegiumInitiativeAccess, "none">;
+  label: string;
+}> = [
+  { id: "view", label: "Только просмотр" },
+  { id: "participant", label: "Участник: идеи и комментарии" },
+  { id: "secretary", label: "Секретарь: оценка, повестка, протокол" },
+  { id: "chair", label: "Председатель: допуск и утверждение протокола" },
+];
+
+export const collegiumInitiativeCapabilities = [
+  "business.view_collegium_initiatives",
+  "business.participate_collegium_initiatives",
+  "business.manage_collegium_initiatives",
+  "business.approve_collegium_initiatives",
+] as const;
+
+export type CollegiumInitiativeCapability =
+  (typeof collegiumInitiativeCapabilities)[number];
+
+const capabilityByLevel = {
+  view: "business.view_collegium_initiatives",
+  participant: "business.participate_collegium_initiatives",
+  secretary: "business.manage_collegium_initiatives",
+  chair: "business.approve_collegium_initiatives",
+} as const satisfies Record<
+  Exclude<CollegiumInitiativeAccess, "none">,
+  CollegiumInitiativeCapability
+>;
+
+const rankedLevels = ["view", "participant", "secretary", "chair"] as const;
+
+export function isCollegiumInitiativeAccess(
+  value: unknown,
+): value is CollegiumInitiativeAccess {
+  return collegiumInitiativeAccessLevels.includes(
+    value as CollegiumInitiativeAccess,
+  );
+}
+
+/** Кумулятивный набор capability уровня: `chair` включает все младшие. */
+export function resolveCollegiumInitiativeCapabilities(
+  access: CollegiumInitiativeAccess,
+): CollegiumInitiativeCapability[] {
+  if (access === "none") return [];
+  const rank = rankedLevels.indexOf(access);
+  return rankedLevels
+    .slice(0, rank + 1)
+    .map((level) => capabilityByLevel[level]);
+}
+
+/** Уровень читается по старшей capability; без вкладки уровня нет. */
+export function readCollegiumInitiativeAccess(
+  capabilities: readonly string[],
+  navigationItems: readonly string[],
+): CollegiumInitiativeAccess {
+  if (!navigationItems.includes(collegiumInitiativesNavigationItem)) {
+    return "none";
+  }
+  for (const level of [...rankedLevels].reverse()) {
+    if (capabilities.includes(capabilityByLevel[level])) return level;
+  }
+  return "view";
+}
+
+export const collegiumInitiativeStatuses = [
+  "draft",
+  "preliminary_review",
+  "rework",
+  "ready",
+  "on_agenda",
+  "in_discussion",
+  "needs_elaboration",
+  "approved_pilot",
+  "approved_implementation",
+  "board_referral",
+  "in_progress",
+  "result_confirmation",
+  "done_confirmed",
+  "done_unconfirmed",
+  "suspended",
+  "rejected",
+  "closed",
+] as const;
+
+export type CollegiumInitiativeStatus =
+  (typeof collegiumInitiativeStatuses)[number];
+
+export const collegiumInitiativeStatusLabels: Record<
+  CollegiumInitiativeStatus,
+  string
+> = {
+  draft: "Черновик",
+  preliminary_review: "На предварительной оценке",
+  rework: "На доработке",
+  ready: "Готова к рассмотрению",
+  on_agenda: "В повестке Коллегии",
+  in_discussion: "На обсуждении",
+  needs_elaboration: "Требуется дополнительная проработка",
+  approved_pilot: "Одобрена к пилоту",
+  approved_implementation: "Одобрена к внедрению",
+  board_referral: "Подлежит вынесению на СД",
+  in_progress: "В реализации",
+  result_confirmation: "На подтверждении результата",
+  done_confirmed: "Реализована с подтверждённым эффектом",
+  done_unconfirmed: "Реализована без подтверждённого эффекта",
+  suspended: "Приостановлена",
+  rejected: "Отклонена",
+  closed: "Закрыта",
+};
+
+/** Стандартные решения на контрольных точках (ТЗ 5.2). */
+export const collegiumDecisions = [
+  "accept_elaboration",
+  "return_for_rework",
+  "pilot",
+  "implement",
+  "create_assignments",
+  "suspend",
+  "reject",
+  "board_materials",
+  "confirm_effect",
+  "effect_unconfirmed",
+  "close",
+] as const;
+
+export type CollegiumDecision = (typeof collegiumDecisions)[number];
+
+export const collegiumDecisionLabels: Record<CollegiumDecision, string> = {
+  accept_elaboration: "Принять к дальнейшей проработке",
+  return_for_rework: "Вернуть на доработку",
+  pilot: "Провести пилот",
+  implement: "Утвердить внедрение",
+  create_assignments: "Создать поручения",
+  suspend: "Приостановить",
+  reject: "Отклонить",
+  board_materials: "Подготовить материалы для Совета директоров",
+  confirm_effect: "Подтвердить эффект",
+  effect_unconfirmed: "Признать эффект неподтверждённым",
+  close: "Закрыть инициативу",
+};
+
+/** Что инициатор может запросить у Коллегии в карточке. */
+export const collegiumRequestedDecisions = [
+  "accept_elaboration",
+  "pilot",
+  "implement",
+  "create_assignments",
+  "board_materials",
+] as const satisfies readonly CollegiumDecision[];
+
+export type CollegiumRequestedDecision =
+  (typeof collegiumRequestedDecisions)[number];
+
+export const collegiumReferenceKinds = ["direction", "effect_type"] as const;
+export type CollegiumReferenceKind = (typeof collegiumReferenceKinds)[number];
+
+export type CollegiumReferenceOption = {
+  code: string;
+  label: string;
+};
+
+export type CollegiumReference = Record<
+  CollegiumReferenceKind,
+  CollegiumReferenceOption[]
+>;
+
+export const collegiumCostVatOptions = ["with_vat", "without_vat"] as const;
+export type CollegiumCostVat = (typeof collegiumCostVatOptions)[number];
+export const collegiumCostVatLabels: Record<CollegiumCostVat, string> = {
+  with_vat: "с НДС",
+  without_vat: "без НДС",
+};
+
+export const collegiumRecurringPeriods = ["month", "year"] as const;
+export type CollegiumRecurringPeriod =
+  (typeof collegiumRecurringPeriods)[number];
+export const collegiumRecurringPeriodLabels: Record<
+  CollegiumRecurringPeriod,
+  string
+> = {
+  month: "в месяц",
+  year: "в год",
+};
+
+export const collegiumInitiativeRoleFields = [
+  "ownerId",
+  "executorId",
+  "executionControllerId",
+  "effectControllerId",
+] as const;
+
+export type CollegiumInitiativeRoleField =
+  (typeof collegiumInitiativeRoleFields)[number];
+
+export const maxCollegiumInitiativeRisks = 3;
+
+/**
+ * Редактируемые поля экспресс-карты (ТЗ 6.2). Суммы — канонический текст
+ * `1234.50` или пустая строка; люди — `account:<userId>` или пустая строка.
+ */
+export type CollegiumInitiativeCardInput = {
+  title: string;
+  initiatorId: string;
+  directionCode: string;
+  effectTypeCodes: string[];
+  problem: string;
+  baselineValue: string;
+  baselinePeriod: string;
+  baselineSource: string;
+  solution: string;
+  changeScope: string;
+  expectedEffectAmount: string;
+  expectedEffectPeriod: string;
+  expectedEffectKind: string;
+  effectMethod: string;
+  oneTimeCostAmount: string;
+  oneTimeCostVat: CollegiumCostVat | "";
+  oneTimeCostSource: string;
+  recurringCostAmount: string;
+  recurringCostPeriod: CollegiumRecurringPeriod | "";
+  internalResources: string;
+  ownerId: string;
+  executorId: string;
+  executionControllerId: string;
+  effectControllerId: string;
+  plannedStart: string;
+  plannedResult: string;
+  kpiCriterion: string;
+  kpiSource: string;
+  risks: string[];
+  requestedDecision: CollegiumRequestedDecision | "";
+};
+
+/** Снимок хранит и код, и подпись справочника, чтобы история не менялась. */
+export type CollegiumInitiativeCard = CollegiumInitiativeCardInput & {
+  directionLabel: string;
+  effectTypeLabels: string[];
+};
+
+export type CollegiumPerson = {
+  id: string;
+  displayName: string;
+  position: string;
+  /** Действующий аккаунт с вкладкой инициатив. */
+  hasInitiativesTab: boolean;
+};
+
+export type CollegiumInitiative = {
+  id: string;
+  number: string;
+  status: CollegiumInitiativeStatus;
+  revision: number;
+  card: CollegiumInitiativeCard;
+  createdByUserId: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type CollegiumInitiativeRevision = {
+  revision: number;
+  createdAt: string;
+  authorDisplayName: string;
+  status: CollegiumInitiativeStatus;
+  changedFields: Array<keyof CollegiumInitiativeCardInput>;
+  reason: string;
+  comment: string;
+  card: CollegiumInitiativeCard;
+};
+
+export type CollegiumInitiativePermissions = {
+  canView: boolean;
+  canParticipate: boolean;
+  canManage: boolean;
+  canApprove: boolean;
+};
+
+export type CollegiumInitiativeListResponse = {
+  initiatives: CollegiumInitiative[];
+  people: CollegiumPerson[];
+  reference: CollegiumReference;
+  permissions: CollegiumInitiativePermissions;
+};
+
+export type CollegiumInitiativeDetailResponse = {
+  initiative: CollegiumInitiative;
+  revisions: CollegiumInitiativeRevision[];
+  canEdit: boolean;
+};
+
+export type CollegiumInitiativeSaveRequest = {
+  card: CollegiumInitiativeCardInput;
+  /** Ожидаемая ревизия при правке; без неё создаётся новая инициатива. */
+  revision?: number;
+  reason?: string;
+  comment?: string;
+};
+
+/** Подписи полей для формы, истории правок и списка незаполненных. */
+export const collegiumInitiativeFieldLabels: Record<
+  keyof CollegiumInitiativeCardInput,
+  string
+> = {
+  title: "Наименование идеи",
+  initiatorId: "Инициатор",
+  directionCode: "Направление",
+  effectTypeCodes: "Тип эффекта",
+  problem: "Описание проблемы / возможности",
+  baselineValue: "Текущее состояние / базовая линия",
+  baselinePeriod: "Период базовой линии",
+  baselineSource: "Источник подтверждения",
+  solution: "Предлагаемое решение",
+  changeScope: "Что меняется",
+  expectedEffectAmount: "Ожидаемый эффект, ₽",
+  expectedEffectPeriod: "Период эффекта",
+  expectedEffectKind: "Вид эффекта",
+  effectMethod: "Методика расчёта",
+  oneTimeCostAmount: "Разовые затраты, ₽",
+  oneTimeCostVat: "НДС разовых затрат",
+  oneTimeCostSource: "Источник финансирования",
+  recurringCostAmount: "Постоянные затраты, ₽",
+  recurringCostPeriod: "Период постоянных затрат",
+  internalResources: "Требуемые внутренние ресурсы",
+  ownerId: "Владелец результата",
+  executorId: "Предлагаемый исполнитель",
+  executionControllerId: "Контролёр исполнения",
+  effectControllerId: "Контролёр эффекта",
+  plannedStart: "Плановая дата начала",
+  plannedResult: "Плановая дата результата",
+  kpiCriterion: "Критерий успеха",
+  kpiSource: "Источник KPI",
+  risks: "Топ-3 риска",
+  requestedDecision: "Что требуется от Коллегии",
+};
+
+export const collegiumInitiativesApiPath = "/api/collegium-initiatives";

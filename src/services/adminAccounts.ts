@@ -23,6 +23,7 @@ import type {
   SetAdminAccountNavigationResponse,
 } from "../contracts";
 import { boardAssignmentAccessLevels } from "../contracts/accounts.js";
+import { isCollegiumInitiativeAccess } from "../contracts/collegiumInitiatives.js";
 import { isRailwayWagonAccess } from "../contracts/railwayWagons.js";
 import { buildDevAccessHeaders } from "./devAccessSessionStorage.js";
 import {
@@ -881,6 +882,7 @@ function isAdminPositionSummary(value: unknown): value is AdminPositionSummary {
       value.boardAssignmentAccess as (typeof boardAssignmentAccessLevels)[number],
     ) &&
     isRailwayWagonAccess(value.railwayWagonAccess) &&
+    isCollegiumInitiativeAccess(value.collegiumInitiativeAccess) &&
     typeof value.showOverviewVisitors === "boolean" &&
     typeof value.isProtected === "boolean" &&
     typeof value.hasAdminRights === "boolean" &&

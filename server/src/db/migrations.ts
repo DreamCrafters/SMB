@@ -4527,6 +4527,59 @@ const migrations: Migration[] = [
       `,
     ],
   },
+  {
+    /**
+     * Задача 135, срез 1: карточки «Инициатив Коллегии». Текущая запись хранит
+     * снимок карточки в JSON и отдельно статус и ревизию для фильтров и
+     * оптимистичной блокировки; ревизии append-only. Справочники засеваются
+     * значениями ТЗ и правятся без доработки кода в следующей очереди.
+     */
+    id: "090_collegium_initiatives",
+    // Lazy: the seed constant is declared below the migration list.
+    statements: () => [
+      `create table if not exists collegium_initiatives (
+        sequence_id bigint unsigned not null auto_increment primary key,
+        id varchar(100) not null,
+        number varchar(40) not null,
+        status varchar(40) not null,
+        revision int unsigned not null,
+        created_by_user_id varchar(100) not null,
+        payload longtext not null check (json_valid(payload)),
+        created_at timestamp(3) not null,
+        updated_at timestamp(3) not null,
+        unique key uniq_collegium_initiative_id (id),
+        unique key uniq_collegium_initiative_number (number),
+        key idx_collegium_initiative_status (status)
+      ) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci;`,
+      `create table if not exists collegium_initiative_revisions (
+        sequence_id bigint unsigned not null auto_increment primary key,
+        id varchar(100) not null,
+        initiative_id varchar(100) not null,
+        revision int unsigned not null,
+        payload longtext not null check (json_valid(payload)),
+        created_at timestamp(3) not null,
+        unique key uniq_collegium_initiative_revision_id (id),
+        unique key uniq_collegium_initiative_revision (initiative_id, revision)
+      ) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci;`,
+      `create table if not exists collegium_number_sequences (
+        kind varchar(20) not null,
+        year smallint unsigned not null,
+        last_value int unsigned not null,
+        primary key (kind, year)
+      ) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci;`,
+      `create table if not exists collegium_initiative_reference (
+        kind varchar(20) not null,
+        code varchar(60) not null,
+        label varchar(160) not null,
+        sort_order int unsigned not null,
+        is_active tinyint(1) not null default 1,
+        primary key (kind, code)
+      ) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci;`,
+      ...collegiumInitiativeReferenceSeed.map(({ kind, code, label }, index) =>
+        `insert ignore into collegium_initiative_reference (kind, code, label, sort_order)
+          values (${sqlString(kind)}, ${sqlString(code)}, ${sqlString(label)}, ${index});`),
+    ],
+  },
 ];
 
 function removePositionJsonValue(
@@ -4724,6 +4777,29 @@ function buildRailwayReferenceStatements() {
 function normalizeInitialProductBrandName(name: string) {
   return name.trim().replace(/\s+/gu, " ").toLocaleLowerCase("ru-RU");
 }
+
+/** Значения справочников из ТЗ «Инициативы Коллегии» (п. 6.2). */
+const collegiumInitiativeReferenceSeed = [
+  ["direction", "production", "Производство"],
+  ["direction", "technology", "Технология"],
+  ["direction", "quality", "Качество"],
+  ["direction", "equipment", "Оборудование"],
+  ["direction", "sales", "Продажи"],
+  ["direction", "supply", "Снабжение"],
+  ["direction", "finance", "Финансы"],
+  ["direction", "personnel", "Персонал"],
+  ["direction", "safety", "Безопасность"],
+  ["direction", "digitalization", "Цифровизация"],
+  ["direction", "other", "Иное"],
+  ["effect_type", "margin_growth", "Рост маржи"],
+  ["effect_type", "cost_saving", "Экономия затрат"],
+  ["effect_type", "defect_reduction", "Снижение брака"],
+  ["effect_type", "downtime_reduction", "Снижение простоев"],
+  ["effect_type", "working_capital", "Высвобождение оборотного капитала"],
+  ["effect_type", "loss_prevention", "Предотвращение потерь"],
+  ["effect_type", "risk_reduction", "Снижение риска"],
+  ["effect_type", "other", "Иной"],
+].map(([kind, code, label]) => ({ kind, code, label }));
 
 function sqlString(value: string) {
   return `'${value.replaceAll("'", "''").replaceAll("\\", "\\\\")}'`;

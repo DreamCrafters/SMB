@@ -1,4 +1,8 @@
 import { assignmentInboxSourceOptions } from "../server/src/contracts/directorAssignments.js";
+import {
+  collegiumInitiativeAccessOptions,
+  collegiumInitiativesNavigationItem,
+} from "../server/src/contracts/collegiumInitiatives.js";
 import type {
   AccountNavigationItem,
   AccountPosition,
@@ -78,6 +82,10 @@ export const navigationAccessLevels: Partial<Record<AccountNavigationItem, {
   "business.railway_wagons": {
     title: "Роли в разделе",
     options: railwayWagonAccessOptions,
+  },
+  [collegiumInitiativesNavigationItem]: {
+    title: "Роль в Коллегии",
+    options: collegiumInitiativeAccessOptions,
   },
 };
 
@@ -224,6 +232,7 @@ export const navigationItemsByAccountType: Record<AccountType, NavigationItem[]>
       state: "active",
     },
     { id: "business.collegium_assignments", label: "Поручения Коллегии", description: "Отправка поручений Председателя Коллегии и контроль", state: "active" },
+    { id: "business.collegium_initiatives", label: "Инициативы Коллегии", description: "Идеи, заседания и протоколы Коллегии", state: "active" },
     {
       id: "business.warehouse_1c",
       label: "Склад 1С",

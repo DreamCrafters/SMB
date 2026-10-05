@@ -2647,3 +2647,82 @@ test("root account protection cannot be removed under the repository lock after 
   await assert.rejects(repository.setAccountProtected({ userId: "renamed-user", isProtected: false }), /нельзя отключить/u);
   assert.equal(updated, false);
 });
+
+test("collegium chair level survives admin rights and other tab toggles", async () => {
+  const chairCapabilities = [
+    "business.view_collegium_initiatives",
+    "business.participate_collegium_initiatives",
+    "business.manage_collegium_initiatives",
+    "business.approve_collegium_initiatives",
+  ];
+  let navigationItems = ["business.collegium_initiatives"];
+  let capabilities = [...chairCapabilities];
+  const connection = {
+    async beginTransaction() {},
+    async commit() {},
+    async rollback() {},
+    release() {},
+    async query(sql: string, params?: unknown[]) {
+      const normalized = sql.replace(/\s+/g, " ").trim();
+      if (normalized.startsWith("select is_root_admin, status from app_users")) {
+        return [[{ login: "root", is_root_admin: 1, status: "active" }], []];
+      }
+      if (
+        normalized.startsWith("select id, display_name, account_type") ||
+        normalized.startsWith("select positions.id, positions.display_name")
+      ) {
+        return [[{
+          id: "collegium-chair",
+          display_name: "Председатель Коллегии",
+          account_type: "business_owner",
+          navigation_items: JSON.stringify(navigationItems),
+          capabilities: JSON.stringify(capabilities),
+          is_protected: 0,
+          is_admin_protected: 0,
+          can_review_raw_material_warehouse: 0,
+          created_at: "2026-10-05T00:00:00.000Z",
+          usage_count: 1,
+        }], []];
+      }
+      if (normalized.startsWith("update account_positions set is_admin_protected")) {
+        navigationItems = JSON.parse(String(params?.[1]));
+        capabilities = JSON.parse(String(params?.[2]));
+      }
+      if (normalized.startsWith("update account_positions set navigation_items")) {
+        navigationItems = JSON.parse(String(params?.[0]));
+        capabilities = JSON.parse(String(params?.[1]));
+      }
+      return [[], []];
+    },
+  };
+  const pool = {
+    async getConnection() { return connection; },
+  } as unknown as DatabasePool;
+  const repository = createAccountsRepository(pool);
+
+  await repository.setPositionProtected({ id: "collegium-chair", isProtected: true });
+  assert.deepEqual(
+    chairCapabilities.filter((capability) => !capabilities.includes(capability)),
+    [],
+  );
+
+  await repository.setPositionNavigationAccess({
+    navigationItem: "business.settings",
+    positionIds: ["collegium-chair"],
+    enabled: true,
+  }, { userId: "root-admin-user", isDevRootAdmin: false });
+  assert.ok(navigationItems.includes("business.settings"));
+  assert.deepEqual(
+    chairCapabilities.filter((capability) => !capabilities.includes(capability)),
+    [],
+  );
+
+  await repository.setPositionNavigationAccess({
+    navigationItem: "business.collegium_initiatives",
+    positionIds: ["collegium-chair"],
+    enabled: true,
+    accessLevel: "participant",
+  }, { userId: "root-admin-user", isDevRootAdmin: false });
+  assert.ok(capabilities.includes("business.participate_collegium_initiatives"));
+  assert.equal(capabilities.includes("business.manage_collegium_initiatives"), false);
+});

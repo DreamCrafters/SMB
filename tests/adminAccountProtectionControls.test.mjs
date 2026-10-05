@@ -360,7 +360,7 @@ function buildPosition() {
     capabilities: ["platform.manage_users", "platform.manage_access"],
     boardAssignmentAccess: "none",
     railwayWagonAccess: "none",
-    assignmentInboxAccess: "none",
+    assignmentInboxAccess: "none", collegiumInitiativeAccess: "none",
     showOverviewVisitors: true,
     isProtected: false,
     hasAdminRights: true,

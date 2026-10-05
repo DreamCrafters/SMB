@@ -1,3 +1,10 @@
+import {
+  collegiumInitiativeAccessLevels,
+  collegiumInitiativesNavigationItem,
+  isCollegiumInitiativeAccess,
+  resolveCollegiumInitiativeCapabilities,
+  type CollegiumInitiativeAccess,
+} from "../contracts/collegiumInitiatives.js";
 import { assignmentInboxNavigationItem, assignmentInboxSourceCapabilities, assignmentInboxSources, isAssignmentInboxAccess, type AssignmentInboxAccess } from "../contracts/directorAssignments.js";
 import {
   isRailwayWagonRole,
@@ -76,6 +83,7 @@ export const nonAdminNavigationItems: AccountNavigationItem[] = [
   "business.board_assignments",
   "business.director_assignments",
   "business.collegium_assignments",
+  "business.collegium_initiatives",
   "business.personnel",
   "business.warehouse_1c",
   "business.railway_wagons",
@@ -147,6 +155,8 @@ const capabilitiesByNavigationItem: Record<
   // Registry tabs are sending and control only; execution comes from «Поручения» sources.
   "business.director_assignments": ["business.view_director_assignments", "business.manage_director_assignments"],
   "business.collegium_assignments": ["business.view_collegium_assignments", "business.manage_collegium_assignments"],
+  // The level inside the tab adds the higher initiative rights cumulatively.
+  "business.collegium_initiatives": ["business.view_collegium_initiatives"],
   "business.assignments": [],
   "business.personnel": ["business.manage_personnel"],
   "business.warehouse_1c": ["business.view_warehouse_1c"],
@@ -188,15 +198,32 @@ export function conflictsWithBoardAssignmentAccess(
     (boardAssignmentAccess === "create" || boardAssignmentAccess === "review");
 }
 
+/**
+ * Уровни вкладок, которые не выводятся из списка вкладок. Уровень инициатив
+ * Коллегии обязателен: пропущенное значение молча понизило бы председателя до
+ * просмотра при любой правке должности.
+ */
+export type PositionAccessLevels = {
+  collegiumInitiativeAccess: CollegiumInitiativeAccess;
+  boardAssignmentAccess?: BoardAssignmentAccess;
+  hasAdminRights?: boolean;
+  showOverviewVisitors?: boolean;
+  canReviewRawMaterialWarehouse?: boolean;
+  railwayWagonAccess?: RailwayWagonAccess;
+};
+
 export function resolveCapabilitiesForPosition(
   position: AccountPosition,
   navigationItems: AccountNavigationItem[],
   assignmentInboxAccess: AssignmentInboxAccess,
-  boardAssignmentAccess = getDefaultBoardAssignmentAccess(position),
-  hasAdminRights = false,
-  showOverviewVisitors = true,
-  canReviewRawMaterialWarehouse = false,
-  railwayWagonAccess: RailwayWagonAccess = "view",
+  {
+    collegiumInitiativeAccess,
+    boardAssignmentAccess = getDefaultBoardAssignmentAccess(position),
+    hasAdminRights = false,
+    showOverviewVisitors = true,
+    canReviewRawMaterialWarehouse = false,
+    railwayWagonAccess = "view",
+  }: PositionAccessLevels,
 ) {
   const resolvedNavigationItems =
     position === defaultPositionByAccountType.admin
@@ -243,6 +270,13 @@ export function resolveCapabilitiesForPosition(
           (role) => railwayWagonRoleCapabilities[role] as AccountCapability,
         );
 
+  const collegiumInitiativeCapabilities: AccountCapability[] =
+    resolvedNavigationItems.includes(collegiumInitiativesNavigationItem)
+      ? resolveCollegiumInitiativeCapabilities(
+          collegiumInitiativeAccess === "none" ? "view" : collegiumInitiativeAccess,
+        )
+      : [];
+
   return Array.from(new Set([
     ...capabilities,
     ...boardCapabilities,
@@ -250,6 +284,7 @@ export function resolveCapabilitiesForPosition(
     ...overviewVisitorsCapabilities,
     ...rawMaterialWarehouseCapabilities,
     ...railwayWagonCapabilities,
+    ...collegiumInitiativeCapabilities,
   ]));
 }
 
@@ -277,6 +312,7 @@ export const navigationAccessLevelsByItem = {
   "business.assignments": assignmentInboxSources,
   "business.board_assignments": boardAssignmentAccessLevels,
   "business.railway_wagons": railwayWagonAccessLevels,
+  "business.collegium_initiatives": collegiumInitiativeAccessLevels,
 } as const satisfies Partial<
   Record<AccountNavigationItem, readonly string[]>
 >;
@@ -284,7 +320,7 @@ export const navigationAccessLevelsByItem = {
 export type NavigationAccessLevelItem =
   keyof typeof navigationAccessLevelsByItem;
 
-export type NavigationAccessLevel = BoardAssignmentAccess | RailwayWagonAccess | AssignmentInboxAccess;
+export type NavigationAccessLevel = BoardAssignmentAccess | RailwayWagonAccess | AssignmentInboxAccess | CollegiumInitiativeAccess;
 
 export function hasNavigationAccessLevels(
   navigationItem: AccountNavigationItem,
@@ -302,6 +338,9 @@ export function isNavigationAccessLevel(
   if (navigationItem === assignmentInboxNavigationItem) {
     // The tab without a source grants nothing, so an enabled tab always needs one.
     return isAssignmentInboxAccess(value) && value !== "none";
+  }
+  if (navigationItem === collegiumInitiativesNavigationItem) {
+    return isCollegiumInitiativeAccess(value) && value !== "none";
   }
   return (
     hasNavigationAccessLevels(navigationItem) &&
@@ -336,6 +375,10 @@ export function resolveMaximumCapabilitiesForNavigation(
       ...base,
       ...railwayWagonRoles.map((role) => railwayWagonRoleCapabilities[role]),
     ])) as AccountCapability[];
+  }
+
+  if (navigationItem === collegiumInitiativesNavigationItem) {
+    return resolveCollegiumInitiativeCapabilities("chair");
   }
 
   if (navigationItem === "business.overview") {
@@ -384,6 +427,10 @@ export function resolveCapabilitiesForNavigationLevel(
             ? (["business.create_board_assignments"] as AccountCapability[])
             : []),
     ]));
+  }
+
+  if (navigationItem === collegiumInitiativesNavigationItem) {
+    return resolveCollegiumInitiativeCapabilities(level as CollegiumInitiativeAccess);
   }
 
   if (navigationItem === "business.railway_wagons") {

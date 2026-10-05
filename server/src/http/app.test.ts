@@ -106,6 +106,8 @@ import type { RailwayReferenceRepository } from "../repositories/railwayReferenc
 import type { RailwayWagonOrder } from "../contracts/railwayWagons.js";
 import { createApiServer } from "./app.js";
 import { createDirectorAssignmentsService } from "../domain/directorAssignmentsService.js";
+import type { CollegiumInitiativesService } from "../domain/collegiumInitiativesService.js";
+import { CollegiumInitiativeError } from "../domain/collegiumInitiative.js";
 import type { DirectorAssignmentsRepository } from "../repositories/directorAssignmentsRepository.js";
 
 
@@ -6093,7 +6095,7 @@ const accounts: AccountsRepository = {
         accountType: "dispatcher",
         navigationItems: ["business.dispatcher", "business.dispatcher_form"],
         capabilities: ["business.submit_dispatcher_forms", "business.view_dispatcher_feed"],
-        boardAssignmentAccess: "none", railwayWagonAccess: "none", assignmentInboxAccess: "none", showOverviewVisitors: true,
+        boardAssignmentAccess: "none", railwayWagonAccess: "none", assignmentInboxAccess: "none", collegiumInitiativeAccess: "none", showOverviewVisitors: true,
         isProtected: true,
         usageCount: 1,
         createdAt: "2026-07-10T00:00:00.000Z",
@@ -6104,7 +6106,7 @@ const accounts: AccountsRepository = {
         accountType: "business_owner",
         navigationItems: ["business.overview", "business.dispatcher"],
         capabilities: ["business.view_all_statistics", "business.view_dispatcher_feed"],
-        boardAssignmentAccess: "none", railwayWagonAccess: "none", assignmentInboxAccess: "none", showOverviewVisitors: true,
+        boardAssignmentAccess: "none", railwayWagonAccess: "none", assignmentInboxAccess: "none", collegiumInitiativeAccess: "none", showOverviewVisitors: true,
         isProtected: true,
         usageCount: 0,
         createdAt: "2026-07-10T00:00:00.000Z",
@@ -6112,10 +6114,10 @@ const accounts: AccountsRepository = {
     ];
   },
   async createPosition(input) {
-    return { id: "created-position", accountType: "business_owner", ...input, boardAssignmentAccess: "none", railwayWagonAccess: "none", assignmentInboxAccess: "none", showOverviewVisitors: true, isProtected: false, usageCount: 0, createdAt: "2026-07-10T00:00:00.000Z" };
+    return { id: "created-position", accountType: "business_owner", ...input, boardAssignmentAccess: "none", railwayWagonAccess: "none", assignmentInboxAccess: "none", collegiumInitiativeAccess: "none", showOverviewVisitors: true, isProtected: false, usageCount: 0, createdAt: "2026-07-10T00:00:00.000Z" };
   },
   async updatePosition(input) {
-    return { id: input.id, displayName: input.displayName, accountType: "dispatcher", navigationItems: input.navigationItems, capabilities: input.capabilities, boardAssignmentAccess: "none", railwayWagonAccess: "none", assignmentInboxAccess: "none", showOverviewVisitors: true, isProtected: false, usageCount: 1, createdAt: "2026-07-10T00:00:00.000Z" };
+    return { id: input.id, displayName: input.displayName, accountType: "dispatcher", navigationItems: input.navigationItems, capabilities: input.capabilities, boardAssignmentAccess: "none", railwayWagonAccess: "none", assignmentInboxAccess: "none", collegiumInitiativeAccess: "none", showOverviewVisitors: true, isProtected: false, usageCount: 1, createdAt: "2026-07-10T00:00:00.000Z" };
   },
   async deletePosition() {
     return "deleted";
@@ -6265,6 +6267,7 @@ test("account preview navigation grants reads without business mutations", async
     "preview-only",
     profile.activeAccess.navigationItems,
     "none",
+    { collegiumInitiativeAccess: "none" },
   );
   const repository: AccountsRepository = {
     ...accounts,
@@ -6562,7 +6565,7 @@ test("admin positions API creates a position with tabs from the unified workspac
     ...accounts,
     async createPosition(input) {
       createdInput = input;
-      return { id: "position-chief", accountType: "business_owner", ...input, boardAssignmentAccess: "none", railwayWagonAccess: "none", assignmentInboxAccess: "none", showOverviewVisitors: true, isProtected: false, usageCount: 0, createdAt: "2026-07-12T00:00:00.000Z" };
+      return { id: "position-chief", accountType: "business_owner", ...input, boardAssignmentAccess: "none", railwayWagonAccess: "none", assignmentInboxAccess: "none", collegiumInitiativeAccess: "none", showOverviewVisitors: true, isProtected: false, usageCount: 0, createdAt: "2026-07-12T00:00:00.000Z" };
     },
   };
 
@@ -6973,7 +6976,7 @@ test("position create and update accept combined railway roles with independent 
     writes.push(input);
     stored = {
       ...input, id: "mixed-position", accountType: "business_owner",
-      boardAssignmentAccess: "create", railwayWagonAccess: ["sales", "carrier"], assignmentInboxAccess: "none",
+      boardAssignmentAccess: "create", railwayWagonAccess: ["sales", "carrier"], assignmentInboxAccess: "none", collegiumInitiativeAccess: "none",
       showOverviewVisitors: false, isProtected: false, usageCount: 0,
       createdAt: "2026-09-11T00:00:00.000Z",
     };
@@ -7192,7 +7195,7 @@ test("admin positions API stores the selected board assignment access variant", 
         id: "position-board-reviewer",
         accountType: "business_owner",
         ...input,
-        boardAssignmentAccess: "review", railwayWagonAccess: "none", assignmentInboxAccess: "none", showOverviewVisitors: true,
+        boardAssignmentAccess: "review", railwayWagonAccess: "none", assignmentInboxAccess: "none", collegiumInitiativeAccess: "none", showOverviewVisitors: true,
         isProtected: false,
         usageCount: 0,
         createdAt: "2026-07-27T00:00:00.000Z",
@@ -7212,7 +7215,7 @@ test("admin positions API stores the selected board assignment access variant", 
       body: JSON.stringify({
         displayName: "Проверяющий поручений",
         navigationItems: ["business.board_assignments"],
-        boardAssignmentAccess: "review", railwayWagonAccess: "none", assignmentInboxAccess: "none", showOverviewVisitors: true,
+        boardAssignmentAccess: "review", railwayWagonAccess: "none", assignmentInboxAccess: "none", collegiumInitiativeAccess: "none", showOverviewVisitors: true,
       }),
     });
     const invalidResponse = await fetch(`${baseUrl}/api/admin/positions`, {
@@ -7221,7 +7224,7 @@ test("admin positions API stores the selected board assignment access variant", 
       body: JSON.stringify({
         displayName: "Несогласованная должность",
         navigationItems: ["business.overview"],
-        boardAssignmentAccess: "execute", railwayWagonAccess: "none", assignmentInboxAccess: "none", showOverviewVisitors: true,
+        boardAssignmentAccess: "execute", railwayWagonAccess: "none", assignmentInboxAccess: "none", collegiumInitiativeAccess: "none", showOverviewVisitors: true,
       }),
     });
 
@@ -7242,7 +7245,7 @@ test("admin positions API allows an empty tab set and rejects the removed base c
     ...accounts,
     async createPosition(input) {
       created.push(input);
-      return { id: "position-worker", accountType: "business_owner", ...input, boardAssignmentAccess: "none", railwayWagonAccess: "none", assignmentInboxAccess: "none", showOverviewVisitors: true, isProtected: false, usageCount: 0, createdAt: "2026-07-12T00:00:00.000Z" };
+      return { id: "position-worker", accountType: "business_owner", ...input, boardAssignmentAccess: "none", railwayWagonAccess: "none", assignmentInboxAccess: "none", collegiumInitiativeAccess: "none", showOverviewVisitors: true, isProtected: false, usageCount: 0, createdAt: "2026-07-12T00:00:00.000Z" };
     },
   };
 
@@ -7277,7 +7280,7 @@ test("primary admin cannot assign root admin panels directly to a custom positio
     ...accounts,
     async createPosition(input) {
       created.push(input);
-      return { id: "position-shared", accountType: "business_owner", ...input, boardAssignmentAccess: "none", railwayWagonAccess: "none", assignmentInboxAccess: "none", showOverviewVisitors: true, isProtected: false, usageCount: 0, createdAt: "2026-07-12T00:00:00.000Z" };
+      return { id: "position-shared", accountType: "business_owner", ...input, boardAssignmentAccess: "none", railwayWagonAccess: "none", assignmentInboxAccess: "none", collegiumInitiativeAccess: "none", showOverviewVisitors: true, isProtected: false, usageCount: 0, createdAt: "2026-07-12T00:00:00.000Z" };
     },
   };
 
@@ -7347,7 +7350,7 @@ test("renamed production root cannot assign root panels to a custom position", a
         id: "position-production-hybrid",
         accountType: "business_owner",
         ...input,
-        boardAssignmentAccess: "none", railwayWagonAccess: "none", assignmentInboxAccess: "none", showOverviewVisitors: true,
+        boardAssignmentAccess: "none", railwayWagonAccess: "none", assignmentInboxAccess: "none", collegiumInitiativeAccess: "none", showOverviewVisitors: true,
         isProtected: false,
         usageCount: 0,
         createdAt: "2026-07-12T00:00:00.000Z",
@@ -7415,7 +7418,7 @@ test("delegated account manager changes working tabs but cannot add root admin p
       "business.view_notifications" as const,
       "business.view_dispatcher_feed" as const,
     ],
-    boardAssignmentAccess: "none" as const, railwayWagonAccess: "none" as const, assignmentInboxAccess: "none" as const, showOverviewVisitors: true,
+    boardAssignmentAccess: "none" as const, railwayWagonAccess: "none" as const, assignmentInboxAccess: "none" as const, collegiumInitiativeAccess: "none" as const, showOverviewVisitors: true,
     isProtected: false,
     usageCount: 1,
     createdAt: "2026-07-12T00:00:00.000Z",
@@ -7511,7 +7514,7 @@ test("delegated account manager cannot mutate or unprotect a protected position"
     accountType: "business_owner" as const,
     navigationItems: ["business.overview" as const],
     capabilities: ["business.view_all_statistics" as const],
-    boardAssignmentAccess: "none" as const, railwayWagonAccess: "none" as const, assignmentInboxAccess: "none" as const, showOverviewVisitors: true,
+    boardAssignmentAccess: "none" as const, railwayWagonAccess: "none" as const, assignmentInboxAccess: "none" as const, collegiumInitiativeAccess: "none" as const, showOverviewVisitors: true,
     isProtected: false,
     hasAdminRights: true,
     usageCount: 0,
@@ -7622,7 +7625,7 @@ test("delegated account manager cannot assign a position with admin rights", asy
       "platform.manage_users" as const,
       "platform.manage_access" as const,
     ],
-    boardAssignmentAccess: "none" as const, railwayWagonAccess: "none" as const, assignmentInboxAccess: "none" as const, showOverviewVisitors: true,
+    boardAssignmentAccess: "none" as const, railwayWagonAccess: "none" as const, assignmentInboxAccess: "none" as const, collegiumInitiativeAccess: "none" as const, showOverviewVisitors: true,
     isProtected: false,
     hasAdminRights: true,
     usageCount: 0,
@@ -7690,7 +7693,7 @@ test("original admin can keep an admin-rights position without working tabs", as
     accountType: "dispatcher" as const,
     navigationItems: ["business.dispatcher_form" as const],
     capabilities: ["business.submit_dispatcher_forms" as const],
-    boardAssignmentAccess: "none" as const, railwayWagonAccess: "none" as const, assignmentInboxAccess: "none" as const, showOverviewVisitors: true,
+    boardAssignmentAccess: "none" as const, railwayWagonAccess: "none" as const, assignmentInboxAccess: "none" as const, collegiumInitiativeAccess: "none" as const, showOverviewVisitors: true,
     isProtected: true,
     hasAdminRights: true,
     usageCount: 2,
@@ -7732,7 +7735,7 @@ test("original admin can enable admin rights for a selected position", async () 
     accountType: "business_owner" as const,
     navigationItems: ["business.overview" as const],
     capabilities: ["business.view_all_statistics" as const],
-    boardAssignmentAccess: "none" as const, railwayWagonAccess: "none" as const, assignmentInboxAccess: "none" as const, showOverviewVisitors: true,
+    boardAssignmentAccess: "none" as const, railwayWagonAccess: "none" as const, assignmentInboxAccess: "none" as const, collegiumInitiativeAccess: "none" as const, showOverviewVisitors: true,
     isProtected: false,
     hasAdminRights: false,
     usageCount: 0,
@@ -7814,7 +7817,7 @@ test("admin positions API keeps the administrator outside the unified workspace"
         accountType: "admin",
         navigationItems: ["admin.accounts"],
         capabilities: ["platform.manage_users", "platform.manage_access"],
-        boardAssignmentAccess: "none", railwayWagonAccess: "none", assignmentInboxAccess: "none", showOverviewVisitors: true,
+        boardAssignmentAccess: "none", railwayWagonAccess: "none", assignmentInboxAccess: "none", collegiumInitiativeAccess: "none", showOverviewVisitors: true,
         isProtected: true,
         usageCount: 1,
         createdAt: "2026-07-12T00:00:00.000Z",
@@ -7864,7 +7867,7 @@ test("admin positions API deletes only an unused position", async () => {
     accountType: "worker" as const,
     navigationItems: [],
     capabilities: [],
-    boardAssignmentAccess: "none" as const, railwayWagonAccess: "none" as const, assignmentInboxAccess: "none" as const, showOverviewVisitors: true,
+    boardAssignmentAccess: "none" as const, railwayWagonAccess: "none" as const, assignmentInboxAccess: "none" as const, collegiumInitiativeAccess: "none" as const, showOverviewVisitors: true,
     isProtected: false,
     usageCount: 0,
     createdAt: "2026-07-12T00:00:00.000Z",
@@ -7906,7 +7909,7 @@ test("admin positions API deletes an unused laboratory system position", async (
     accountType: "business_owner" as const,
     navigationItems: ["business.laboratory_results" as const],
     capabilities: ["business.manage_laboratory_results" as const],
-    boardAssignmentAccess: "none" as const, railwayWagonAccess: "none" as const, assignmentInboxAccess: "none" as const, showOverviewVisitors: true,
+    boardAssignmentAccess: "none" as const, railwayWagonAccess: "none" as const, assignmentInboxAccess: "none" as const, collegiumInitiativeAccess: "none" as const, showOverviewVisitors: true,
     isProtected: true,
     usageCount: 0,
     createdAt: "2026-07-22T00:00:00.000Z",
@@ -7939,7 +7942,7 @@ test("admin positions API deletes an unused program-created non-admin position",
       "business.view_board_assignments" as const,
       "business.review_board_assignments" as const,
     ],
-    boardAssignmentAccess: "review" as const, railwayWagonAccess: "none" as const, assignmentInboxAccess: "none" as const, showOverviewVisitors: true,
+    boardAssignmentAccess: "review" as const, railwayWagonAccess: "none" as const, assignmentInboxAccess: "none" as const, collegiumInitiativeAccess: "none" as const, showOverviewVisitors: true,
     isProtected: true,
     usageCount: 0,
     createdAt: "2026-07-10T00:00:00.000Z",
@@ -15808,7 +15811,7 @@ test("position API gives registry tabs sending and «Поручения» source
     ...accounts,
     async createPosition(input) {
       created.push(input);
-      return { id: "position-mode", accountType: "business_owner", ...input, boardAssignmentAccess: "none", railwayWagonAccess: "none", assignmentInboxAccess: "none", showOverviewVisitors: true, isProtected: false, usageCount: 0, createdAt: "2026-09-15T00:00:00Z" };
+      return { id: "position-mode", accountType: "business_owner", ...input, boardAssignmentAccess: "none", railwayWagonAccess: "none", assignmentInboxAccess: "none", collegiumInitiativeAccess: "none", showOverviewVisitors: true, isProtected: false, usageCount: 0, createdAt: "2026-09-15T00:00:00Z" };
     },
   };
   await withApiServer(async (baseUrl) => {
@@ -15920,7 +15923,7 @@ test("position API keeps collegium and director sources separate", async () => {
     ...accounts,
     async createPosition(input) {
       created.push(input);
-      return { id: "position-mode", accountType: "business_owner", ...input, boardAssignmentAccess: "none", railwayWagonAccess: "none", assignmentInboxAccess: "none", showOverviewVisitors: true, isProtected: false, usageCount: 0, createdAt: "2026-09-15T00:00:00Z" };
+      return { id: "position-mode", accountType: "business_owner", ...input, boardAssignmentAccess: "none", railwayWagonAccess: "none", assignmentInboxAccess: "none", collegiumInitiativeAccess: "none", showOverviewVisitors: true, isProtected: false, usageCount: 0, createdAt: "2026-09-15T00:00:00Z" };
     },
   };
   await withApiServer(async (baseUrl) => {
@@ -15997,7 +16000,7 @@ for (const isRootAdmin of [false, true]) {
 
 test("delegated dev session cannot inherit root from a colliding production user ID", async () => {
   const repository: AccountsRepository = { ...accounts,
-    async listPositions() { return [{ id: "delegated-dev", displayName: "Управление аккаунтами", accountType: "business_owner", navigationItems: ["admin.accounts"], capabilities: ["platform.manage_users", "platform.manage_access"], boardAssignmentAccess: "none", railwayWagonAccess: "none", assignmentInboxAccess: "none", showOverviewVisitors: false, isProtected: false, hasAdminRights: true, usageCount: 0, createdAt: "2026-09-23T00:00:00Z" }]; },
+    async listPositions() { return [{ id: "delegated-dev", displayName: "Управление аккаунтами", accountType: "business_owner", navigationItems: ["admin.accounts"], capabilities: ["platform.manage_users", "platform.manage_access"], boardAssignmentAccess: "none", railwayWagonAccess: "none", assignmentInboxAccess: "none", collegiumInitiativeAccess: "none", showOverviewVisitors: false, isProtected: false, hasAdminRights: true, usageCount: 0, createdAt: "2026-09-23T00:00:00Z" }]; },
     async listAccounts() { return [{ ...adminAccount, userId: "dev-user-owner", isRootAdmin: true }]; },
   };
   await withApiServer(async baseUrl => {
@@ -16073,7 +16076,7 @@ test("concrete account preview uses live target identity, permissions and admini
 
 test("a delegated dev preview cannot inherit impersonation from a colliding production root ID", async () => {
   const repository: AccountsRepository = { ...accounts,
-    async listPositions() { return [{ id: "delegated-preview", displayName: "Предпросмотр", accountType: "business_owner", navigationItems: ["admin.account_preview"], capabilities: [], boardAssignmentAccess: "none", railwayWagonAccess: "none", assignmentInboxAccess: "none", showOverviewVisitors: false, isProtected: false, hasAdminRights: false, usageCount: 0, createdAt: "2026-09-24T00:00:00Z" }]; },
+    async listPositions() { return [{ id: "delegated-preview", displayName: "Предпросмотр", accountType: "business_owner", navigationItems: ["admin.account_preview"], capabilities: [], boardAssignmentAccess: "none", railwayWagonAccess: "none", assignmentInboxAccess: "none", collegiumInitiativeAccess: "none", showOverviewVisitors: false, isProtected: false, hasAdminRights: false, usageCount: 0, createdAt: "2026-09-24T00:00:00Z" }]; },
     async listAccounts() { return [{ ...adminAccount, userId: "dev-user-owner", isRootAdmin: true }]; },
   };
   await withApiServer(async baseUrl => {
@@ -16083,4 +16086,67 @@ test("a delegated dev preview cannot inherit impersonation from a colliding prod
     const response = await fetch(`${baseUrl}/api/access/profile`, { headers: { "X-SMB-Dev-Session": sessionId, "X-SMB-Account-Preview": "account:access-id" } });
     assert.equal(response.status, 403);
   }, dispatcherSubmissions, emptyReferenceDataSource, undefined, undefined, adminDatabase, config, undefined, repository);
+});
+
+test("collegium initiatives API routes requests and maps module errors", async () => {
+  const profile = buildProductionProfile("business_owner");
+  const calls: string[] = [];
+  const collegiumInitiatives = {
+    async list() {
+      calls.push("list");
+      return { initiatives: [], people: [], reference: { direction: [], effect_type: [] }, permissions: { canView: true, canParticipate: false, canManage: false, canApprove: false } };
+    },
+    async read(_profile: ServerUserProfile, id: string) {
+      calls.push(`read:${id}`);
+      throw new CollegiumInitiativeError("Инициатива недоступна.", 404);
+    },
+    async create(_profile: ServerUserProfile, body: unknown) {
+      calls.push(`create:${JSON.stringify(body)}`);
+      throw new CollegiumInitiativeError("Создавать инициативы может участник Коллегии.", 403);
+    },
+    async update(_profile: ServerUserProfile, id: string) {
+      calls.push(`update:${id}`);
+      throw new CollegiumInitiativeError("Инициатива уже изменена. Обновите карточку.", 409);
+    },
+  } as unknown as CollegiumInitiativesService;
+  const server = createApiServer({
+    config: productionConfig,
+    dispatcherSubmissions,
+    authService: buildAuthService({ profile }),
+    collegiumInitiatives,
+    audit: {
+      async record() {},
+      async listReport() { throw new Error("not used"); },
+    },
+    databaseTransaction: {
+      async run(operation) { return operation(); },
+    },
+  });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  const headers = {
+    "Content-Type": "application/json",
+    Cookie: `${productionConfig.session.cookieName}=prod-session`,
+  };
+
+  try {
+    assert.equal((await fetch(`${baseUrl}/api/collegium-initiatives`)).status, 401);
+    assert.equal((await fetch(`${baseUrl}/api/collegium-initiatives`, { headers })).status, 200);
+    const created = await fetch(`${baseUrl}/api/collegium-initiatives`, {
+      method: "POST", headers, body: JSON.stringify({ card: { title: "Идея" } }),
+    });
+    assert.equal(created.status, 403);
+    assert.equal(((await created.json()) as { error: { code: string } }).error.code, "access_denied");
+    assert.equal((await fetch(`${baseUrl}/api/collegium-initiatives/abc-1`, { headers })).status, 404);
+    assert.equal((await fetch(`${baseUrl}/api/collegium-initiatives/abc-1`, {
+      method: "PATCH", headers, body: JSON.stringify({ card: {}, revision: 1 }),
+    })).status, 409);
+    assert.equal((await fetch(`${baseUrl}/api/collegium-initiatives/abc-1`, { method: "DELETE", headers })).status, 405);
+    assert.equal((await fetch(`${baseUrl}/api/collegium-initiatives/a/b`, { headers })).status, 404);
+    assert.deepEqual(calls, ["list", 'create:{"card":{"title":"Идея"}}', "read:abc-1", "update:abc-1"]);
+  } finally {
+    server.close();
+    await once(server, "close");
+  }
 });

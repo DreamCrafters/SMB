@@ -18,25 +18,26 @@ import {
 } from "./accountAccessConfiguration.js";
 import { isRailwayWagonAccess } from "../contracts/railwayWagons.js";
 import { readAssignmentInboxAccess } from "../contracts/directorAssignments.js";
+import { readCollegiumInitiativeAccess } from "../contracts/collegiumInitiatives.js";
 
 test("registry tabs send and control, «Поручения» sources execute", () => {
-  assert.deepEqual(resolveCapabilitiesForPosition("general_director", ["business.director_assignments"], "none"),
+  assert.deepEqual(resolveCapabilitiesForPosition("general_director", ["business.director_assignments"], "none", { collegiumInitiativeAccess: "none" }),
     ["business.view_director_assignments", "business.manage_director_assignments"]);
-  assert.deepEqual(resolveCapabilitiesForPosition("custom", ["business.assignments"], ["director", "collegium"]), [
+  assert.deepEqual(resolveCapabilitiesForPosition("custom", ["business.assignments"], ["director", "collegium"], { collegiumInitiativeAccess: "none" }), [
     "business.view_director_assignments", "business.execute_director_assignments",
     "business.view_collegium_assignments", "business.execute_collegium_assignments",
   ]);
   // Sources grant nothing without the tab, and the tab grants nothing without sources.
-  assert.deepEqual(resolveCapabilitiesForPosition("custom", [], ["director"]), []);
-  assert.deepEqual(resolveCapabilitiesForPosition("custom", ["business.assignments"], "none"), []);
-  const both = resolveCapabilitiesForPosition("custom", ["business.director_assignments", "business.assignments"], ["director"]);
+  assert.deepEqual(resolveCapabilitiesForPosition("custom", [], ["director"], { collegiumInitiativeAccess: "none" }), []);
+  assert.deepEqual(resolveCapabilitiesForPosition("custom", ["business.assignments"], "none", { collegiumInitiativeAccess: "none" }), []);
+  const both = resolveCapabilitiesForPosition("custom", ["business.director_assignments", "business.assignments"], ["director"], { collegiumInitiativeAccess: "none" });
   assert.deepEqual(new Set(both), new Set(["business.view_director_assignments", "business.manage_director_assignments", "business.execute_director_assignments"]));
 });
 
 test("«Поручения» sources survive a capability round trip and validate as levels", () => {
   const navigation = ["business.assignments"] as const;
   for (const sources of [["director"], ["collegium"], ["board"], ["director", "collegium", "board"]] as const) {
-    const capabilities = resolveCapabilitiesForPosition("custom", [...navigation], [...sources]);
+    const capabilities = resolveCapabilitiesForPosition("custom", [...navigation], [...sources], { collegiumInitiativeAccess: "none" });
     assert.deepEqual(readAssignmentInboxAccess(capabilities, navigation), sources);
     assert.equal(isNavigationAccessLevel(navigation[0], [...sources]), true);
   }
@@ -106,8 +107,14 @@ test("a position keeps every railway role alongside board access when recomputed
   const railwayAccess = readRailwayWagonAccess([...capabilities], [...navigationItems]);
   assert.deepEqual(railwayAccess, ["sales", "carrier"]);
   const recomputed = resolveCapabilitiesForPosition(
-    "position-mixed", [...navigationItems], "none", "create", false, false, false,
-    railwayAccess,
+    "position-mixed", [...navigationItems], "none", {
+      collegiumInitiativeAccess: "none",
+      boardAssignmentAccess: "create",
+      hasAdminRights: false,
+      showOverviewVisitors: false,
+      canReviewRawMaterialWarehouse: false,
+      railwayWagonAccess: railwayAccess,
+    },
   );
   assert.deepEqual(new Set(recomputed), new Set(capabilities));
 });
@@ -124,8 +131,13 @@ test("railway access accepts legacy levels and only nonempty unique role sets", 
   assert.equal(isNavigationAccessLevel("business.railway_wagons", ["sales", "carrier"]), true);
   assert.equal(isNavigationAccessLevel("business.board_assignments", ["create", "review"]), false);
   assert.equal(isNavigationAccessLevel("business.settings", ["sales"]), false);
-  assert.deepEqual(resolveCapabilitiesForPosition("custom", [], "none", "none", false, false, false,
-    ["sales", "carrier"]), []);
+  assert.deepEqual(resolveCapabilitiesForPosition("custom", [], "none", {
+    collegiumInitiativeAccess: "none",
+    boardAssignmentAccess: "none",
+    hasAdminRights: false,
+    showOverviewVisitors: false,
+    railwayWagonAccess: ["sales", "carrier"],
+  }), []);
   assert.equal(readRailwayWagonAccess(["business.manage_railway_wagon_orders"], []), "none");
 });
 
@@ -202,8 +214,7 @@ test("position admin rights grant account management without root admin panels",
       "position-delegated-admin",
       ["business.overview"],
       "none",
-      "none",
-      true,
+      { collegiumInitiativeAccess: "none", boardAssignmentAccess: "none", hasAdminRights: true },
     ),
     [
       "business.view_all_statistics",
@@ -230,8 +241,7 @@ test("system administrator keeps every navigation-derived root capability when r
       "administrator",
       navigationItemsByAccountType.admin,
       "none",
-      "none",
-      true,
+      { collegiumInitiativeAccess: "none", boardAssignmentAccess: "none", hasAdminRights: true },
     ),
     [
       "platform.manage_users",
@@ -285,10 +295,13 @@ test("raw material warehouse review is a stable capability without general labor
       "warehouse-position",
       ["business.laboratory_results"],
       "none",
-      "none",
-      false,
-      false,
-      true,
+      {
+        collegiumInitiativeAccess: "none",
+        boardAssignmentAccess: "none",
+        hasAdminRights: false,
+        showOverviewVisitors: false,
+        canReviewRawMaterialWarehouse: true,
+      },
     ),
     ["business.review_raw_material_warehouse"],
   );
@@ -308,7 +321,7 @@ test("board assignment actions are derived from the selected access variant", ()
       "position-observer",
       [...navigationItems],
       "none",
-      "view",
+      { collegiumInitiativeAccess: "none", boardAssignmentAccess: "view" },
     ),
     [
       "business.view_board_assignments",
@@ -319,7 +332,7 @@ test("board assignment actions are derived from the selected access variant", ()
       "position-secretary",
       [...navigationItems],
       "none",
-      "create",
+      { collegiumInitiativeAccess: "none", boardAssignmentAccess: "create" },
     ),
     [
       "business.view_board_assignments",
@@ -332,6 +345,7 @@ test("board assignment actions are derived from the selected access variant", ()
       "position-executor",
       ["business.assignments"],
       ["board"],
+      { collegiumInitiativeAccess: "none" },
     ),
     [
       "business.view_board_assignments",
@@ -343,7 +357,7 @@ test("board assignment actions are derived from the selected access variant", ()
       "position-reviewer",
       [...navigationItems],
       "none",
-      "review",
+      { collegiumInitiativeAccess: "none", boardAssignmentAccess: "review" },
     ),
     [
       "business.view_board_assignments",
@@ -426,4 +440,50 @@ test("tab preview shows every level at once, a chosen level shows only its own",
   assert.ok(reviewer.includes("business.review_board_assignments"));
   assert.ok(reviewer.includes("business.create_board_assignments"));
   assert.ok(!reviewer.includes("business.execute_board_assignments"));
+});
+
+test("collegium initiative levels are cumulative and read back by the highest right", () => {
+  const navigation = ["business.collegium_initiatives"] as const;
+  const resolve = (level: "none" | "view" | "participant" | "secretary" | "chair") =>
+    resolveCapabilitiesForPosition("custom", [...navigation], "none", {
+      collegiumInitiativeAccess: level,
+    });
+
+  assert.deepEqual(resolve("view"), ["business.view_collegium_initiatives"]);
+  assert.deepEqual(resolve("chair"), [
+    "business.view_collegium_initiatives",
+    "business.participate_collegium_initiatives",
+    "business.manage_collegium_initiatives",
+    "business.approve_collegium_initiatives",
+  ]);
+  // An enabled tab never grants less than view.
+  assert.deepEqual(resolve("none"), ["business.view_collegium_initiatives"]);
+  for (const level of ["view", "participant", "secretary", "chair"] as const) {
+    assert.equal(readCollegiumInitiativeAccess(resolve(level), navigation), level);
+    assert.equal(isNavigationAccessLevel(navigation[0], level), true);
+  }
+  assert.equal(isNavigationAccessLevel(navigation[0], "none"), false);
+  assert.equal(isNavigationAccessLevel(navigation[0], "owner"), false);
+  // Without the tab the level grants nothing and reads back as none.
+  assert.deepEqual(
+    resolveCapabilitiesForPosition("custom", [], "none", {
+      collegiumInitiativeAccess: "chair",
+    }),
+    [],
+  );
+  assert.equal(readCollegiumInitiativeAccess(resolve("chair"), []), "none");
+
+  // Two positions combine to the higher level.
+  const combined = combinePositionAccessDefinitions([
+    { accountType: "business_owner", navigationItems: [...navigation], capabilities: resolve("participant") },
+    { accountType: "business_owner", navigationItems: [...navigation], capabilities: resolve("secretary") },
+  ]);
+  assert.equal(
+    readCollegiumInitiativeAccess(combined.capabilities, combined.navigationItems),
+    "secretary",
+  );
+
+  // Tab preview shows the maximum, level preview the cumulative set of that level.
+  assert.deepEqual(resolveMaximumCapabilitiesForNavigation(navigation[0]), resolve("chair"));
+  assert.deepEqual(resolveCapabilitiesForNavigationLevel(navigation[0], "secretary"), resolve("secretary"));
 });

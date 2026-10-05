@@ -73,6 +73,7 @@ const navigationScreens: readonly AuditScreen[] = [
   { id: "business.personnel", title: "Сотрудники" },
   { id: "business.board_assignments", title: "Поручения Совета директоров" },
   { id: "business.collegium_assignments", title: "Поручения Коллегии" },
+  { id: "business.collegium_initiatives", title: "Инициативы Коллегии" },
   { id: "business.warehouse_1c", title: "Склад 1С" },
   { id: "business.railway_wagons", title: "ЖД Вагоны" },
   { id: "business.user_actions", title: "Действия пользователей" },

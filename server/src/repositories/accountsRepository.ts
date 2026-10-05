@@ -27,6 +27,11 @@ import {
 } from "../domain/accountAccessConfiguration.js";
 import type { RailwayWagonAccess } from "../contracts/railwayWagons.js";
 import {
+  collegiumInitiativesNavigationItem,
+  readCollegiumInitiativeAccess,
+  type CollegiumInitiativeAccess,
+} from "../contracts/collegiumInitiatives.js";
+import {
   hashPassword,
   isAccountNavigationItem,
   isAccountPosition,
@@ -68,6 +73,7 @@ export type AdminPositionSummary = {
   boardAssignmentAccess: BoardAssignmentAccess;
   railwayWagonAccess: RailwayWagonAccess;
   assignmentInboxAccess: AssignmentInboxAccess;
+  collegiumInitiativeAccess: CollegiumInitiativeAccess;
   showOverviewVisitors: boolean;
   isProtected: boolean;
   hasAdminRights?: boolean;
@@ -463,6 +469,7 @@ export function createAccountsRepository(
         input.navigationItems,
       ),
       assignmentInboxAccess: readAssignmentInboxAccess(input.capabilities, input.navigationItems),
+      collegiumInitiativeAccess: readCollegiumInitiativeAccess(input.capabilities, input.navigationItems),
       showOverviewVisitors: readOverviewVisitorsAccess(input.capabilities),
       isProtected: false,
       hasAdminRights: false,
@@ -524,12 +531,19 @@ export function createAccountsRepository(
         input.id,
         navigationItems,
         readAssignmentInboxAccess(input.capabilities, input.navigationItems),
-        boardAssignmentAccess,
-        hasAdminRights,
-        showOverviewVisitors,
-        current.can_review_raw_material_warehouse === true ||
-          current.can_review_raw_material_warehouse === 1,
-        railwayWagonAccess,
+        {
+          collegiumInitiativeAccess: readCollegiumInitiativeAccess(
+            input.capabilities,
+            input.navigationItems,
+          ),
+          boardAssignmentAccess,
+          hasAdminRights,
+          showOverviewVisitors,
+          canReviewRawMaterialWarehouse:
+            current.can_review_raw_material_warehouse === true ||
+            current.can_review_raw_material_warehouse === 1,
+          railwayWagonAccess,
+        },
       );
       await connection.query(
         `update account_positions
@@ -571,6 +585,7 @@ export function createAccountsRepository(
         ),
         railwayWagonAccess: readRailwayWagonAccess(capabilities, navigationItems),
         assignmentInboxAccess: readAssignmentInboxAccess(capabilities, navigationItems),
+        collegiumInitiativeAccess: readCollegiumInitiativeAccess(capabilities, navigationItems),
         showOverviewVisitors: readOverviewVisitorsAccess(capabilities),
       };
     } catch (error) {
@@ -756,12 +771,19 @@ export function createAccountsRepository(
             position.id,
             navigationItems,
             readAssignmentInboxAccess(storedCapabilities, storedNavigationItems),
-            boardAssignmentAccess,
-            input.isProtected,
-            showOverviewVisitors,
-            position.can_review_raw_material_warehouse === true ||
-              position.can_review_raw_material_warehouse === 1,
-            railwayWagonAccess,
+            {
+              collegiumInitiativeAccess: readCollegiumInitiativeAccess(
+                storedCapabilities,
+                storedNavigationItems,
+              ),
+              boardAssignmentAccess,
+              hasAdminRights: input.isProtected,
+              showOverviewVisitors,
+              canReviewRawMaterialWarehouse:
+                position.can_review_raw_material_warehouse === true ||
+                position.can_review_raw_material_warehouse === 1,
+              railwayWagonAccess,
+            },
           );
       await connection.query(
         `update account_positions
@@ -918,19 +940,33 @@ export function createAccountsRepository(
         )) {
           throw new PositionAccessConflictError(row.display_name);
         }
+        const storedCollegiumInitiativeAccess = readCollegiumInitiativeAccess(
+          storedCapabilities,
+          currentNavigationItems,
+        );
         const capabilities = resolveCapabilitiesForPosition(
           row.id,
           navigationItems,
           nextAssignmentInboxAccess,
-          nextBoardAssignmentAccess,
-          hasAdminRights,
-          readOverviewVisitorsAccess(storedCapabilities),
-          row.can_review_raw_material_warehouse === true ||
-            row.can_review_raw_material_warehouse === 1,
-          navigationItem === "business.railway_wagons" &&
-            accessLevel !== undefined
-            ? accessLevel as RailwayWagonAccess
-            : storedRailwayWagonAccess,
+          {
+            // A bare checkbox keeps the stored level, a new tab starts from view.
+            collegiumInitiativeAccess:
+              navigationItem === collegiumInitiativesNavigationItem &&
+                accessLevel !== undefined
+                ? accessLevel as CollegiumInitiativeAccess
+                : storedCollegiumInitiativeAccess,
+            boardAssignmentAccess: nextBoardAssignmentAccess,
+            hasAdminRights,
+            showOverviewVisitors: readOverviewVisitorsAccess(storedCapabilities),
+            canReviewRawMaterialWarehouse:
+              row.can_review_raw_material_warehouse === true ||
+              row.can_review_raw_material_warehouse === 1,
+            railwayWagonAccess:
+              navigationItem === "business.railway_wagons" &&
+                accessLevel !== undefined
+                ? accessLevel as RailwayWagonAccess
+                : storedRailwayWagonAccess,
+          },
         );
         // Уровень внутри вкладки меняется без изменения списка вкладок,
         // поэтому одного сравнения вкладок мало.
@@ -1725,6 +1761,7 @@ function mapPositionRow(row: PositionRow): AdminPositionSummary {
     ),
     railwayWagonAccess: readRailwayWagonAccess(capabilities, navigationItems),
     assignmentInboxAccess: readAssignmentInboxAccess(capabilities, navigationItems),
+    collegiumInitiativeAccess: readCollegiumInitiativeAccess(capabilities, navigationItems),
     showOverviewVisitors: readOverviewVisitorsAccess(capabilities),
     isProtected: row.is_protected === true || row.is_protected === 1,
     hasAdminRights:

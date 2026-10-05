@@ -50,6 +50,7 @@ const migrationsAfterRefractoryWagonLifecycle = [
   "087_root_admin_identity",
   "088_collegium_assignments",
   "089_assignment_inbox",
+  "090_collegium_initiatives",
 ] as const;
 
 test("laboratory migration creates results storage and the system position", async () => {

@@ -5,6 +5,9 @@ import { renderBoardAssignmentsPdf } from "../integrations/boardAssignmentsPdf.j
 import { renderDirectorAssignmentsPdf } from "../integrations/directorAssignmentsPdf.js";
 import { assignmentInboxNavigationItem, assignmentInboxSourceOptions, assignmentRegistries, isAssignmentInboxAccess, type AssignmentRegistryId } from "../contracts/directorAssignments.js";
 import type { DirectorAssignmentsService } from "../domain/directorAssignmentsService.js";
+import { collegiumInitiativeAccessOptions, collegiumInitiativesApiPath, collegiumInitiativesNavigationItem, isCollegiumInitiativeAccess } from "../contracts/collegiumInitiatives.js";
+import type { CollegiumInitiativesService } from "../domain/collegiumInitiativesService.js";
+import { CollegiumInitiativeError } from "../domain/collegiumInitiative.js";
 import { DirectorAssignmentError } from "../domain/directorAssignment.js";
 import { isAdminDatabaseLayoutColumn } from "../repositories/adminDatabaseRepository.js";
 import { tableDefinitions, validateTableLayout } from "../contracts/tableLayouts.js";
@@ -477,6 +480,7 @@ type AppDependencies = {
     LaboratoryGreenProductQualityJournalRepository;
   directorAssignments?: DirectorAssignmentsService;
   collegiumAssignments?: DirectorAssignmentsService;
+  collegiumInitiatives?: CollegiumInitiativesService;
   boardAssignments?: BoardAssignmentsRepository;
   warehouse1c?: Warehouse1cRepository;
   railwayWagons?: RailwayWagonsRepository;
@@ -605,6 +609,7 @@ export function createApiServer({
   laboratoryGreenProductQualityJournal,
   directorAssignments,
   collegiumAssignments,
+  collegiumInitiatives,
   boardAssignments,
   warehouse1c,
   railwayWagons,
@@ -959,6 +964,32 @@ export function createApiServer({
         try { sendJson(res, 200, await directorAssignments.delegations(access.profile, boardDelegationsMatch[1])); }
         catch (error) {
           if (!(error instanceof DirectorAssignmentError)) throw error;
+          sendJson(res, error.status, { error: { code: error.status === 403 ? "access_denied" : "invalid_response", message: error.message } });
+        }
+        return;
+      }
+
+      if (
+        url.pathname === collegiumInitiativesApiPath ||
+        url.pathname.startsWith(`${collegiumInitiativesApiPath}/`)
+      ) {
+        const access = await requireAuthentication(req, res, { config, devSessions, authService, accounts });
+        if (!access) return;
+        if (!collegiumInitiatives) {
+          sendJson(res, 503, { error: { code: "server_error", message: "Раздел временно недоступен." } });
+          return;
+        }
+        try {
+          const match = /^\/api\/collegium-initiatives(?:\/([a-zA-Z0-9-]{1,100}))?$/u.exec(url.pathname);
+          if (!match) throw new CollegiumInitiativeError("Страница не найдена.", 404);
+          const id = match[1];
+          if (!id && req.method === "GET") sendJson(res, 200, await collegiumInitiatives.list(access.profile));
+          else if (!id && req.method === "POST") sendJson(res, 201, { initiative: await collegiumInitiatives.create(access.profile, await readJsonBody(req)) });
+          else if (id && req.method === "GET") sendJson(res, 200, await collegiumInitiatives.read(access.profile, id));
+          else if (id && req.method === "PATCH") sendJson(res, 200, { initiative: await collegiumInitiatives.update(access.profile, id, await readJsonBody(req)) });
+          else throw new CollegiumInitiativeError("Действие недоступно.", 405);
+        } catch (error) {
+          if (!(error instanceof CollegiumInitiativeError)) throw error;
           sendJson(res, error.status, { error: { code: error.status === 403 ? "access_denied" : "invalid_response", message: error.message } });
         }
         return;
@@ -9875,6 +9906,7 @@ function readNavigationAccessLevelLabel(
     "business.railway_wagons:logistics": "Директор по логистике",
     "business.railway_wagons:dispatcher": "Диспетчер",
     ...Object.fromEntries(assignmentInboxSourceOptions.map(({ id, label }) => [`${assignmentInboxNavigationItem}:${id}`, label])),
+    ...Object.fromEntries(collegiumInitiativeAccessOptions.map(({ id, label }) => [`${collegiumInitiativesNavigationItem}:${id}`, label])),
   };
 
   return labels[`${navigationItem}:${level}`] ?? level;
@@ -9899,6 +9931,7 @@ function readNavigationItemLabel(item: AccountNavigationItem) {
     "business.board_assignments": "Поручения Совета директоров",
     "business.director_assignments": "Поручения генерального директора",
     "business.collegium_assignments": "Поручения Коллегии",
+    "business.collegium_initiatives": "Инициативы Коллегии",
     "business.personnel": "Сотрудники",
     "business.warehouse_1c": "Склад 1С",
     "business.railway_wagons": "ЖД Вагоны",
@@ -13172,6 +13205,7 @@ function validateCreatePositionRequest(input: unknown):
       key !== "assignmentInboxAccess" &&
       key !== "boardAssignmentAccess" &&
       key !== "railwayWagonAccess" &&
+      key !== "collegiumInitiativeAccess" &&
       key !== "showOverviewVisitors",
   );
   const displayName = typeof input.displayName === "string" ? input.displayName.trim() : "";
@@ -13195,6 +13229,14 @@ function validateCreatePositionRequest(input: unknown):
       ? "view"
       : "none"
     : input.railwayWagonAccess;
+  const hasCollegiumInitiatives = navigationItems.includes(
+    collegiumInitiativesNavigationItem,
+  );
+  const collegiumInitiativeAccess = input.collegiumInitiativeAccess === undefined
+    ? hasCollegiumInitiatives
+      ? "view"
+      : "none"
+    : input.collegiumInitiativeAccess;
   const showOverviewVisitors = input.showOverviewVisitors === undefined
     ? true
     : input.showOverviewVisitors;
@@ -13233,6 +13275,13 @@ function validateCreatePositionRequest(input: unknown):
       "Роль в разделе «ЖД Вагоны» не соответствует выбранным вкладкам.",
     );
   }
+  if (!isCollegiumInitiativeAccess(collegiumInitiativeAccess)) {
+    errors.push("Выберите поддерживаемый уровень доступа к инициативам Коллегии.");
+  } else if ((collegiumInitiativeAccess === "none") === hasCollegiumInitiatives) {
+    errors.push(
+      "Уровень доступа к инициативам Коллегии не соответствует выбранным вкладкам.",
+    );
+  }
   if (typeof showOverviewVisitors !== "boolean") {
     errors.push("Проверьте настройку блока «Посетители» в Обзоре.");
   }
@@ -13258,11 +13307,18 @@ function validateCreatePositionRequest(input: unknown):
         "position-custom",
         navigationItems,
         isAssignmentInboxAccess(assignmentInboxAccess) ? assignmentInboxAccess : "none",
-        validatedBoardAssignmentAccess,
-        false,
-        showOverviewVisitors === true,
-        false,
-        validatedRailwayWagonAccess,
+        {
+          collegiumInitiativeAccess: isCollegiumInitiativeAccess(
+            collegiumInitiativeAccess,
+          )
+            ? collegiumInitiativeAccess
+            : "none",
+          boardAssignmentAccess: validatedBoardAssignmentAccess,
+          hasAdminRights: false,
+          showOverviewVisitors: showOverviewVisitors === true,
+          canReviewRawMaterialWarehouse: false,
+          railwayWagonAccess: validatedRailwayWagonAccess,
+        },
       ),
     },
   };

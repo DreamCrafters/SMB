@@ -265,7 +265,7 @@ function buildPosition() {
     capabilities: ["business.view_own_submissions"],
     boardAssignmentAccess: "none",
     railwayWagonAccess: "none",
-    assignmentInboxAccess: "none",
+    assignmentInboxAccess: "none", collegiumInitiativeAccess: "none",
     showOverviewVisitors: true,
     isProtected: false,
     hasAdminRights: false,

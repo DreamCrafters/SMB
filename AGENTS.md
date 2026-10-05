@@ -21,6 +21,7 @@
 | Диспетчерские формы, оборудование, инциденты, посетители | [dispatcher.md](docs/agent-instructions/dispatcher.md) |
 | Руководительский Обзор/Диспетчерская, аналитика этих источников | [overview.md](docs/agent-instructions/overview.md) |
 | Поручения Совета директоров | [board.md](docs/agent-instructions/board.md) |
+| Инициативы Коллегии: карточки идей, маршрут, заседания, протоколы, связь с поручениями Коллегии | [collegium-initiatives.md](docs/agent-instructions/collegium-initiatives.md) |
 | Поручения гендиректора и Коллегии, вкладка «Поручения» (получение всех поручений), сотрудники АУП/ИТР, кадровый справочник | [director-assignments.md](docs/agent-instructions/director-assignments.md) |
 | Рассылки Email/MAX, контакты и разрешения уведомлений, отправка после сохранения | [notifications.md](docs/agent-instructions/notifications.md) |
 | ЖД Вагоны, заявки РЖД, согласование | [railway.md](docs/agent-instructions/railway.md) |

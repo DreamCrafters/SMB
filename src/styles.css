@@ -9537,3 +9537,202 @@ p {
 .director-account-link.is-linked { color: #286344; }
 .director-account-link.is-unlinked, .director-account-link.is-unavailable { color: #b42318; }
 .director-account-link.is-unknown { color: var(--muted); }
+
+/* Задача 135: «Инициативы Коллегии». */
+.collegium-initiatives-workspace {
+  display: grid;
+  gap: var(--density-4);
+  align-content: start;
+  min-width: 0;
+}
+
+.collegium-initiatives-header {
+  display: grid;
+  gap: var(--density-1);
+}
+
+.collegium-initiatives-header h2,
+.collegium-card-header h3 {
+  margin: 0;
+}
+
+.collegium-registry {
+  display: grid;
+  gap: var(--density-3);
+  min-width: 0;
+}
+
+.collegium-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--density-3);
+  align-items: end;
+}
+
+.collegium-toolbar .collegium-field {
+  flex: 1 1 200px;
+}
+
+.collegium-create-button {
+  margin-left: auto;
+}
+
+.collegium-field {
+  display: grid;
+  gap: var(--density-1);
+  min-width: 0;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.collegium-field input,
+.collegium-field select,
+.collegium-field textarea {
+  min-width: 0;
+}
+
+.collegium-field textarea {
+  resize: vertical;
+  font: inherit;
+}
+
+.collegium-field-wide {
+  grid-column: 1 / -1;
+}
+
+.collegium-checkbox {
+  display: inline-flex;
+  gap: var(--density-1);
+  align-items: center;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.collegium-checkbox-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--density-2) var(--density-3);
+  margin: 0;
+  border: 0;
+  padding: 0;
+}
+
+.collegium-checkbox-group legend {
+  width: 100%;
+  padding: 0;
+  margin-bottom: var(--density-1);
+}
+
+.collegium-empty-note,
+.collegium-note {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.collegium-card {
+  display: grid;
+  gap: var(--density-4);
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: var(--density-4);
+  background: var(--surface-raised);
+  box-shadow: var(--shadow);
+}
+
+.collegium-card-header {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--density-3);
+  align-items: start;
+  justify-content: space-between;
+}
+
+.collegium-card-header > div:first-child {
+  display: grid;
+  gap: var(--density-1);
+}
+
+.collegium-card-section,
+.collegium-form-section {
+  display: grid;
+  gap: var(--density-2);
+  min-width: 0;
+  margin: 0;
+  border: 0;
+  padding: 0;
+}
+
+.collegium-card-section h4,
+.collegium-form-section legend {
+  margin: 0;
+  padding: 0;
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.collegium-card-grid,
+.collegium-field-grid {
+  display: grid;
+  gap: var(--density-3);
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  min-width: 0;
+  margin: 0;
+}
+
+.collegium-card-value dt {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.collegium-card-value dd {
+  margin: var(--density-1) 0 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.collegium-form-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--density-2);
+}
+
+.collegium-status {
+  display: inline-block;
+  border-radius: 999px;
+  padding: 2px 8px;
+  background: var(--blue-gray-soft);
+  color: var(--blue-gray);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.collegium-status-draft,
+.collegium-status-closed {
+  background: var(--surface-subtle);
+  color: var(--muted);
+}
+
+.collegium-status-rework,
+.collegium-status-needs_elaboration,
+.collegium-status-suspended {
+  background: var(--amber-soft);
+  color: var(--amber);
+}
+
+.collegium-status-rejected,
+.collegium-status-done_unconfirmed {
+  background: var(--brick-soft);
+  color: var(--brick);
+}
+
+.collegium-status-approved_pilot,
+.collegium-status-approved_implementation,
+.collegium-status-in_progress,
+.collegium-status-done_confirmed {
+  background: var(--emerald-soft);
+  color: var(--emerald);
+}

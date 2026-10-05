@@ -30,6 +30,8 @@ export const tableDefinitions = {
   "assignments.inbox": defineTable("Поручения", ["source", "number", "summary", "assignedOn", "deadline", "status", "progress"]),
   "director.assignments": defineTable("Поручения генерального директора", ["number", "assignedOn", "summary", "department", "project", "responsible", "coExecutors", "deadline", "urgency", "importance", "progress", "completedOn", "note", "status", "incomingNumber", "durationWorkdays", "remainingWorkdays", "postponedUntil"]),
   "collegium.assignments": defineTable("Поручения Коллегии", ["number", "assignedOn", "summary", "meetingDate", "protocolNumber", "decisionNumber", "department", "project", "responsible", "coExecutors", "deadline", "urgency", "importance", "progress", "completedOn", "note", "status", "incomingNumber", "durationWorkdays", "remainingWorkdays", "postponedUntil"]),
+  "collegium.initiatives": defineTable("Инициативы Коллегии", ["number", "title", "status", "direction", "initiator", "owner", "expectedEffect", "plannedResult", "updatedAt"]),
+  "collegium.initiativeRevisions": defineTable("Ревизии инициативы", ["revision", "createdAt", "author", "status", "changedFields", "reason", "comment"]),
   "director.personnel": defineTable("Сотрудники", ["fullName", "position", "department", "category", "user", "status"]),
   "production.plan": defineTable("План выработки", ["date", "forming", "sorting", "unformed", "chamotte"]),
   "production.banks": defineTable("Банки: отчёт", ["metric", "bank.1", "bank.2", "bank.3", "bank.4"]),

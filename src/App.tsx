@@ -34,6 +34,9 @@ import {
   type AccountType,
   type BoardAssignmentAccess,
   type RailwayWagonAccess,
+  type CollegiumInitiativeAccess,
+  collegiumInitiativeAccessOptions,
+  collegiumInitiativesNavigationItem,
   type AdminAccountSummary,
   type AdminPositionSummary,
   type AdminDatabaseCellValue,
@@ -304,6 +307,9 @@ const BoardAssignmentsWorkspace = lazy(() =>
 const Warehouse1cWorkspace = lazy(() =>
   import("./Warehouse1c").then((module) => ({ default: module.Warehouse1cWorkspace })),
 );
+const CollegiumInitiativesWorkspace = lazy(() =>
+  import("./CollegiumInitiatives").then((module) => ({ default: module.CollegiumInitiativesWorkspace })),
+);
 const RailwayWagonsWorkspace = lazy(() =>
   import("./RailwayWagons").then((module) => ({ default: module.RailwayWagonsWorkspace })),
 );
@@ -325,6 +331,7 @@ type BusinessTab =
   | "assignments"
   | "director_assignments"
   | "collegium_assignments"
+  | "collegium_initiatives"
   | "personnel"
   | "board_assignments"
   | "warehouse_1c"
@@ -350,6 +357,7 @@ const navigationByBusinessTab: Record<BusinessTab, AccountNavigationItem> = {
   assignments: "business.assignments",
   director_assignments: "business.director_assignments",
   collegium_assignments: "business.collegium_assignments",
+  collegium_initiatives: "business.collegium_initiatives",
   personnel: "business.personnel",
   board_assignments: "business.board_assignments",
   warehouse_1c: "business.warehouse_1c",
@@ -668,6 +676,7 @@ function getBusinessTabForNavigationItem(item: NavigationItem): BusinessTab | un
     case "business.assignments": return "assignments";
     case "business.director_assignments": return "director_assignments";
     case "business.collegium_assignments": return "collegium_assignments";
+    case "business.collegium_initiatives": return "collegium_initiatives";
     case "business.personnel": return "personnel";
     case "business.board_assignments":
       return "board_assignments";
@@ -3197,6 +3206,7 @@ function RoleWorkspace({
   if (effectiveOwnerTab === "assignments") return <AssignmentsInboxWorkspace profile={profile} onShowToast={onShowToast} />;
   if (effectiveOwnerTab === "director_assignments") return <DirectorAssignmentsWorkspace key="director" registryId="director" onShowToast={onShowToast} />;
   if (effectiveOwnerTab === "collegium_assignments") return <DirectorAssignmentsWorkspace key="collegium" registryId="collegium" onShowToast={onShowToast} />;
+  if (effectiveOwnerTab === "collegium_initiatives") return <CollegiumInitiativesWorkspace profile={profile} onShowToast={onShowToast} />;
   if (effectiveOwnerTab === "personnel") return <PersonnelWorkspace onShowToast={onShowToast} />;
   if (effectiveOwnerTab === "board_assignments") {
     return (
@@ -11356,6 +11366,7 @@ type AdminPositionFormState = {
   navigationItems: AccountNavigationItem[];
   boardAssignmentAccess: BoardAssignmentAccess;
   railwayWagonAccess: RailwayWagonAccess;
+  collegiumInitiativeAccess: CollegiumInitiativeAccess;
   showOverviewVisitors: boolean;
 };
 
@@ -11367,6 +11378,7 @@ const emptyAdminPositionForm: AdminPositionFormState = {
   navigationItems: ["business.settings"],
   boardAssignmentAccess: "none",
   railwayWagonAccess: "none",
+  collegiumInitiativeAccess: "none",
   showOverviewVisitors: false,
 };
 
@@ -11435,6 +11447,13 @@ function formatPositionNavigationItem(
 
   if (navigationItemId === "business.railway_wagons") {
     return `${label} — ${formatRailwayWagonAccess(position.railwayWagonAccess)}`;
+  }
+
+  if (navigationItemId === collegiumInitiativesNavigationItem) {
+    const level = collegiumInitiativeAccessOptions.find(
+      ({ id }) => id === position.collegiumInitiativeAccess,
+    )?.label;
+    return level === undefined ? label : `${label} — ${level}`;
   }
 
   return label;
@@ -11825,6 +11844,7 @@ function AdminAccountsWorkspace({
           assignmentInboxAccess: position.assignmentInboxAccess,
           boardAssignmentAccess: position.boardAssignmentAccess,
           railwayWagonAccess: position.railwayWagonAccess,
+          collegiumInitiativeAccess: position.collegiumInitiativeAccess,
           showOverviewVisitors: position.showOverviewVisitors,
         });
     setPositionFormStatus("");
@@ -11864,6 +11884,16 @@ function AdminAccountsWorkspace({
       };
     }
 
+    if (navigationItemId === collegiumInitiativesNavigationItem) {
+      return {
+        collegiumInitiativeAccess: !isChecked
+          ? "none"
+          : current.collegiumInitiativeAccess === "none"
+            ? "view"
+            : current.collegiumInitiativeAccess,
+      };
+    }
+
     return {};
   }
 
@@ -11895,7 +11925,11 @@ function AdminAccountsWorkspace({
         value={positionForm.assignmentInboxAccess} disabled={isSubmitting || !hasTab}
         onChange={assignmentInboxAccess => setPositionForm(current => ({ ...current, assignmentInboxAccess }))} />;
     }
-    const value = positionForm.boardAssignmentAccess;
+    const isCollegiumInitiatives =
+      navigationItemId === collegiumInitiativesNavigationItem;
+    const value = isCollegiumInitiatives
+      ? positionForm.collegiumInitiativeAccess
+      : positionForm.boardAssignmentAccess;
 
     return (
       <label className="admin-account-navigation-level">
@@ -11905,10 +11939,15 @@ function AdminAccountsWorkspace({
           value={value === "none" ? "view" : value}
           onChange={(event) => {
             const level = event.currentTarget.value;
-            setPositionForm((current) => ({
-              ...current,
-              boardAssignmentAccess: level as BoardAssignmentAccess,
-            }));
+            setPositionForm((current) => isCollegiumInitiatives
+              ? {
+                  ...current,
+                  collegiumInitiativeAccess: level as CollegiumInitiativeAccess,
+                }
+              : {
+                  ...current,
+                  boardAssignmentAccess: level as BoardAssignmentAccess,
+                });
           }}
         >
           {levels.options.map((option) => (
@@ -11934,6 +11973,7 @@ function AdminAccountsWorkspace({
       assignmentInboxAccess: positionForm.assignmentInboxAccess,
       boardAssignmentAccess: positionForm.boardAssignmentAccess,
       railwayWagonAccess: positionForm.railwayWagonAccess,
+      collegiumInitiativeAccess: positionForm.collegiumInitiativeAccess,
       showOverviewVisitors: positionForm.showOverviewVisitors,
     };
     const result = positionForm.id === undefined
@@ -12058,7 +12098,7 @@ function AdminAccountsWorkspace({
   async function handleSetPositionNavigationAccess(
     positionIds: AccountPosition[],
     enabled: boolean,
-    accessLevel?: BoardAssignmentAccess | RailwayWagonAccess | AssignmentInboxAccess,
+    accessLevel?: BoardAssignmentAccess | RailwayWagonAccess | AssignmentInboxAccess | CollegiumInitiativeAccess,
   ) {
     if (
       !canAssignAdminNavigation ||
@@ -13342,7 +13382,10 @@ function AdminAccountsWorkspace({
                     const hasAccess = position.navigationItems.includes(
                       selectedPositionNavigationItem,
                     );
-                    const level = position.boardAssignmentAccess;
+                    const level = selectedPositionNavigationItem ===
+                        collegiumInitiativesNavigationItem
+                      ? position.collegiumInitiativeAccess
+                      : position.boardAssignmentAccess;
                     return (
                       <tr key={position.id}>
                         <TableCell>{position.displayName}</TableCell>
@@ -13392,7 +13435,9 @@ function AdminAccountsWorkspace({
                                   void handleSetPositionNavigationAccess(
                                     [position.id],
                                     true,
-                                    event.currentTarget.value as BoardAssignmentAccess,
+                                    event.currentTarget.value as
+                                      | BoardAssignmentAccess
+                                      | CollegiumInitiativeAccess,
                                   );
                                 }}
                               >

@@ -8,6 +8,7 @@ import type {
   AccountType,
 } from "./accounts";
 import type { RailwayWagonAccess } from "./railwayWagons";
+import type { CollegiumInitiativeAccess } from "./collegiumInitiatives";
 
 export type AdminAccountSummary = {
   accessId: string;
@@ -66,6 +67,7 @@ export type AdminPositionSummary = {
   boardAssignmentAccess: BoardAssignmentAccess;
   railwayWagonAccess: RailwayWagonAccess;
   assignmentInboxAccess: AssignmentInboxAccess;
+  collegiumInitiativeAccess: CollegiumInitiativeAccess;
   showOverviewVisitors: boolean;
   isProtected: boolean;
   hasAdminRights: boolean;
@@ -85,6 +87,7 @@ export type SaveAdminPositionRequest = {
   navigationItems: AccountNavigationItem[];
   boardAssignmentAccess: BoardAssignmentAccess;
   railwayWagonAccess: RailwayWagonAccess;
+  collegiumInitiativeAccess: CollegiumInitiativeAccess;
   showOverviewVisitors: boolean;
 };
 export type SaveAdminPositionResponse = { position: AdminPositionSummary };
@@ -94,7 +97,7 @@ export type SetAdminPositionNavigationAccessRequest = {
   positionIds: AccountPosition[];
   enabled: boolean;
   /** Уровень внутри вкладки; без него у должности сохраняется текущий. */
-  accessLevel?: BoardAssignmentAccess | RailwayWagonAccess | AssignmentInboxAccess;
+  accessLevel?: BoardAssignmentAccess | RailwayWagonAccess | AssignmentInboxAccess | CollegiumInitiativeAccess;
 };
 
 export type SetAdminPositionProtectedRequest = {

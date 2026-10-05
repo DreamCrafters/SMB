@@ -464,7 +464,7 @@ function buildPosition(id, displayName) {
     capabilities: ["business.view_all_statistics"],
     boardAssignmentAccess: "none",
     railwayWagonAccess: "none",
-    assignmentInboxAccess: "none",
+    assignmentInboxAccess: "none", collegiumInitiativeAccess: "none",
     showOverviewVisitors: true,
     isProtected: false,
     hasAdminRights: false,
