@@ -118,3 +118,10 @@ test("director reminders default to production only and allow an explicit switch
   assert.equal(readServerConfig({ ...baseEnv, DIRECTOR_ASSIGNMENT_REMINDERS_ENABLED: "true" }).directorAssignmentRemindersEnabled, true);
   assert.equal(readServerConfig({ ...baseEnv, SMB_APP_ENV: "production", DIRECTOR_ASSIGNMENT_REMINDERS_ENABLED: "false" }).directorAssignmentRemindersEnabled, false);
 });
+
+test("collegium reminders default to production only and allow an explicit switch", () => {
+  assert.equal(readServerConfig(baseEnv).collegiumRemindersEnabled, false);
+  assert.equal(readServerConfig({ ...baseEnv, SMB_APP_ENV: "production" }).collegiumRemindersEnabled, true);
+  assert.equal(readServerConfig({ ...baseEnv, COLLEGIUM_REMINDERS_ENABLED: "true" }).collegiumRemindersEnabled, true);
+  assert.equal(readServerConfig({ ...baseEnv, SMB_APP_ENV: "production", COLLEGIUM_REMINDERS_ENABLED: "false" }).collegiumRemindersEnabled, false);
+});

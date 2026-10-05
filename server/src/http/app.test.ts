@@ -114,6 +114,7 @@ import type { DirectorAssignmentsRepository } from "../repositories/directorAssi
 
 const config: ServerConfig = {
   directorAssignmentRemindersEnabled: false,
+  collegiumRemindersEnabled: false,
   appEnv: "test",
   port: 0,
   databaseUrl: "mysql://unused:unused@127.0.0.1:3306/unused",

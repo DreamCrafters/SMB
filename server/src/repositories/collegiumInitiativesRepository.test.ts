@@ -72,3 +72,22 @@ test("collegium people merge positions and detect the initiatives tab", async ()
     { id: "account:u2", displayName: "Петров П.П.", position: "Мастер", hasInitiativesTab: false },
   ]);
 });
+
+test("reminder claims are leased and stop after the attempt limit", async () => {
+  const queries: Array<{ sql: string; parameters: unknown[] }> = [];
+  const pool = {
+    async query(sql: string, parameters: unknown[] = []) {
+      queries.push({ sql: sql.replace(/\s+/gu, " ").trim(), parameters });
+      return [{ affectedRows: 1 }, []];
+    },
+  } as unknown as DatabasePool;
+  const claimed = await createCollegiumInitiativesRepository(pool).claimReminder({
+    kind: "rework", subjectId: "i-1", cycle: "2026-10-05T09:00:00.000Z", targetDate: "2026-10-08",
+    offset: 2, userId: "author", channel: "email",
+  }, "token-1");
+  assert.equal(claimed, true);
+  assert.match(queries[0].sql, /^insert ignore into collegium_reminder_deliveries/u);
+  assert.match(queries[1].sql, /attempts = attempts \+ 1/u);
+  assert.match(queries[1].sql, /delivered_at is null and attempts < \?/u);
+  assert.equal(queries[1].parameters.at(-1), 3);
+});

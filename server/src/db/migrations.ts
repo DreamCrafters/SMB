@@ -4686,6 +4686,30 @@ const migrations: Migration[] = [
         modify updated_at timestamp(3) not null default current_timestamp(3);`,
     ],
   },
+  {
+    /**
+     * Задача 135, срез 6б: доставка напоминаний и эскалаций «Инициатив
+     * Коллегии». Ключ включает цикл объекта и целевую дату, аренда защищает от
+     * двойной отправки, число попыток ограничено.
+     */
+    id: "095_collegium_reminder_deliveries",
+    statements: [
+      `create table if not exists collegium_reminder_deliveries (
+        kind varchar(20) not null,
+        subject_id varchar(100) not null,
+        cycle_key varchar(100) not null,
+        target_date date not null,
+        offset_days smallint not null,
+        user_id varchar(100) not null,
+        channel varchar(10) not null,
+        claim_token varchar(36) null,
+        lease_until timestamp(3) null,
+        attempts tinyint unsigned not null default 0,
+        delivered_at timestamp(3) null,
+        primary key (kind, subject_id, cycle_key, target_date, offset_days, user_id, channel)
+      ) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci;`,
+    ],
+  },
 ];
 
 function removePositionJsonValue(

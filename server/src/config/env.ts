@@ -13,6 +13,7 @@ loadDotenv({
 export type ServerConfig = {
   appEnv: SmbAppEnv;
   directorAssignmentRemindersEnabled: boolean;
+  collegiumRemindersEnabled: boolean;
   port: number;
   databaseUrl: string;
   productionSnapshot: ProductionSnapshotConfig;
@@ -139,6 +140,8 @@ export function readServerConfig(env: NodeJS.ProcessEnv = process.env): ServerCo
   return {
     appEnv,
     directorAssignmentRemindersEnabled: env.DIRECTOR_ASSIGNMENT_REMINDERS_ENABLED === undefined ? appEnv === "production" : env.DIRECTOR_ASSIGNMENT_REMINDERS_ENABLED === "true",
+    // A test copy of production holds real contacts: reminders stay off there unless enabled explicitly.
+    collegiumRemindersEnabled: env.COLLEGIUM_REMINDERS_ENABLED === undefined ? appEnv === "production" : env.COLLEGIUM_REMINDERS_ENABLED === "true",
     port: readPort(env.PORT),
     databaseUrl,
     productionSnapshot: readProductionSnapshotConfig(

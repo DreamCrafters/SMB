@@ -14,6 +14,10 @@ import {
   type CollegiumReferenceKind,
 } from "../contracts/collegiumInitiatives.js";
 import { CollegiumInitiativeError } from "../domain/collegiumInitiative.js";
+import {
+  collegiumReminderLeaseSeconds,
+  collegiumReminderMaxAttempts,
+} from "../domain/collegiumReminders.js";
 
 type InitiativeRow = RowDataPacket & {
   id: string;
@@ -64,6 +68,28 @@ type MeetingPayload = Omit<
   CollegiumMeeting,
   "id" | "number" | "status" | "revision" | "createdAt" | "updatedAt"
 >;
+
+export type CollegiumReminderDelivery = {
+  kind: string;
+  subjectId: string;
+  cycle: string;
+  targetDate: string;
+  offset: number;
+  userId: string;
+  channel: "email" | "max";
+};
+
+function reminderKey(delivery: CollegiumReminderDelivery) {
+  return [
+    delivery.kind,
+    delivery.subjectId,
+    delivery.cycle.slice(0, 100),
+    delivery.targetDate,
+    delivery.offset,
+    delivery.userId,
+    delivery.channel,
+  ];
+}
 
 export type CollegiumAttachmentOwner = { type: "initiative" | "meeting"; id: string };
 
@@ -181,6 +207,41 @@ export function createCollegiumInitiativesRepository(pool: DatabasePool) {
           and json_contains(positions.capabilities, json_quote(?))`,
         [capability]);
       return rows.map((row) => row.user_id);
+    },
+
+    /**
+     * Claims one reminder delivery: inserts the row once, then takes a lease if
+     * it is not delivered, not leased and has attempts left.
+     */
+    async claimReminder(delivery: CollegiumReminderDelivery, token: string) {
+      const key = reminderKey(delivery);
+      await pool.query(
+        `insert ignore into collegium_reminder_deliveries
+          (kind, subject_id, cycle_key, target_date, offset_days, user_id, channel)
+         values (?, ?, ?, ?, ?, ?, ?)`,
+        key,
+      );
+      const [result] = await pool.query<ResultSetHeader>(
+        `update collegium_reminder_deliveries
+         set claim_token = ?, attempts = attempts + 1,
+           lease_until = timestampadd(second, ?, utc_timestamp(3))
+         where kind = ? and subject_id = ? and cycle_key = ? and target_date = ?
+           and offset_days = ? and user_id = ? and channel = ?
+           and delivered_at is null and attempts < ?
+           and (lease_until is null or lease_until <= utc_timestamp(3))`,
+        [token, collegiumReminderLeaseSeconds, ...key, collegiumReminderMaxAttempts],
+      );
+      return result.affectedRows === 1;
+    },
+
+    async completeReminder(delivery: CollegiumReminderDelivery, token: string) {
+      await pool.query(
+        `update collegium_reminder_deliveries
+         set delivered_at = utc_timestamp(3), lease_until = null
+         where kind = ? and subject_id = ? and cycle_key = ? and target_date = ?
+           and offset_days = ? and user_id = ? and channel = ? and claim_token = ?`,
+        [...reminderKey(delivery), token],
+      );
     },
 
     /** Year counter of a number series; runs in the caller's transaction. */

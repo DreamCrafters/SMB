@@ -1,4 +1,5 @@
 import { createDirectorAssignmentReminderRunner, startDirectorAssignmentReminders } from "./integrations/directorAssignmentReminders.js";
+import { createCollegiumReminderRunner, startCollegiumReminders } from "./integrations/collegiumReminders.js";
 import { createEmailNotificationService } from "./integrations/emailNotifications.js";
 import { createMaxNotificationService } from "./integrations/maxNotifications.js";
 import { createDirectorAssignmentsService } from "./domain/directorAssignmentsService.js";
@@ -192,7 +193,7 @@ server.listen(config.port, "0.0.0.0", () => {
   console.log(`SMB Monitor API listening on http://127.0.0.1:${config.port}`);
 });
 
-const reminderStops = config.directorAssignmentRemindersEnabled
+const reminderStops: Array<() => Promise<void>> = config.directorAssignmentRemindersEnabled
   ? [directorAssignmentsRepository, collegiumAssignmentsRepository].map(repository => startDirectorAssignmentReminders(createDirectorAssignmentReminderRunner({
       repository,
       notificationSettings,
@@ -200,6 +201,15 @@ const reminderStops = config.directorAssignmentRemindersEnabled
       ...(config.maxNotifications.enabled ? { sendMax: (recipient, _subject, text, signal) => maxNotifications.sendTextNotification!([recipient], text, signal) } : {}),
     })))
   : [];
+if (config.collegiumRemindersEnabled) {
+  reminderStops.push(startCollegiumReminders(createCollegiumReminderRunner({
+    repository: createCollegiumInitiativesRepository(pool),
+    assignments: collegiumAssignmentsRepository,
+    notificationSettings,
+    ...(config.emailNotifications.enabled ? { sendEmail: (recipient, subject, text) => emailNotifications.sendTextNotification!([recipient], subject, text) } : {}),
+    ...(config.maxNotifications.enabled ? { sendMax: (recipient, subject, text, signal) => maxNotifications.sendTextNotification!([recipient], `${subject}\n${text}`, signal) } : {}),
+  })));
+}
 const stopReminders = async () => { await Promise.all(reminderStops.map(stop => stop())); };
 
 async function shutdown() {
