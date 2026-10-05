@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   collegiumAttachmentLimits,
   type CollegiumAttachment,
@@ -265,4 +265,31 @@ export function formatDateTime(value: string) {
     hour: "2-digit",
     minute: "2-digit",
   }).format(new Date(value));
+}
+
+export function CardSection({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <section className="collegium-card-section">
+      <h4>{title}</h4>
+      <dl className="collegium-card-grid">{children}</dl>
+    </section>
+  );
+}
+
+export function CardValue({ label, value, wide = false }: { label: string; value: string; wide?: boolean }) {
+  return (
+    <div className={`collegium-card-value${wide ? " collegium-field-wide" : ""}`}>
+      <dt>{label}</dt>
+      <dd>{value === "" ? "—" : value}</dd>
+    </div>
+  );
+}
+
+export function FormSection({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <fieldset className="collegium-form-section">
+      <legend>{title}</legend>
+      <div className="collegium-field-grid">{children}</div>
+    </fieldset>
+  );
 }

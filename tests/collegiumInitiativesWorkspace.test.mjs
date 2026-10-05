@@ -33,8 +33,11 @@ const detailExtras = {
   economics: {
     annualEffect: "1200000.00", annualRecurringCost: "0.00", netAnnualEffect: "1200000.00",
     oneTimeCosts: "600000.00", paybackStatus: "payback", paybackMonths: "6.0", roiPercent: "200.0",
+    source: "express", npv: "", npvRequired: false, overrides: {},
   },
   passportReasons: [{ code: "capex", label: "Требуется CAPEX" }],
+  passportGaps: ["Затраты: CAPEX, разовые и постоянные OPEX"],
+  canEditPassport: false,
 };
 
 function buildInitiative(card) {
@@ -518,6 +521,77 @@ test("the secretary edits thresholds and reference values on the settings tab", 
       ["PATCH", "/api/collegium-settings/reference/direction/legacy", { archived: false }],
       ["POST", "/api/collegium-settings/reference", { kind: "direction", label: "Логистика" }],
     ]);
+  } finally {
+    await view.cleanup();
+  }
+});
+
+test("the owner fills the full passport of a pilot from the card", async () => {
+  let stored = { ...buildInitiative({ title: "Пилот обжига", ownerId: "account:author" }), status: "approved_pilot", revision: 5 };
+  const puts = [];
+  const detail = () => ({
+    initiative: stored, revisions: [], comments: [], attachments: [], canAttach: false, canEdit: false,
+    canComment: false, canResolveComments: false, actions: [], missingAdmissionFields: [],
+    linkedAssignments: [], summaryStatus: "in_preparation", canCreateAssignments: false, canRecordResult: false,
+    ...detailExtras,
+    passportReasons: [{ code: "status", label: "Одобрена к пилоту" }],
+    passportGaps: stored.card.passport === undefined ? ["План пилота", "Стоп-условия пилота"] : [],
+    canEditPassport: true,
+  });
+  const view = await renderWorkspace(
+    { canView: true, canParticipate: true, canManage: false, canApprove: false },
+    async (url, init, permissions) => {
+      if (url.pathname === "/api/collegium-initiatives") {
+        return [{ initiatives: [stored], people, reference, permissions, meetings: [], overdueIds: [], passportRequiredIds: [stored.id] }];
+      }
+      if (url.pathname === "/api/collegium-initiatives/initiative-1/passport" && init.method === "PUT") {
+        const body = JSON.parse(init.body);
+        puts.push(body);
+        stored = { ...stored, revision: 6, card: { ...stored.card, passport: { ...body.passport, schedule: [], milestones: [] } } };
+        return [{ initiative: stored }];
+      }
+      if (url.pathname === "/api/collegium-initiatives/initiative-1") return [detail()];
+      throw new Error(`Unexpected request: ${url.pathname}`);
+    },
+  );
+  const { dom, React, container } = view;
+  try {
+    await waitFor(React, () => container.querySelector(".collegium-initiatives-table") !== null);
+    assert.match(container.textContent, /нужен полный паспорт/u);
+    await React.act(async () => findButtonByText(container, "И-2026-0001").click());
+    await waitFor(React, () => container.querySelector(".collegium-passport") !== null);
+    assert.match(container.querySelector(".collegium-passport").textContent, /Не хватает в паспорте:План пилотаСтоп-условия пилота/u);
+    await React.act(async () => findButtonByText(container, "Заполнить паспорт").click());
+    const form = container.querySelector(".collegium-passport-form");
+    const field = (label) => Array.from(form.querySelectorAll("label")).find(
+      (item) => item.querySelector(":scope > span")?.textContent === label,
+    ).querySelector("input, textarea");
+    await React.act(async () => {
+      for (const [label, value] of [["План пилота", "Две смены"], ["Стоп-условия пилота", "Брак выше 5 %"], ["Причина изменения (обязательно)", "Пилот одобрен"]]) {
+        const input = field(label);
+        setNativeInputValue(input, value);
+        input.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+      }
+    });
+    await React.act(async () => findButtonByText(form, "Добавить месяц").click());
+    await React.act(async () => {
+      const month = form.querySelector('.collegium-schedule-row input[type="month"]');
+      setNativeInputValue(month, "2026-11");
+      month.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+      const roi = field("ROI, %");
+      setNativeInputValue(roi, "25");
+      roi.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+    });
+    await React.act(async () => findButtonByText(form, "Сохранить паспорт").click());
+    await waitFor(React, () => puts.length === 1);
+    assert.equal(puts[0].revision, 5);
+    assert.equal(puts[0].reason, "Пилот одобрен");
+    assert.equal(puts[0].passport.pilotPlan, "Две смены");
+    assert.deepEqual(puts[0].passport.schedule, [{ month: "2026-11", cost: "", effect: "" }]);
+    // An override without its explanation still goes to the server, which rejects it.
+    assert.deepEqual(puts[0].passport.overrides, { roiPercent: { value: "25", explanation: "" } });
+    await waitFor(React, () => container.querySelector(".collegium-passport") !== null);
+    assert.match(container.querySelector(".collegium-passport").textContent, /Две смены/u);
   } finally {
     await view.cleanup();
   }

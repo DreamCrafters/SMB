@@ -5,6 +5,7 @@ import {
   type CollegiumAttachment,
   type CollegiumAttentionItem,
   type CollegiumDashboard,
+  type CollegiumPassportSaveRequest,
   type CollegiumReference,
   type CollegiumReferenceCreateInput,
   type CollegiumReferenceKind,
@@ -164,6 +165,15 @@ export async function saveCollegiumInitiative(
       ? collegiumInitiativesApiPath
       : `${collegiumInitiativesApiPath}/${encodeURIComponent(id)}`,
     id === undefined ? "POST" : "PATCH",
+    body,
+  );
+  return result.initiative;
+}
+
+export async function saveCollegiumPassport(id: string, body: CollegiumPassportSaveRequest) {
+  const result = await request<{ initiative: CollegiumInitiative }>(
+    `${collegiumInitiativesApiPath}/${encodeURIComponent(id)}/passport`,
+    "PUT",
     body,
   );
   return result.initiative;

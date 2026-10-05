@@ -173,7 +173,7 @@ const server = createApiServer({
   directorAssignments: createDirectorAssignmentsService({ repository: directorAssignmentsRepository, boardAssignments: createBoardAssignmentsRepository(pool), transaction: database.transaction, audit: createAuditRepository(pool) }),
   collegiumAssignments: createDirectorAssignmentsService({ repository: collegiumAssignmentsRepository, initiativeLinks: collegiumInitiatives.assignmentLinks, transaction: database.transaction, audit: createAuditRepository(pool) }),
   collegiumInitiatives,
-  collegiumMeetings: createCollegiumMeetingsService({ repository: createCollegiumInitiativesRepository(pool), transaction: database.transaction, audit: createAuditRepository(pool) }),
+  collegiumMeetings: createCollegiumMeetingsService({ repository: createCollegiumInitiativesRepository(pool), settings: createCollegiumSettingsRepository(pool), transaction: database.transaction, audit: createAuditRepository(pool) }),
   collegiumSettings: createCollegiumSettingsService({ repository: createCollegiumSettingsRepository(pool), transaction: database.transaction, audit: createAuditRepository(pool) }),
   boardAssignments: createBoardAssignmentsRepository(pool),
   warehouse1c: warehouse1cReadOnlyPool === undefined

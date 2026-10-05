@@ -382,10 +382,39 @@ const assignmentController: ServerUserProfile = {
   },
 };
 
+function passport(overrides: Record<string, unknown> = {}) {
+  return {
+    alternatives: "", requirements: "", impacts: "", dependencies: "", pilotPlan: "", pilotStopConditions: "",
+    requiredAssignments: "", ceoPosition: "", draftDecision: "", revenueForecast: "", marginalIncomeForecast: "",
+    costSavingForecast: "", preventedLossForecast: "", capex: "", oneTimeOpex: "", recurringOpex: "",
+    internalCosts: "", workingCapital: "", scenarioConservative: "", scenarioBase: "", scenarioOptimistic: "",
+    schedule: [], milestones: [], overrides: {},
+    ...overrides,
+  };
+}
+
 test("assignments move an approved initiative into implementation and back to the card", async () => {
   const { memory, initiatives, approvedInitiative, addAssignment } = createHarness();
-  const approved = await approvedInitiative("Пилот обжига");
+  let approved = await approvedInitiative("Пилот обжига");
   assert.equal(approved.status, "approved_pilot");
+  // A pilot needs its plan and stop conditions in the passport before the first assignment.
+  const blocked = await initiatives.read(assignmentController, approved.id);
+  assert.equal(blocked.canCreateAssignments, false);
+  assert.deepEqual(blocked.passportGaps, ["План пилота", "Стоп-условия пилота"]);
+  await assert.rejects(
+    initiatives.assignmentLinks.lockForAssignment(assignmentController, approved.id),
+    (error) => error instanceof DirectorAssignmentError && error.status === 409 && /полный паспорт/u.test(error.message),
+  );
+  await assert.rejects(
+    initiatives.savePassport(secretary, approved.id, { revision: approved.revision, passport: passport({ pilotPlan: "Две смены" }) }),
+    /причину/u,
+  );
+  approved = await initiatives.savePassport(secretary, approved.id, {
+    revision: approved.revision,
+    reason: "Пилот одобрен",
+    passport: passport({ pilotPlan: "Две смены на печи 2", pilotStopConditions: "Брак выше 5 %" }),
+  });
+  assert.equal(memory.revisions.at(-1)?.revision.changedFields[0], "passport");
   assert.equal((await initiatives.read(assignmentController, approved.id)).canCreateAssignments, true);
   assert.equal((await initiatives.read(secretary, approved.id)).canCreateAssignments, false);
   assert.equal((await initiatives.read(secretary, approved.id)).summaryStatus, "in_preparation");
@@ -473,7 +502,21 @@ test("the chair records the board decision and a board suspension resumes to ref
   assert.equal(suspended.workflow.suspendedFrom, "board_referral");
   const resumed = await initiatives.act(secretary, referred.id, { action: "resume", revision: suspended.revision });
   assert.equal(resumed.status, "board_referral");
-  const approved = await initiatives.act(chair, referred.id, { action: "board_approve", revision: resumed.revision });
+  await assert.rejects(
+    initiatives.act(chair, referred.id, { action: "board_approve", revision: resumed.revision }),
+    /Позиция генерального директора/u,
+  );
+  const prepared = await initiatives.savePassport(secretary, referred.id, {
+    revision: resumed.revision,
+    reason: "Материалы для СД",
+    passport: passport({
+      alternatives: "Ничего не делать: потери 3 %",
+      scenarioConservative: "-100 000", scenarioBase: "500 000", scenarioOptimistic: "900 000",
+      ceoPosition: "Поддерживает", draftDecision: "Одобрить модернизацию",
+    }),
+  });
+  assert.equal(prepared.card.passport?.scenarioConservative, "-100000.00");
+  const approved = await initiatives.act(chair, referred.id, { action: "board_approve", revision: prepared.revision });
   assert.equal(approved.status, "approved_implementation");
 });
 

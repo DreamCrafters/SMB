@@ -31,6 +31,7 @@ test("net effect, payback and ROI follow ТЗ 11.3 in exact kopecks", () => {
   }), {
     annualEffect: "1200000.00", annualRecurringCost: "120000.00", netAnnualEffect: "1080000.00",
     oneTimeCosts: "900000.00", paybackStatus: "payback", paybackMonths: "10.0", roiPercent: "120.0",
+    source: "express", npv: "", npvRequired: false, overrides: {},
   });
   // Quarterly effect; payback 1 000 000 × 12 / 300 000 = 40 months; ROI 30 %.
   assert.equal(economics({ expectedEffectAmount: "75000.00", expectedEffectPeriod: "quarter", oneTimeCostAmount: "1000000.00" }).paybackMonths, "40.0");

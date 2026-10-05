@@ -1,3 +1,9 @@
+import {
+  collegiumPassportFieldLabels,
+  collegiumPassportScenarioFields,
+  type CollegiumPassportScheduleRow,
+  type CollegiumPassportTextField,
+} from "../contracts/collegiumInitiatives.js";
 import type {
   CollegiumEconomics,
   CollegiumInitiative,
@@ -46,41 +52,95 @@ type Calculation = {
   exceedsPaybackNorm: (normMonths: string) => boolean;
 };
 
-/**
- * ТЗ 11.3 по экспресс-карте: годовой эффект из суммы и периода (разовый эффект
- * считается эффектом первого года), чистый годовой эффект = эффект − постоянные
- * затраты в год, разовые затраты = разовые + CAPEX, окупаемость = разовые /
- * (чистый / 12), ROI = чистый / разовые × 100.
- */
-export function calculateCollegiumEconomics(card: CollegiumInitiativeCard): Calculation {
-  const effectFactor = effectPeriodsPerYear[card.expectedEffectPeriod];
-  const recurringAmount = toKopecks(card.recurringCostAmount);
-  const recurringFactor = recurringAmount === 0n ? 1n : recurringPeriodsPerYear[card.recurringCostPeriod];
-  const oneTime = toKopecks(card.oneTimeCostAmount) + toKopecks(card.capexAmount);
-  const empty: Calculation = {
-    economics: {
-      annualEffect: "",
-      annualRecurringCost: "",
-      netAnnualEffect: "",
-      oneTimeCosts: fromKopecks(oneTime),
-      paybackStatus: "none",
-      paybackMonths: "",
-      roiPercent: "",
-    },
-    exceedsPaybackNorm: () => false,
-  };
-  if (card.expectedEffectAmount === "" || effectFactor === undefined || recurringFactor === undefined) {
-    return empty;
+function monthIndex(month: string) {
+  const [year, value] = month.split("-").map(Number);
+  return year * 12 + value - 1;
+}
+
+/** Срок реализации или график длиннее 12 месяцев (ТЗ 6.3: NPV обязателен). */
+function isLongerThanYear(card: CollegiumInitiativeCard) {
+  const schedule = card.passport?.schedule ?? [];
+  if (schedule.length > 0) {
+    const months = schedule.map(({ month }) => monthIndex(month));
+    if (Math.max(...months) - Math.min(...months) + 1 > 12) return true;
   }
-  const annual = toKopecks(card.expectedEffectAmount) * effectFactor;
-  const recurring = recurringAmount * recurringFactor;
-  const net = annual - recurring;
-  const economics: CollegiumEconomics = {
-    ...empty.economics,
-    annualEffect: fromKopecks(annual),
-    annualRecurringCost: fromKopecks(recurring),
-    netAnnualEffect: fromKopecks(net),
+  if (!card.plannedStart || !card.plannedResult) return false;
+  const start = new Date(`${card.plannedStart}T00:00:00Z`);
+  start.setUTCFullYear(start.getUTCFullYear() + 1);
+  return card.plannedResult > start.toISOString().slice(0, 10);
+}
+
+/**
+ * NPV по помесячному графику: месячная ставка (1 + r)^(1/12) − 1, t = 0 —
+ * первый месяц графика, пропущенные месяцы — нули. Суммы строк ограничены так,
+ * что сумма в копейках точна в `Number`; округление одно, в конце.
+ */
+export function calculateCollegiumNpv(
+  schedule: readonly CollegiumPassportScheduleRow[],
+  discountRatePercent: string,
+) {
+  if (schedule.length === 0 || discountRatePercent === "") return "";
+  const monthly = (1 + Number(discountRatePercent) / 100) ** (1 / 12) - 1;
+  const first = Math.min(...schedule.map(({ month }) => monthIndex(month)));
+  const total = schedule.reduce((sum, row) => {
+    const flow = Number(toKopecks(row.effect) - toKopecks(row.cost));
+    return sum + flow / (1 + monthly) ** (monthIndex(row.month) - first);
+  }, 0);
+  return fromKopecks(BigInt(Math.round(total)));
+}
+
+/**
+ * ТЗ 11.3. При прогнозе в паспорте: чистый годовой эффект = маржинальный доход +
+ * экономия + предотвращённые потери − постоянные OPEX, разовые = CAPEX + разовые
+ * OPEX. Иначе по экспресс-карте: годовой эффект из суммы и периода (разовый эффект
+ * считается эффектом первого года) − постоянные затраты в год, разовые = разовые
+ * + CAPEX. Окупаемость = разовые / (чистый / 12), ROI = чистый / разовые × 100.
+ */
+export function calculateCollegiumEconomics(card: CollegiumInitiativeCard, discountRatePercent = ""): Calculation {
+  const passport = card.passport;
+  const forecast = passport === undefined
+    ? []
+    : [passport.marginalIncomeForecast, passport.costSavingForecast, passport.preventedLossForecast];
+  const fromPassport = forecast.some((value) => value !== "");
+  const npvRequired = isLongerThanYear(card);
+  const base = {
+    source: fromPassport ? "passport" as const : "express" as const,
+    npv: npvRequired && passport !== undefined ? calculateCollegiumNpv(passport.schedule, discountRatePercent) : "",
+    npvRequired,
+    overrides: passport?.overrides ?? {},
   };
+  let annual: bigint | undefined;
+  let recurring: bigint | undefined;
+  let oneTime: bigint;
+  if (fromPassport) {
+    annual = forecast.reduce((sum, value) => sum + toKopecks(value), 0n);
+    recurring = toKopecks(passport!.recurringOpex);
+    oneTime = toKopecks(passport!.capex) + toKopecks(passport!.oneTimeOpex);
+  } else {
+    const effectFactor = effectPeriodsPerYear[card.expectedEffectPeriod];
+    const recurringAmount = toKopecks(card.recurringCostAmount);
+    const recurringFactor = recurringAmount === 0n ? 1n : recurringPeriodsPerYear[card.recurringCostPeriod];
+    oneTime = toKopecks(card.oneTimeCostAmount) + toKopecks(card.capexAmount);
+    if (card.expectedEffectAmount !== "" && effectFactor !== undefined && recurringFactor !== undefined) {
+      annual = toKopecks(card.expectedEffectAmount) * effectFactor;
+      recurring = recurringAmount * recurringFactor;
+    }
+  }
+  const economics: CollegiumEconomics = {
+    annualEffect: "",
+    annualRecurringCost: "",
+    netAnnualEffect: "",
+    oneTimeCosts: fromKopecks(oneTime),
+    paybackStatus: "none",
+    paybackMonths: "",
+    roiPercent: "",
+    ...base,
+  };
+  if (annual === undefined || recurring === undefined) return { economics, exceedsPaybackNorm: () => false };
+  const net = annual - recurring;
+  economics.annualEffect = fromKopecks(annual);
+  economics.annualRecurringCost = fromKopecks(recurring);
+  economics.netAnnualEffect = fromKopecks(net);
   if (oneTime === 0n) return { economics, exceedsPaybackNorm: () => false };
   economics.roiPercent = tenths(net * 100n, oneTime);
   if (net <= 0n) {
@@ -126,7 +186,7 @@ export function listCollegiumPassportReasons(
   const significant = card.risks.some((risk) =>
     reference.risk_level.some((level) => level.code === risk.levelCode && level.significant === true));
   if (significant) reasons.push({ code: "significant_risk", label: "Существенный риск" });
-  const { economics, exceedsPaybackNorm } = calculateCollegiumEconomics(card);
+  const { economics, exceedsPaybackNorm } = calculateCollegiumEconomics(card, settings.discountRatePercent);
   if (economics.paybackStatus === "not_paying") {
     reasons.push({ code: "payback", label: "Инициатива не окупается" });
   } else if (exceedsPaybackNorm(settings.paybackNormMonths)) {
@@ -142,4 +202,63 @@ export function listCollegiumPassportReasons(
     });
   }
   return reasons;
+}
+
+const moneyReasons = new Set(["one_time_cost", "capex", "payback"]);
+const riskReasons = new Set(["technology", "new_product", "significant_risk"]);
+
+/**
+ * Незаполненное в паспорте по причинам ТЗ 7.2: затраты и окупаемость требуют
+ * прогноза, затрат, графика и NPV; изменения и риски — альтернатив, влияния,
+ * зависимостей, требований и сценариев; решение СД — сценариев, альтернатив,
+ * позиции ГД и проекта решения; пилот — плана и стоп-условий.
+ */
+export function listCollegiumPassportGaps(
+  initiative: CollegiumInitiative,
+  reasons: readonly CollegiumPassportReason[],
+  economics: CollegiumEconomics,
+): string[] {
+  if (reasons.length === 0) return [];
+  const passport = initiative.card.passport;
+  const gaps = new Set<string>();
+  const text = (field: CollegiumPassportTextField) => {
+    if ((passport?.[field] ?? "") === "") gaps.add(collegiumPassportFieldLabels[field]);
+  };
+  const scenarios = () => {
+    if (collegiumPassportScenarioFields.some((field) => (passport?.[field] ?? "") === "")) {
+      gaps.add("Сценарии: консервативный, базовый и оптимистичный");
+    }
+  };
+  const codes = new Set(reasons.map(({ code }) => code));
+  const isBoard = codes.has("board_decision") || initiative.status === "board_referral";
+  if ([...codes].some((code) => moneyReasons.has(code))) {
+    if (passport === undefined || ![passport.marginalIncomeForecast, passport.costSavingForecast, passport.preventedLossForecast].some((value) => value !== "")) {
+      gaps.add("Прогноз эффекта: маржинальный доход, экономия или предотвращённые потери");
+    }
+    if (passport === undefined || [passport.capex, passport.oneTimeOpex, passport.recurringOpex].some((value) => value === "")) {
+      gaps.add("Затраты: CAPEX, разовые и постоянные OPEX");
+    }
+    if ((passport?.schedule.length ?? 0) === 0) gaps.add(collegiumPassportFieldLabels.schedule);
+    if (economics.npvRequired && economics.npv === "" && passport?.overrides.npv === undefined) {
+      gaps.add("NPV: задайте ставку дисконтирования в настройках или введите значение вручную");
+    }
+  }
+  if ([...codes].some((code) => riskReasons.has(code))) {
+    text("alternatives");
+    text("impacts");
+    text("dependencies");
+    text("requirements");
+    scenarios();
+  }
+  if (isBoard) {
+    scenarios();
+    text("alternatives");
+    text("ceoPosition");
+    text("draftDecision");
+  }
+  if (initiative.status === "approved_pilot") {
+    text("pilotPlan");
+    text("pilotStopConditions");
+  }
+  return [...gaps];
 }

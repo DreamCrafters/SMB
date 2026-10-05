@@ -297,11 +297,116 @@ export type CollegiumInitiativeCardInput = {
   boardDecisionRequired: CollegiumYesNo | "";
 };
 
+/** Текстовые разделы полного паспорта (ТЗ 6.3). */
+export const collegiumPassportTextFields = [
+  "alternatives",
+  "requirements",
+  "impacts",
+  "dependencies",
+  "pilotPlan",
+  "pilotStopConditions",
+  "requiredAssignments",
+  "ceoPosition",
+  "draftDecision",
+] as const;
+export type CollegiumPassportTextField = (typeof collegiumPassportTextFields)[number];
+
+/** Неотрицательные суммы паспорта, ₽; прогноз и постоянные OPEX — в год. */
+export const collegiumPassportAmountFields = [
+  "revenueForecast",
+  "marginalIncomeForecast",
+  "costSavingForecast",
+  "preventedLossForecast",
+  "capex",
+  "oneTimeOpex",
+  "recurringOpex",
+  "internalCosts",
+  "workingCapital",
+] as const;
+export type CollegiumPassportAmountField = (typeof collegiumPassportAmountFields)[number];
+
+/** Сценарии — чистый годовой эффект со знаком, ₽. */
+export const collegiumPassportScenarioFields = [
+  "scenarioConservative",
+  "scenarioBase",
+  "scenarioOptimistic",
+] as const;
+export type CollegiumPassportScenarioField = (typeof collegiumPassportScenarioFields)[number];
+
+/** Показатели ТЗ 11.3, которые можно заменить ручным значением с пояснением. */
+export const collegiumEconomicsOverrideFields = ["netAnnualEffect", "paybackMonths", "roiPercent", "npv"] as const;
+export type CollegiumEconomicsOverrideField = (typeof collegiumEconomicsOverrideFields)[number];
+
+export const collegiumEconomicsOverrideLabels: Record<CollegiumEconomicsOverrideField, string> = {
+  netAnnualEffect: "Чистый годовой эффект, ₽",
+  paybackMonths: "Срок окупаемости, мес.",
+  roiPercent: "ROI, %",
+  npv: "NPV, ₽",
+};
+
+export const maxCollegiumScheduleRows = 60;
+export const maxCollegiumMilestones = 20;
+
+export type CollegiumPassportScheduleRow = {
+  /** `ГГГГ-ММ`. */
+  month: string;
+  /** Затраты месяца, ₽. */
+  cost: string;
+  /** Эффект месяца, ₽. */
+  effect: string;
+};
+
+export type CollegiumPassport = Record<CollegiumPassportTextField, string> &
+  Record<CollegiumPassportAmountField, string> &
+  Record<CollegiumPassportScenarioField, string> & {
+    schedule: CollegiumPassportScheduleRow[];
+    milestones: Array<{ date: string; text: string }>;
+    overrides: Partial<Record<CollegiumEconomicsOverrideField, { value: string; explanation: string }>>;
+  };
+
+export const collegiumPassportFieldLabels: Record<
+  CollegiumPassportTextField | CollegiumPassportAmountField | CollegiumPassportScenarioField | "schedule" | "milestones",
+  string
+> = {
+  alternatives: "Альтернативы, включая «ничего не делать»",
+  requirements: "Договоры, закупки, согласования, разрешения, сертификация, испытания",
+  impacts: "Влияние на ТБ, промышленную безопасность, экологию и качество",
+  dependencies: "Зависимости от поставщиков, клиентов, оборудования, персонала, финансирования",
+  pilotPlan: "План пилота",
+  pilotStopConditions: "Стоп-условия пилота",
+  requiredAssignments: "Необходимые поручения",
+  ceoPosition: "Позиция генерального директора",
+  draftDecision: "Проект решения Коллегии или Совета директоров",
+  revenueForecast: "Прогноз выручки в год, ₽",
+  marginalIncomeForecast: "Дополнительный маржинальный доход в год, ₽",
+  costSavingForecast: "Экономия затрат в год, ₽",
+  preventedLossForecast: "Предотвращённые потери в год, ₽",
+  capex: "CAPEX, ₽",
+  oneTimeOpex: "Разовые OPEX, ₽",
+  recurringOpex: "Постоянные OPEX в год, ₽",
+  internalCosts: "Внутренние затраты, ₽",
+  workingCapital: "Потребность в оборотном капитале, ₽",
+  scenarioConservative: "Консервативный сценарий: чистый эффект в год, ₽",
+  scenarioBase: "Базовый сценарий: чистый эффект в год, ₽",
+  scenarioOptimistic: "Оптимистичный сценарий: чистый эффект в год, ₽",
+  schedule: "График затрат и эффекта по месяцам",
+  milestones: "План внедрения с контрольными точками",
+};
+
+export type CollegiumPassportSaveRequest = {
+  revision: number;
+  passport: CollegiumPassport;
+  reason?: string;
+  comment?: string;
+};
+
 /** Снимок хранит и код, и подпись справочника, чтобы история не менялась. */
 export type CollegiumInitiativeCard = Omit<CollegiumInitiativeCardInput, "risks"> & {
   directionLabel: string;
   effectTypeLabels: string[];
   risks: CollegiumRisk[];
+  /** Полный паспорт (ТЗ 6.3); сохраняется отдельным запросом. */
+  passport?: CollegiumPassport;
 };
 
 export type CollegiumPerson = {
@@ -329,7 +434,8 @@ export type CollegiumInitiativeRevision = {
   createdAt: string;
   authorDisplayName: string;
   status: CollegiumInitiativeStatus;
-  changedFields: Array<keyof CollegiumInitiativeCardInput>;
+  /** `passport` — изменён полный паспорт. */
+  changedFields: Array<keyof CollegiumInitiativeCardInput | "passport">;
   reason: string;
   comment: string;
   card: CollegiumInitiativeCard;
@@ -372,6 +478,14 @@ export type CollegiumEconomics = {
   paybackMonths: string;
   /** Процентов, один знак после запятой, со знаком. */
   roiPercent: string;
+  /** Расчёт по полному паспорту, если в нём есть прогноз эффекта. */
+  source: "express" | "passport";
+  /** NPV, ₽; пусто — не требуется или не задана ставка. */
+  npv: string;
+  /** Срок реализации или график длиннее 12 месяцев. */
+  npvRequired: boolean;
+  /** Ручные значения паспорта с пояснением; расчётные остаются выше. */
+  overrides: CollegiumPassport["overrides"];
 };
 
 export const collegiumPassportReasonCodes = [
@@ -410,6 +524,9 @@ export type CollegiumInitiativeDetailResponse = {
   economics: CollegiumEconomics;
   /** Пусто — полный паспорт не требуется. */
   passportReasons: CollegiumPassportReason[];
+  /** Незаполненные разделы паспорта по причинам; пусто — паспорт достаточен. */
+  passportGaps: string[];
+  canEditPassport: boolean;
 };
 
 export type CollegiumInitiativeSaveRequest = {

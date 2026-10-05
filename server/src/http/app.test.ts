@@ -16122,6 +16122,10 @@ test("collegium initiatives API routes requests and maps module errors", async (
       calls.push(`add:${id}:${fileName}:${content.length}`);
       return { id: "file-1", kind: "file", label: fileName, fileName, fileType: "pdf", sizeBytes: content.length, createdByDisplayName: "x", createdAt: "2026-10-05T09:00:00.000Z" };
     },
+    async savePassport(_profile: ServerUserProfile, id: string, body: unknown) {
+      calls.push(`passport:${id}:${Buffer.byteLength(JSON.stringify(body)) > 100_000 ? "large" : "small"}`);
+      return { id };
+    },
     async dashboard() {
       calls.push("dashboard");
       return buildCollegiumDashboard({
@@ -16216,6 +16220,18 @@ test("collegium initiatives API routes requests and maps module errors", async (
     const summary = await fetch(`${baseUrl}/api/collegium-initiatives/dashboard.pdf`, { headers });
     assert.equal(summary.headers.get("content-type"), "application/pdf");
     assert.deepEqual(calls, ["dashboard", "dashboard"]);
+    calls.length = 0;
+
+    // The passport has its own body budget above the common 100 KB.
+    const largePassport = JSON.stringify({ revision: 2, passport: { alternatives: "а".repeat(60_000) } });
+    assert.equal((await fetch(`${baseUrl}/api/collegium-initiatives/abc-1/passport`, {
+      method: "PUT", headers, body: largePassport,
+    })).status, 200);
+    const oversizedPassport = await fetch(`${baseUrl}/api/collegium-initiatives/abc-1/passport`, {
+      method: "PUT", headers, body: JSON.stringify({ passport: { alternatives: "а".repeat(250_000) } }),
+    });
+    assert.equal(oversizedPassport.status, 413);
+    assert.deepEqual(calls, ["passport:abc-1:large"]);
     calls.length = 0;
 
     assert.equal((await fetch(`${baseUrl}/api/collegium-settings`, { headers })).status, 403);

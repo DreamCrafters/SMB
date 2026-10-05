@@ -10038,6 +10038,28 @@ p {
   font-size: 12px;
 }
 
+.collegium-passport-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--density-2);
+  align-items: center;
+  justify-content: space-between;
+}
+
+.collegium-schedule-row {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: minmax(120px, 1fr) minmax(0, 2fr) minmax(0, 1fr) auto;
+  gap: var(--density-2);
+  align-items: end;
+}
+
+@media (max-width: 560px) {
+  .collegium-schedule-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
 .collegium-risk-row {
   display: grid;
   grid-column: 1 / -1;

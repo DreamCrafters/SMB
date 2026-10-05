@@ -554,3 +554,51 @@ test("a never submitted idea stays private after withdrawal and cannot be suspen
   assert.ok(reviewed.workflow.submittedAt);
   assert.equal((await service.list(viewer)).initiatives.length, 1);
 });
+
+test("CAPEX requires the full passport before admission; the card edit keeps it", async () => {
+  const { service } = createHarness();
+  const author = profile("author", "participant");
+  const secretary = profile("secretary", "secretary");
+  const chair = profile("chair", "chair");
+  const draft = await service.create(author, { card: completeCard({ capexAmount: "500 000" }) });
+  const submitted = await service.act(author, draft.id, { action: "submit_for_review", revision: 1 });
+  const detail = await service.read(chair, draft.id);
+  assert.deepEqual(detail.passportReasons.map(({ code }) => code), ["capex"]);
+  assert.equal(detail.canEditPassport, true);
+  assert.equal((await service.read(author, draft.id)).canEditPassport, false);
+  await assert.rejects(
+    service.act(chair, draft.id, { action: "admit", revision: submitted.revision }),
+    /Нужен полный паспорт.*График затрат/u,
+  );
+  // Before the meeting the author cannot edit outside rework; the secretary can.
+  await assert.rejects(
+    service.savePassport(author, draft.id, { revision: submitted.revision, passport: {} }),
+    (error) => error instanceof CollegiumInitiativeError && error.status === 403,
+  );
+  const withPassport = await service.savePassport(secretary, draft.id, {
+    revision: submitted.revision,
+    reason: "Паспорт по CAPEX",
+    passport: {
+      costSavingForecast: "1 500 000", capex: "500 000", oneTimeOpex: "0", recurringOpex: "100 000",
+      schedule: [{ month: "2026-11", cost: "500 000", effect: "0" }, { month: "2026-12", cost: "0", effect: "125 000" }],
+    },
+  });
+  assert.equal((await service.read(chair, draft.id)).economics.source, "passport");
+  // Saving the same passport again is no revision.
+  assert.equal((await service.savePassport(secretary, draft.id, {
+    revision: withPassport.revision, reason: "Повтор", passport: withPassport.card.passport,
+  })).revision, withPassport.revision);
+
+  const edited = await service.update(secretary, draft.id, {
+    revision: withPassport.revision,
+    reason: "Уточнение",
+    card: { ...completeCard({ capexAmount: "500 000" }), title: "Уточнённое имя" },
+  });
+  assert.equal(edited.card.passport?.costSavingForecast, "1500000.00");
+  const admitted = await service.act(chair, draft.id, { action: "admit", revision: edited.revision });
+  assert.equal(admitted.status, "ready");
+  // The registry is a projection without the passport.
+  const listed = (await service.list(chair)).initiatives.find(({ id }) => id === draft.id);
+  assert.equal(listed?.card.passport, undefined);
+  assert.deepEqual((await service.list(chair)).passportRequiredIds, [draft.id]);
+});

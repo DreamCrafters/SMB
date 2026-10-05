@@ -1,7 +1,12 @@
 import {
   collegiumCostVatLabels,
   collegiumDecisionLabels,
+  collegiumEconomicsOverrideFields,
+  collegiumEconomicsOverrideLabels,
   collegiumEffectPeriodLabels,
+  collegiumPassportAmountFields,
+  collegiumPassportFieldLabels,
+  collegiumPassportScenarioFields,
   collegiumInitiativeStatusLabels,
   collegiumMeetingFormatLabels,
   collegiumMeetingStatusLabels,
@@ -12,6 +17,7 @@ import {
   type CollegiumInitiative,
   type CollegiumInitiativeDetailResponse,
   type CollegiumMeeting,
+  type CollegiumPassport,
   type CollegiumYesNo,
 } from "../contracts/collegiumInitiatives.js";
 import type { DirectorAssignment } from "../contracts/directorAssignments.js";
@@ -259,6 +265,7 @@ export async function renderCollegiumInitiativeCardPdf(
         ["Новый продукт, рынок или клиент", yesNo(card.newProductOrMarket)],
         ["Требуется решение СД", yesNo(card.boardDecisionRequired)],
       ]),
+      ...(card.passport === undefined ? [] : passportSections(card.passport, section)),
       ...section("Решение и исполнение", [
         ["Решение Коллегии", decision(initiative)],
         ["Поручения", detail.linkedAssignments.map((assignment) =>
@@ -272,6 +279,38 @@ export async function renderCollegiumInitiativeCardPdf(
       ]),
     ],
   });
+}
+
+function passportSections(
+  passport: CollegiumPassport,
+  section: (title: string, rows: Array<[string, string]>) => unknown[],
+) {
+  const label = collegiumPassportFieldLabels;
+  const signed = (value: string) => (value.startsWith("-") ? `−${money(value.slice(1))}` : money(value));
+  return [
+    ...section("Полный паспорт: альтернативы и прогноз", [
+      [label.alternatives, passport.alternatives],
+      ...collegiumPassportAmountFields.map((field): [string, string] => [label[field], money(passport[field])]),
+      ...collegiumPassportScenarioFields.map((field): [string, string] => [label[field], signed(passport[field])]),
+      [label.schedule, passport.schedule.map((row) =>
+        `${row.month.split("-").reverse().join(".")}: затраты ${money(row.cost)}, эффект ${money(row.effect)}`).join("\n")],
+      ...collegiumEconomicsOverrideFields.flatMap((field): Array<[string, string]> => {
+        const override = passport.overrides[field];
+        return override === undefined ? [] : [[`${collegiumEconomicsOverrideLabels[field]} (вручную)`, `${override.value}: ${override.explanation}`]];
+      }),
+    ]),
+    ...section("Полный паспорт: условия и решение", [
+      [label.requirements, passport.requirements],
+      [label.impacts, passport.impacts],
+      [label.dependencies, passport.dependencies],
+      [label.pilotPlan, passport.pilotPlan],
+      [label.pilotStopConditions, passport.pilotStopConditions],
+      [label.milestones, passport.milestones.map((item) => `${date(item.date)} — ${item.text}`).join("\n")],
+      [label.requiredAssignments, passport.requiredAssignments],
+      [label.ceoPosition, passport.ceoPosition],
+      [label.draftDecision, passport.draftDecision],
+    ]),
+  ];
 }
 
 /** Протокол заседания; неутверждённый печатается с пометкой «Проект». */

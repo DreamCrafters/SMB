@@ -44,9 +44,11 @@ import { filterCollegiumInitiatives } from "./collegiumRegistry.js";
 import { buildCollegiumDashboard } from "./collegiumDashboard.js";
 import {
   calculateCollegiumEconomics,
+  listCollegiumPassportGaps,
   listCollegiumPassportReasons,
   unsetCollegiumSettings,
 } from "./collegiumEconomics.js";
+import { canEditCollegiumPassport, readCollegiumPassportInput } from "./collegiumPassport.js";
 import {
   buildAssignmentCreatedNotification,
   buildHiddenRoleNotifications,
@@ -146,6 +148,20 @@ export function createCollegiumInitiativesService({
   );
 
   const readSettings = () => settings?.readSettings() ?? Promise.resolve(unsetCollegiumSettings);
+
+  /** Экономика, причины и пробелы паспорта по текущим справочникам и порогам. */
+  async function evaluatePassport(initiative: CollegiumInitiative) {
+    const [reference, moduleSettings] = await Promise.all([repository.listReference(), readSettings()]);
+    const economics = calculateCollegiumEconomics(initiative.card, moduleSettings.discountRatePercent).economics;
+    const reasons = listCollegiumPassportReasons(initiative, moduleSettings, reference);
+    return { economics, reasons, gaps: listCollegiumPassportGaps(initiative, reasons, economics) };
+  }
+
+  function requirePassport(gaps: readonly string[]) {
+    if (gaps.length > 0) {
+      throw new CollegiumInitiativeError(`Нужен полный паспорт. Не заполнено: ${gaps.join("; ")}.`);
+    }
+  }
 
   function requireView(profile: ServerUserProfile) {
     const permissions = collegiumInitiativePermissions(profile);
@@ -364,14 +380,13 @@ export function createCollegiumInitiativesService({
     id: string,
   ): Promise<CollegiumInitiativeDetailResponse> {
     const { initiative, permissions } = await requireInitiative(profile, id);
-    const [revisions, comments, attachments, people, linkedAssignments, reference, moduleSettings] = await Promise.all([
+    const [revisions, comments, attachments, people, linkedAssignments, passport] = await Promise.all([
       repository.listRevisions(id),
       repository.listComments(id),
       repository.listAttachments({ type: "initiative", id }),
       readRolePeople(initiative.card),
       listLinkedAssignments(id),
-      repository.listReference(),
-      readSettings(),
+      evaluatePassport(initiative),
     ]);
     return {
       initiative,
@@ -387,10 +402,13 @@ export function createCollegiumInitiativesService({
       linkedAssignments,
       summaryStatus: readCollegiumSummaryStatus(initiative, linkedAssignments),
       canCreateAssignments: assignableStatuses.includes(initiative.status) &&
-        hasProfileCapability(profile, "business.manage_collegium_assignments"),
+        hasProfileCapability(profile, "business.manage_collegium_assignments") &&
+        (initiative.status !== "approved_pilot" || passport.gaps.length === 0),
       canRecordResult: canRecordResult(initiative, profile, permissions),
-      economics: calculateCollegiumEconomics(initiative.card).economics,
-      passportReasons: listCollegiumPassportReasons(initiative, moduleSettings, reference),
+      economics: passport.economics,
+      passportReasons: passport.reasons,
+      passportGaps: passport.gaps,
+      canEditPassport: canEditCollegiumPassport(initiative, profile, permissions),
     };
   }
 
@@ -420,7 +438,11 @@ export function createCollegiumInitiativesService({
       const permissions = requireView(profile);
       const registry = await loadRegistry(profile, permissions, filters);
       return {
-        initiatives: registry.initiatives,
+        // The registry is a projection: the full passport is read with the card.
+        initiatives: registry.initiatives.map(({ card: { passport: _passport, ...card }, ...initiative }) => ({
+          ...initiative,
+          card,
+        })),
         people: registry.people,
         reference: registry.reference,
         permissions,
@@ -609,6 +631,8 @@ export function createCollegiumInitiativesService({
           throw new CollegiumInitiativeError("Инициатива уже изменена. Обновите карточку.", 409);
         }
         const nextCard = readCollegiumInitiativeCardInput(request.card, reference, initiative.card);
+        // The express card form never carries the passport; it is saved separately.
+        if (initiative.card.passport !== undefined) nextCard.passport = initiative.card.passport;
         if (!permissions.canManage) {
           nextCard.initiatorId = initiative.card.initiatorId;
         } else if (nextCard.initiatorId === "") {
@@ -655,6 +679,56 @@ export function createCollegiumInitiativesService({
       });
     },
 
+    /** Полный паспорт (ТЗ 6.3): отдельная ревизия карточки с причиной и аудитом. */
+    async savePassport(profile: ServerUserProfile, id: string, body: unknown) {
+      const request = readSaveRequest(body, "passport");
+      if (request.revision === undefined) {
+        throw new CollegiumInitiativeError("Передайте ревизию изменяемой карточки.");
+      }
+      const passport = readCollegiumPassportInput(request.passport);
+      return transaction.run(async () => {
+        const { initiative, permissions } = await requireInitiative(profile, id, true);
+        if (!canEditCollegiumPassport(initiative, profile, permissions)) {
+          throw new CollegiumInitiativeError("Паспорт этой инициативы сейчас нельзя изменить.", 403);
+        }
+        if (initiative.revision !== request.revision) {
+          throw new CollegiumInitiativeError("Инициатива уже изменена. Обновите карточку.", 409);
+        }
+        if (JSON.stringify(initiative.card.passport ?? null) === JSON.stringify(passport)) return initiative;
+        if (initiative.status !== "draft" && request.reason === "") {
+          throw new CollegiumInitiativeError("Укажите причину изменения.");
+        }
+        const updatedAt = now();
+        const card = { ...initiative.card, passport };
+        const updated: CollegiumInitiative = {
+          ...initiative,
+          card,
+          revision: initiative.revision + 1,
+          updatedAt: updatedAt.toISOString(),
+        };
+        await repository.update(updated, initiative.revision);
+        await repository.insertRevision(initiative.id, {
+          id: randomUUID(),
+          revision: updated.revision,
+          createdAt: updatedAt,
+          authorDisplayName: profile.displayName,
+          status: initiative.status,
+          changedFields: ["passport"],
+          reason: request.reason,
+          comment: request.comment,
+          card,
+        });
+        await recordAudit(
+          profile,
+          "collegium_initiative.update",
+          updated,
+          `Изменён полный паспорт инициативы ${updated.number}`,
+          [{ label: "Изменённые поля", value: "Полный паспорт" }],
+        );
+        return updated;
+      });
+    },
+
     async act(profile: ServerUserProfile, id: string, body: unknown, outbox?: CollegiumOutbox) {
       const request = readCollegiumActionRequest(body, today());
       return transaction.run(async () => {
@@ -673,6 +747,9 @@ export function createCollegiumInitiativesService({
               `Не заполнены обязательные данные: ${gaps.join("; ")}.`,
             );
           }
+        }
+        if (request.action === "admit" || request.action === "board_approve") {
+          requirePassport((await evaluatePassport(initiative)).gaps);
         }
         const changedAt = now();
         const workflow = { ...initiative.workflow };
@@ -830,6 +907,14 @@ export function createCollegiumInitiativesService({
               "Поручения создаются по инициативам, одобренным к пилоту или внедрению.",
               409,
             );
+          }
+          if (initiative.status === "approved_pilot") {
+            try {
+              requirePassport((await evaluatePassport(initiative)).gaps);
+            } catch (error) {
+              if (error instanceof CollegiumInitiativeError) throw new CollegiumInitiativeError(error.message, 409);
+              throw error;
+            }
           }
         } catch (error) {
           if (error instanceof CollegiumInitiativeError) {
@@ -1025,13 +1110,13 @@ function readCommentRequest(body: unknown): { kind: CollegiumCommentKind; text: 
   return { kind: record.kind as CollegiumCommentKind, text };
 }
 
-function readSaveRequest(body: unknown) {
+function readSaveRequest(body: unknown, payloadKey: "card" | "passport" = "card") {
   if (typeof body !== "object" || body === null || Array.isArray(body)) {
     throw new CollegiumInitiativeError("Передайте карточку инициативы.");
   }
   const record = body as Record<string, unknown>;
   const unknownField = Object.keys(record).find(
-    (key) => !["card", "revision", "reason", "comment"].includes(key),
+    (key) => ![payloadKey, "revision", "reason", "comment"].includes(key),
   );
   if (unknownField !== undefined) {
     throw new CollegiumInitiativeError("Запрос содержит неизвестные поля.");
@@ -1045,6 +1130,7 @@ function readSaveRequest(body: unknown) {
   }
   return {
     card: record.card,
+    passport: record.passport,
     revision: revision as number | undefined,
     reason: readCollegiumOptionalText(record.reason, maxReasonLength, "Причина изменения"),
     comment: readCollegiumOptionalText(record.comment, maxCommentLength, "Комментарий"),

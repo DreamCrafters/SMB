@@ -510,6 +510,8 @@ type AppDependencies = {
 type JsonPayload = Record<string, unknown> | unknown[];
 
 const maxBodyBytes = 100_000;
+/** Полный паспорт Коллегии: девять текстов до 4000 символов кириллицей и график. */
+const maxCollegiumPassportBodyBytes = 400_000;
 const maxBoardAssignmentDocumentBytes = 10_000_000;
 /** Выгрузка остатков из 1С — это несколько сотен строк, мегабайты не нужны. */
 const maxWarehouse1cUploadBytes = 20_000_000;
@@ -1051,10 +1053,22 @@ export function createApiServer({
             });
             return;
           }
-          const match = /^\/api\/collegium-initiatives(?:\/([a-zA-Z0-9-]{1,100})(?:\/(actions|comments|attachments|result)(?:\/([a-zA-Z0-9-]{1,100})(?:\/(resolve))?)?)?)?$/u.exec(url.pathname);
+          const match = /^\/api\/collegium-initiatives(?:\/([a-zA-Z0-9-]{1,100})(?:\/(actions|comments|attachments|result|passport)(?:\/([a-zA-Z0-9-]{1,100})(?:\/(resolve))?)?)?)?$/u.exec(url.pathname);
           if (!match) throw new CollegiumInitiativeError("Страница не найдена.", 404);
           const [, id, section, itemId, itemAction] = match;
-          if (id && section === "result" && !itemId && req.method === "POST") {
+          if (id && section === "passport" && !itemId && req.method === "PUT") {
+            if (Number(req.headers["content-length"]) > maxCollegiumPassportBodyBytes) {
+              req.resume();
+              throw new CollegiumInitiativeError("Паспорт слишком большой: сократите тексты.", 413);
+            }
+            const body = await readJsonBody(req, maxCollegiumPassportBodyBytes).catch((error: unknown) => {
+              if (error instanceof Error && error.message === "Request body is too large.") {
+                throw new CollegiumInitiativeError("Паспорт слишком большой: сократите тексты.", 413);
+              }
+              throw error;
+            });
+            sendJson(res, 200, { initiative: await collegiumInitiatives.savePassport(access.profile, id, body) });
+          } else if (id && section === "result" && !itemId && req.method === "POST") {
             sendJson(res, 200, { initiative: await collegiumInitiatives.recordResult(access.profile, id, await readJsonBody(req)) });
           } else if (id && section === "actions" && !itemId && req.method === "POST") {
             const outbox: CollegiumOutbox = [];
@@ -15519,7 +15533,7 @@ function sendPdf(res: ServerResponse, pdf: Buffer, filename: string) {
   res.end(pdf);
 }
 
-function readJsonBody(req: IncomingMessage): Promise<unknown> {
+function readJsonBody(req: IncomingMessage, maxBytes = maxBodyBytes): Promise<unknown> {
   return new Promise((resolve, reject) => {
     let body = "";
 
@@ -15527,7 +15541,7 @@ function readJsonBody(req: IncomingMessage): Promise<unknown> {
     req.on("data", (chunk: string) => {
       body += chunk;
 
-      if (Buffer.byteLength(body, "utf8") > maxBodyBytes) {
+      if (Buffer.byteLength(body, "utf8") > maxBytes) {
         reject(new Error("Request body is too large."));
         req.destroy();
       }

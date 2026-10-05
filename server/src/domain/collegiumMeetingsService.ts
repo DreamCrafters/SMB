@@ -10,6 +10,7 @@ import {
   type CollegiumAttachment,
   type CollegiumInitiative,
   type CollegiumMeeting,
+  type CollegiumSettingsInput,
   type CollegiumMeetingDetailResponse,
   type CollegiumMeetingItem,
   type CollegiumMeetingListResponse,
@@ -32,6 +33,12 @@ import {
   type CollegiumOutbox,
 } from "./collegiumNotifications.js";
 import { listCollegiumAdmissionGaps } from "./collegiumInitiativeWorkflow.js";
+import {
+  calculateCollegiumEconomics,
+  listCollegiumPassportGaps,
+  listCollegiumPassportReasons,
+  unsetCollegiumSettings,
+} from "./collegiumEconomics.js";
 import {
   buildCollegiumProtocolDraft,
   maxCollegiumProtocolLength,
@@ -61,11 +68,14 @@ type MeetingAuditAction =
  */
 export function createCollegiumMeetingsService({
   repository,
+  settings,
   transaction,
   audit,
   now = () => new Date(),
 }: {
   repository: CollegiumInitiativesRepository;
+  /** Пороги ТЗ 7.2 для требования полного паспорта. */
+  settings?: { readSettings(): Promise<CollegiumSettingsInput> };
   transaction: DatabaseTransactionRunner;
   audit: AuditRepository;
   now?: () => Date;
@@ -301,6 +311,19 @@ export function createCollegiumMeetingsService({
         const gaps = listCollegiumAdmissionGaps(initiative.card, people);
         if (gaps.length > 0) {
           throw new CollegiumInitiativeError(`Не заполнены обязательные данные: ${gaps.join("; ")}.`);
+        }
+        const [reference, moduleSettings] = await Promise.all([
+          repository.listReference(),
+          settings?.readSettings() ?? Promise.resolve(unsetCollegiumSettings),
+        ]);
+        const economics = calculateCollegiumEconomics(initiative.card, moduleSettings.discountRatePercent).economics;
+        const passportGaps = listCollegiumPassportGaps(
+          initiative,
+          listCollegiumPassportReasons(initiative, moduleSettings, reference),
+          economics,
+        );
+        if (passportGaps.length > 0) {
+          throw new CollegiumInitiativeError(`Нужен полный паспорт. Не заполнено: ${passportGaps.join("; ")}.`);
         }
         await verifyPeople([request.speakerId, ...request.participantIds].filter(Boolean));
         const item: CollegiumMeetingItem = {

@@ -25,14 +25,13 @@ import {
   collegiumRequestedDecisions,
   maxCollegiumInitiativeRisks,
   type CollegiumCommentKind,
-  type CollegiumEconomics,
-  type CollegiumPassportReason,
   type CollegiumRiskInput,
   type CollegiumInitiative,
   type CollegiumInitiativeAction,
   type CollegiumInitiativeCard,
   type CollegiumInitiativeCardInput,
   type CollegiumInitiativeDetailResponse,
+  type CollegiumInitiativeRevision,
   type CollegiumInitiativeFilters,
   type CollegiumInitiativeListResponse,
   type CollegiumInitiativeStatus,
@@ -42,6 +41,7 @@ import type { ServerUserProfile } from "./contracts";
 import { CollegiumMeetingsView } from "./CollegiumMeetings";
 import { CollegiumDashboardView } from "./CollegiumDashboard";
 import { CollegiumSettingsView } from "./CollegiumSettings";
+import { EconomicsSection, PassportForm, PassportSection } from "./CollegiumPassport";
 import { LoadingIndicator } from "./LoadingIndicator";
 import { ManagedTable } from "./ManagedTable";
 import { TableCell, TableHeader } from "./TableCell";
@@ -64,6 +64,9 @@ import type { ShowToast } from "./services/toastStack";
 import { readShortUserMessage } from "./services/userFacingMessages";
 import {
   AttachmentsSection,
+  CardSection,
+  CardValue,
+  FormSection,
   formatAmount,
   formatDate,
   formatDateTime,
@@ -75,7 +78,8 @@ import {
 type View =
   | { kind: "registry" }
   | { kind: "card"; id: string }
-  | { kind: "form"; id?: string };
+  | { kind: "form"; id?: string }
+  | { kind: "passport"; id: string };
 
 type LoadState<T> =
   | { status: "loading" }
@@ -210,7 +214,18 @@ export function CollegiumInitiativesWorkspace({
           onBack={() => setView({ kind: "registry" })}
           onChanged={() => setRefreshVersion((version) => version + 1)}
           onEdit={() => setView({ kind: "form", id: view.id })}
+          onEditPassport={() => setView({ kind: "passport", id: view.id })}
           onShowToast={onShowToast}
+        />
+      ) : view.kind === "passport" ? (
+        <PassportFormView
+          id={view.id}
+          onCancel={() => setView({ kind: "card", id: view.id })}
+          onSaved={(initiative) => {
+            onShowToast("Паспорт сохранён", `${initiative.number} · ${initiative.card.title}`, "success");
+            setRefreshVersion((version) => version + 1);
+            setView({ kind: "card", id: initiative.id });
+          }}
         />
       ) : (
         <InitiativeForm
@@ -574,6 +589,7 @@ function InitiativeCardView({
   refreshVersion,
   onBack,
   onEdit,
+  onEditPassport,
   onChanged,
   onShowToast,
 }: {
@@ -582,6 +598,7 @@ function InitiativeCardView({
   refreshVersion: number;
   onBack: () => void;
   onEdit: () => void;
+  onEditPassport: () => void;
   onChanged: () => void;
   onShowToast: ShowToast;
 }) {
@@ -689,7 +706,8 @@ function InitiativeCardView({
         <CardValue label={collegiumInitiativeFieldLabels.capexAmount} value={formatAmount(card.capexAmount, "")} />
         <CardValue label={collegiumInitiativeFieldLabels.internalResources} value={card.internalResources} wide />
       </CardSection>
-      <EconomicsSection economics={detail.data.economics} reasons={detail.data.passportReasons} />
+      <EconomicsSection detail={detail.data} />
+      <PassportSection detail={detail.data} onEdit={onEditPassport} />
       <CardSection title="Роли и сроки">
         <CardValue label={collegiumInitiativeFieldLabels.ownerId} value={person(card.ownerId)} />
         <CardValue label={collegiumInitiativeFieldLabels.executorId} value={person(card.executorId)} />
@@ -757,7 +775,7 @@ function InitiativeCardView({
                               diffRevision === revision.revision ? undefined : revision.revision,
                             )}
                           >
-                            {revision.changedFields.map((field) => collegiumInitiativeFieldLabels[field]).join(", ")}
+                            {revision.changedFields.map(changedFieldLabel).join(", ")}
                           </button>
                         )}
                   </TableCell>
@@ -774,9 +792,9 @@ function InitiativeCardView({
             <dl className="collegium-diff-list">
               {diffAfter.changedFields.map((field) => (
                 <div className="collegium-diff-row" key={field}>
-                  <dt>{collegiumInitiativeFieldLabels[field]}</dt>
-                  <dd className="collegium-diff-before">{formatCardField(diffBefore.card, field, person) || "—"}</dd>
-                  <dd className="collegium-diff-after">{formatCardField(diffAfter.card, field, person) || "—"}</dd>
+                  <dt>{changedFieldLabel(field)}</dt>
+                  <dd className="collegium-diff-before">{formatChangedField(diffBefore.card, field, person) || "—"}</dd>
+                  <dd className="collegium-diff-after">{formatChangedField(diffAfter.card, field, person) || "—"}</dd>
                 </div>
               ))}
             </dl>
@@ -1535,31 +1553,22 @@ function CommentsSection({
 }
 
 /** Значение поля карточки для просмотра и сравнения версий. */
-/** Расчёт ТЗ 11.3 и причины полного паспорта ТЗ 7.2 — значения сервера. */
-function EconomicsSection({ economics, reasons }: {
-  economics: CollegiumEconomics;
-  reasons: CollegiumPassportReason[];
-}) {
-  const payback = economics.paybackStatus === "not_paying"
-    ? "не окупается"
-    : economics.paybackMonths === "" ? "" : `${economics.paybackMonths.replace(".", ",")} мес.`;
-  return (
-    <CardSection title="Экономика">
-      <CardValue label="Годовой эффект" value={formatAmount(economics.annualEffect, "")} />
-      <CardValue label="Постоянные затраты в год" value={formatAmount(economics.annualRecurringCost, "")} />
-      <CardValue label="Чистый годовой эффект" value={formatAmount(economics.netAnnualEffect, "")} />
-      <CardValue label="Разовые затраты с CAPEX" value={formatAmount(economics.oneTimeCosts, "")} />
-      <CardValue label="Срок окупаемости" value={payback} />
-      <CardValue label="ROI" value={economics.roiPercent === "" ? "" : `${economics.roiPercent.replace(".", ",")} %`} />
-      <CardValue
-        label="Полный паспорт"
-        value={reasons.length === 0
-          ? "не требуется"
-          : `требуется: ${reasons.map((reason) => reason.label.toLocaleLowerCase("ru-RU")).join("; ")}`}
-        wide
-      />
-    </CardSection>
-  );
+function changedFieldLabel(field: CollegiumInitiativeRevision["changedFields"][number]) {
+  return field === "passport" ? "Полный паспорт" : collegiumInitiativeFieldLabels[field];
+}
+
+/** Паспорт в сравнении версий — сводка заполненности; разделы видны в карточке. */
+function formatChangedField(
+  card: CollegiumInitiativeCard,
+  field: CollegiumInitiativeRevision["changedFields"][number],
+  person: (accountId: string) => string,
+) {
+  if (field !== "passport") return formatCardField(card, field, person);
+  const passport = card.passport;
+  if (passport === undefined) return "";
+  const values = Object.values(passport).filter((value) =>
+    typeof value === "string" ? value !== "" : Array.isArray(value) ? value.length > 0 : Object.keys(value).length > 0);
+  return `заполнено разделов: ${values.length}`;
 }
 
 /** Подпись периода из списка или прежний свободный текст старой карточки. */
@@ -2056,6 +2065,17 @@ function InitiativeForm({
   );
 }
 
+function PassportFormView({ id, onCancel, onSaved }: {
+  id: string;
+  onCancel: () => void;
+  onSaved: (initiative: CollegiumInitiative) => void;
+}) {
+  const detail = useInitiativeDetail(id, 0);
+  if (detail.status === "loading") return <LoadingIndicator label="Загружаем паспорт…" variant="inline" />;
+  if (detail.status === "error") return <p className="form-message is-error" role="alert">{detail.message}</p>;
+  return <PassportForm initiative={detail.data.initiative} onCancel={onCancel} onSaved={onSaved} />;
+}
+
 function useInitiativeDetail(id: string | undefined, refreshVersion: number) {
   const [state, setState] = useState<LoadState<CollegiumInitiativeDetailResponse>>({
     status: "loading",
@@ -2082,32 +2102,6 @@ function useInitiativeDetail(id: string | undefined, refreshVersion: number) {
   return state;
 }
 
-function CardSection({ title, children }: { title: string; children: ReactNode }) {
-  return (
-    <section className="collegium-card-section">
-      <h4>{title}</h4>
-      <dl className="collegium-card-grid">{children}</dl>
-    </section>
-  );
-}
-
-function CardValue({ label, value, wide = false }: { label: string; value: string; wide?: boolean }) {
-  return (
-    <div className={`collegium-card-value${wide ? " collegium-field-wide" : ""}`}>
-      <dt>{label}</dt>
-      <dd>{value === "" ? "—" : value}</dd>
-    </div>
-  );
-}
-
-function FormSection({ title, children }: { title: string; children: ReactNode }) {
-  return (
-    <fieldset className="collegium-form-section">
-      <legend>{title}</legend>
-      <div className="collegium-field-grid">{children}</div>
-    </fieldset>
-  );
-}
 
 function createEmptyForm(): FormState {
   return {
