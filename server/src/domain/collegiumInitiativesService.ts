@@ -492,13 +492,15 @@ export function createCollegiumInitiativesService({
     /** Дашборд Коллегии (ТЗ 13.1) по инициативам, видимым пользователю. */
     async dashboard(profile: ServerUserProfile): Promise<CollegiumDashboard> {
       const permissions = requireView(profile);
-      const [initiatives, meetings, linked] = await Promise.all([
+      const [initiatives, meetings, linked, reference] = await Promise.all([
         repository.list(),
         repository.listMeetings(),
         assignments?.listWithInitiativeLink() ?? Promise.resolve([]),
+        repository.listReference(),
       ]);
       return buildCollegiumDashboard({
         today: today(),
+        reference,
         initiatives: initiatives.filter((initiative) => canViewCollegiumInitiative(initiative, profile, permissions)),
         meetings,
         assignments: linked,
@@ -573,7 +575,6 @@ export function createCollegiumInitiativesService({
         throw new CollegiumInitiativeError("Передайте ревизию изменяемой карточки.");
       }
       const reference = await repository.listReference();
-      const nextCard = readCollegiumInitiativeCardInput(request.card, reference);
 
       return transaction.run(async () => {
         const { initiative, permissions } = await requireInitiative(profile, id, true);
@@ -583,6 +584,7 @@ export function createCollegiumInitiativesService({
         if (initiative.revision !== request.revision) {
           throw new CollegiumInitiativeError("Инициатива уже изменена. Обновите карточку.", 409);
         }
+        const nextCard = readCollegiumInitiativeCardInput(request.card, reference, initiative.card);
         if (!permissions.canManage) {
           nextCard.initiatorId = initiative.card.initiatorId;
         } else if (nextCard.initiatorId === "") {

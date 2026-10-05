@@ -91,3 +91,26 @@ test("reminder claims are leased and stop after the attempt limit", async () => 
   assert.match(queries[1].sql, /delivered_at is null and attempts < \?/u);
   assert.equal(queries[1].parameters.at(-1), 3);
 });
+
+test("collegium reference returns archived values with flags", async () => {
+  const pool = {
+    async query(sql: string) {
+      assert.doesNotMatch(sql, /is_active = 1/u);
+      return [[
+        { kind: "direction", code: "production", label: "Производство", is_active: 1, is_significant: 0, unit: "" },
+        { kind: "direction", code: "legacy", label: "Старое", is_active: 0, is_significant: 0, unit: "" },
+        { kind: "risk_level", code: "high", label: "Высокий", is_active: 1, is_significant: 1, unit: "" },
+        { kind: "kpi", code: "loss", label: "Потери", is_active: 1, is_significant: 0, unit: "%" },
+        { kind: "unknown", code: "x", label: "X", is_active: 1, is_significant: 0, unit: "" },
+      ], []];
+    },
+  } as unknown as DatabasePool;
+  const reference = await createCollegiumInitiativesRepository(pool).listReference();
+  assert.deepEqual(reference.direction, [
+    { code: "production", label: "Производство" },
+    { code: "legacy", label: "Старое", archived: true },
+  ]);
+  assert.deepEqual(reference.risk_level, [{ code: "high", label: "Высокий", significant: true }]);
+  assert.deepEqual(reference.kpi, [{ code: "loss", label: "Потери", unit: "%" }]);
+  assert.deepEqual(reference.site, []);
+});

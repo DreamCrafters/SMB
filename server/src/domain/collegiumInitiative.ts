@@ -151,6 +151,8 @@ export function canEditCollegiumInitiative(
 export function readCollegiumInitiativeCardInput(
   input: unknown,
   reference: CollegiumReference,
+  /** Сохранённая карточка: её архивные значения справочников остаются допустимыми. */
+  previous?: CollegiumInitiativeCardInput,
 ): CollegiumInitiativeCard {
   if (!isRecord(input)) {
     throw new CollegiumInitiativeError("Передайте карточку инициативы.");
@@ -183,7 +185,10 @@ export function readCollegiumInitiativeCardInput(
 
   const directionCode = text("directionCode", maxShortTextLength);
   const direction = reference.direction.find(({ code }) => code === directionCode);
-  if (directionCode !== "" && direction === undefined) {
+  if (
+    directionCode !== "" &&
+    (direction === undefined || (direction.archived === true && previous?.directionCode !== directionCode))
+  ) {
     throw new CollegiumInitiativeError("Выберите направление из справочника.");
   }
 
@@ -197,7 +202,7 @@ export function readCollegiumInitiativeCardInput(
   }
   const effectTypes = (rawEffectTypes as string[]).map((code) => {
     const option = reference.effect_type.find((item) => item.code === code);
-    if (option === undefined) {
+    if (option === undefined || (option.archived === true && !previous?.effectTypeCodes.includes(code))) {
       throw new CollegiumInitiativeError("Выберите типы эффекта из справочника.");
     }
     return option;

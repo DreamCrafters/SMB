@@ -177,12 +177,27 @@ export const collegiumRequestedDecisions = [
 export type CollegiumRequestedDecision =
   (typeof collegiumRequestedDecisions)[number];
 
-export const collegiumReferenceKinds = ["direction", "effect_type"] as const;
+export const collegiumReferenceKinds = ["direction", "effect_type", "risk_level", "site", "kpi"] as const;
 export type CollegiumReferenceKind = (typeof collegiumReferenceKinds)[number];
 
+export const collegiumReferenceKindLabels: Record<CollegiumReferenceKind, string> = {
+  direction: "Направления",
+  effect_type: "Типы эффекта",
+  risk_level: "Уровни риска",
+  site: "Участки",
+  kpi: "KPI и единицы измерения",
+};
+
+/**
+ * Значение справочника. Архивное не предлагается в новых правках, но остаётся
+ * в старых карточках; значимость — только у уровней риска, единица — у KPI.
+ */
 export type CollegiumReferenceOption = {
   code: string;
   label: string;
+  archived?: boolean;
+  significant?: boolean;
+  unit?: string;
 };
 
 export type CollegiumReference = Record<
@@ -695,6 +710,55 @@ export type CollegiumInitiativeLastDecision = {
 };
 
 export const collegiumMeetingsApiPath = "/api/collegium-meetings";
+export const collegiumSettingsApiPath = "/api/collegium-settings";
+
+/**
+ * Настройки модуля (ТЗ 14). Пустая строка или пустой список — «не задано»:
+ * условие полного паспорта не срабатывает, NPV не считается, в отчёт СД идут
+ * все просроченные поручения.
+ */
+export type CollegiumSettingsInput = {
+  /** Порог разовых затрат для полного паспорта, ₽ (`1234.50`). */
+  oneTimeCostThreshold: string;
+  /** Порог CAPEX для полного паспорта, ₽. */
+  capexThreshold: string;
+  /** Норматив срока окупаемости, месяцев (`18` или `18.5`). */
+  paybackNormMonths: string;
+  /** Ставка дисконтирования для NPV, % годовых. */
+  discountRatePercent: string;
+  /** Значения «Важности» поручения, считающиеся критическими. */
+  criticalImportance: string[];
+};
+
+export type CollegiumSettings = CollegiumSettingsInput & {
+  revision: number;
+  updatedByDisplayName: string;
+  updatedAt: string;
+};
+
+export type CollegiumSettingsResponse = {
+  settings: CollegiumSettings;
+  /** Все значения, включая архивные. */
+  reference: CollegiumReference;
+  canEditReference: boolean;
+  canEditSettings: boolean;
+};
+
+export type CollegiumReferenceCreateInput = {
+  kind: CollegiumReferenceKind;
+  label: string;
+  unit?: string;
+};
+
+export type CollegiumReferenceUpdateInput = {
+  label?: string;
+  unit?: string;
+  archived?: boolean;
+  /** Сдвиг на одну позицию. */
+  move?: "up" | "down";
+  /** Значимость уровня риска; меняет только председатель. */
+  significant?: boolean;
+};
 
 export const collegiumResultConclusions = ["achieved", "partial", "not_achieved"] as const;
 export type CollegiumResultConclusion = (typeof collegiumResultConclusions)[number];
@@ -864,7 +928,7 @@ export type CollegiumDashboard = {
   overdueAssignments: number;
   plannedEffect: string;
   confirmedEffect: string;
-  effectByDirection: Array<{ directionLabel: string; planned: string; confirmed: string }>;
+  effectByDirection: Array<{ directionCode: string; directionLabel: string; planned: string; confirmed: string }>;
   nextMeeting?: {
     id: string;
     number: string;

@@ -1,9 +1,17 @@
 import {
   collegiumInitiativesApiPath,
   collegiumMeetingsApiPath,
+  collegiumSettingsApiPath,
   type CollegiumAttachment,
   type CollegiumAttentionItem,
   type CollegiumDashboard,
+  type CollegiumReference,
+  type CollegiumReferenceCreateInput,
+  type CollegiumReferenceKind,
+  type CollegiumReferenceUpdateInput,
+  type CollegiumSettings,
+  type CollegiumSettingsInput,
+  type CollegiumSettingsResponse,
   type CollegiumCommentKind,
   type CollegiumInitiative,
   type CollegiumInitiativeActionRequest,
@@ -35,7 +43,7 @@ export class CollegiumInitiativesRequestError extends Error {
 
 async function request<T>(
   path: string,
-  method: "GET" | "POST" | "PATCH" | "DELETE",
+  method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE",
   body?: unknown,
   signal?: AbortSignal,
 ): Promise<T> {
@@ -326,4 +334,39 @@ function readRequestError(payload: unknown, status: number, fallback: string) {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+export function requestCollegiumSettings(signal?: AbortSignal) {
+  return request<CollegiumSettingsResponse>(collegiumSettingsApiPath, "GET", undefined, signal);
+}
+
+export async function saveCollegiumSettings(revision: number, settings: CollegiumSettingsInput) {
+  const result = await request<{ settings: CollegiumSettings }>(
+    collegiumSettingsApiPath,
+    "PUT",
+    { revision, settings },
+  );
+  return result.settings;
+}
+
+export async function createCollegiumReference(input: CollegiumReferenceCreateInput) {
+  const result = await request<{ reference: CollegiumReference }>(
+    `${collegiumSettingsApiPath}/reference`,
+    "POST",
+    input,
+  );
+  return result.reference;
+}
+
+export async function updateCollegiumReference(
+  kind: CollegiumReferenceKind,
+  code: string,
+  input: CollegiumReferenceUpdateInput,
+) {
+  const result = await request<{ reference: CollegiumReference }>(
+    `${collegiumSettingsApiPath}/reference/${encodeURIComponent(kind)}/${encodeURIComponent(code)}`,
+    "PATCH",
+    input,
+  );
+  return result.reference;
 }

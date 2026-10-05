@@ -7,6 +7,8 @@ import { createDirectorAssignmentsRepository } from "./repositories/directorAssi
 import { createCollegiumInitiativesService } from "./domain/collegiumInitiativesService.js";
 import { createCollegiumMeetingsService } from "./domain/collegiumMeetingsService.js";
 import { createCollegiumInitiativesRepository } from "./repositories/collegiumInitiativesRepository.js";
+import { createCollegiumSettingsRepository } from "./repositories/collegiumSettingsRepository.js";
+import { createCollegiumSettingsService } from "./domain/collegiumSettingsService.js";
 import { createTableLayoutsRepository } from "./repositories/tableLayoutsRepository.js";
 import { readServerConfig } from "./config/env.js";
 import { runMigrations } from "./db/migrations.js";
@@ -171,6 +173,7 @@ const server = createApiServer({
   collegiumAssignments: createDirectorAssignmentsService({ repository: collegiumAssignmentsRepository, initiativeLinks: collegiumInitiatives.assignmentLinks, transaction: database.transaction, audit: createAuditRepository(pool) }),
   collegiumInitiatives,
   collegiumMeetings: createCollegiumMeetingsService({ repository: createCollegiumInitiativesRepository(pool), transaction: database.transaction, audit: createAuditRepository(pool) }),
+  collegiumSettings: createCollegiumSettingsService({ repository: createCollegiumSettingsRepository(pool), transaction: database.transaction, audit: createAuditRepository(pool) }),
   boardAssignments: createBoardAssignmentsRepository(pool),
   warehouse1c: warehouse1cReadOnlyPool === undefined
     ? createWarehouse1cRepository(pool)

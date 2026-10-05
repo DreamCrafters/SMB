@@ -108,6 +108,7 @@ import { createApiServer } from "./app.js";
 import { createDirectorAssignmentsService } from "../domain/directorAssignmentsService.js";
 import type { CollegiumInitiativesService } from "../domain/collegiumInitiativesService.js";
 import type { CollegiumMeetingsService } from "../domain/collegiumMeetingsService.js";
+import type { CollegiumSettingsService } from "../domain/collegiumSettingsService.js";
 import { CollegiumInitiativeError } from "../domain/collegiumInitiative.js";
 import { buildCollegiumDashboard } from "../domain/collegiumDashboard.js";
 import type { DirectorAssignmentsRepository } from "../repositories/directorAssignmentsRepository.js";
@@ -16123,7 +16124,10 @@ test("collegium initiatives API routes requests and maps module errors", async (
     },
     async dashboard() {
       calls.push("dashboard");
-      return buildCollegiumDashboard({ today: "2026-10-05", initiatives: [], meetings: [], assignments: [] });
+      return buildCollegiumDashboard({
+        today: "2026-10-05", initiatives: [], meetings: [], assignments: [],
+        reference: { direction: [], effect_type: [], risk_level: [], site: [], kpi: [] },
+      });
     },
     async exportRegistry(_profile: ServerUserProfile, filters: unknown) {
       calls.push(`export:${JSON.stringify(filters)}`);
@@ -16139,6 +16143,24 @@ test("collegium initiatives API routes requests and maps module errors", async (
     dispatcherSubmissions,
     authService: buildAuthService({ profile }),
     collegiumInitiatives,
+    collegiumSettings: {
+      async read() {
+        calls.push("settings:read");
+        throw new CollegiumInitiativeError("Настройки Коллегии доступны секретарю и председателю.", 403);
+      },
+      async updateSettings(_profile: ServerUserProfile, body: unknown) {
+        calls.push(`settings:update:${JSON.stringify(body)}`);
+        throw new CollegiumInitiativeError("Настройки уже изменены. Обновите страницу.", 409);
+      },
+      async createReference(_profile: ServerUserProfile, body: unknown) {
+        calls.push(`reference:create:${JSON.stringify(body)}`);
+        return { direction: [], effect_type: [], risk_level: [], site: [], kpi: [] };
+      },
+      async updateReference(_profile: ServerUserProfile, kind: string, code: string, body: unknown) {
+        calls.push(`reference:update:${kind}:${code}:${JSON.stringify(body)}`);
+        return { direction: [], effect_type: [], risk_level: [], site: [], kpi: [] };
+      },
+    } as unknown as CollegiumSettingsService,
     audit: {
       async record() {},
       async listReport() { throw new Error("not used"); },
@@ -16194,6 +16216,25 @@ test("collegium initiatives API routes requests and maps module errors", async (
     const summary = await fetch(`${baseUrl}/api/collegium-initiatives/dashboard.pdf`, { headers });
     assert.equal(summary.headers.get("content-type"), "application/pdf");
     assert.deepEqual(calls, ["dashboard", "dashboard"]);
+    calls.length = 0;
+
+    assert.equal((await fetch(`${baseUrl}/api/collegium-settings`, { headers })).status, 403);
+    assert.equal((await fetch(`${baseUrl}/api/collegium-settings`, {
+      method: "PUT", headers, body: JSON.stringify({ revision: 1 }),
+    })).status, 409);
+    assert.equal((await fetch(`${baseUrl}/api/collegium-settings/reference`, {
+      method: "POST", headers, body: JSON.stringify({ kind: "site", label: "Цех 1" }),
+    })).status, 201);
+    assert.equal((await fetch(`${baseUrl}/api/collegium-settings/reference/risk_level/high`, {
+      method: "PATCH", headers, body: JSON.stringify({ move: "up" }),
+    })).status, 200);
+    assert.equal((await fetch(`${baseUrl}/api/collegium-settings/reference/Bad/x`, { method: "PATCH", headers, body: "{}" })).status, 404);
+    assert.deepEqual(calls, [
+      "settings:read",
+      'settings:update:{"revision":1}',
+      'reference:create:{"kind":"site","label":"Цех 1"}',
+      'reference:update:risk_level:high:{"move":"up"}',
+    ]);
     calls.length = 0;
 
     const binaryHeaders = { Cookie: headers.Cookie, "Content-Type": "application/octet-stream" };

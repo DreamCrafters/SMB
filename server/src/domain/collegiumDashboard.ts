@@ -4,6 +4,7 @@ import {
   type CollegiumInitiative,
   type CollegiumInitiativeStatus,
   type CollegiumMeeting,
+  type CollegiumReference,
 } from "../contracts/collegiumInitiatives.js";
 import type { DirectorAssignment } from "../contracts/directorAssignments.js";
 
@@ -61,11 +62,13 @@ export function buildCollegiumDashboard({
   initiatives,
   meetings,
   assignments,
+  reference,
 }: {
   today: string;
   initiatives: readonly CollegiumInitiative[];
   meetings: readonly CollegiumMeeting[];
   assignments: readonly DirectorAssignment[];
+  reference: CollegiumReference;
 }): CollegiumDashboard {
   const visibleIds = new Set(initiatives.map(({ id }) => id));
   const counts = new Map<CollegiumInitiativeStatus, number>();
@@ -78,10 +81,17 @@ export function buildCollegiumDashboard({
 
   let planned = 0n;
   let confirmed = 0n;
-  const byDirection = new Map<string, { planned: bigint; confirmed: bigint }>();
+  const byDirection = new Map<string, { label: string; planned: bigint; confirmed: bigint }>();
   for (const initiative of initiatives) {
-    const label = initiative.card.directionLabel || "Без направления";
-    const entry = byDirection.get(label) ?? { planned: 0n, confirmed: 0n };
+    // Group by code so a renamed direction stays one group; label is the current one.
+    const code = initiative.card.directionCode;
+    const entry = byDirection.get(code) ?? {
+      label: code === ""
+        ? "Без направления"
+        : reference.direction.find((option) => option.code === code)?.label ?? initiative.card.directionLabel,
+      planned: 0n,
+      confirmed: 0n,
+    };
     if (plannedEffectStatuses.includes(initiative.status)) {
       const value = toKopecks(initiative.card.expectedEffectAmount);
       planned += value;
@@ -93,7 +103,7 @@ export function buildCollegiumDashboard({
       confirmed += value;
       entry.confirmed += value;
     }
-    if (entry.planned > 0n || entry.confirmed > 0n) byDirection.set(label, entry);
+    if (entry.planned > 0n || entry.confirmed > 0n) byDirection.set(code, entry);
   }
 
   const nextMeeting = meetings
@@ -127,8 +137,9 @@ export function buildCollegiumDashboard({
     confirmedEffect: fromKopecks(confirmed),
     effectByDirection: [...byDirection]
       .sort(([, left], [, right]) => (right.planned > left.planned ? 1 : right.planned < left.planned ? -1 : 0))
-      .map(([directionLabel, entry]) => ({
-        directionLabel,
+      .map(([directionCode, entry]) => ({
+        directionCode,
+        directionLabel: entry.label,
         planned: fromKopecks(entry.planned),
         confirmed: fromKopecks(entry.confirmed),
       })),

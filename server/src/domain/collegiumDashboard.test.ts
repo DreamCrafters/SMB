@@ -14,7 +14,7 @@ function initiative(
   return {
     id: `i-${sequence}`, number: `И-2026-${String(sequence).padStart(4, "0")}`, status, revision: 1,
     createdByUserId: "author", createdAt: "", updatedAt: "", workflow,
-    card: { title: `Идея ${sequence}`, directionLabel: "", expectedEffectAmount: "", risks: [], ...card } as CollegiumInitiative["card"],
+    card: { title: `Идея ${sequence}`, directionCode: "", directionLabel: "", expectedEffectAmount: "", risks: [], ...card } as CollegiumInitiative["card"],
   };
 }
 
@@ -25,10 +25,10 @@ test("dashboard counts stages, sums effect exactly and ranks the top lists", () 
     initiative("preliminary_review", { expectedEffectAmount: "999999.00" }),
     initiative("rework", {}, { rework: { dueDate: "2026-10-01" } as CollegiumInitiative["workflow"]["rework"] }),
     initiative("rework", {}, { rework: { dueDate: "2026-10-09" } as CollegiumInitiative["workflow"]["rework"] }),
-    initiative("approved_pilot", { directionLabel: "Энергия", expectedEffectAmount: "0.10", risks: ["Сбой поставки"] }),
-    initiative("in_progress", { directionLabel: "Энергия", expectedEffectAmount: "0.20" }, { lastDecision: { decision: "pilot" } as CollegiumInitiative["workflow"]["lastDecision"] }),
-    initiative("in_progress", { directionLabel: "Сырьё", expectedEffectAmount: "500.00", risks: ["Рост цен", "Простой"] }),
-    initiative("done_confirmed", { directionLabel: "Сырьё", expectedEffectAmount: "300.00" }, {
+    initiative("approved_pilot", { directionCode: "energy", directionLabel: "Энергия", expectedEffectAmount: "0.10", risks: ["Сбой поставки"] }),
+    initiative("in_progress", { directionCode: "energy", directionLabel: "Энергия (старое)", expectedEffectAmount: "0.20" }, { lastDecision: { decision: "pilot" } as CollegiumInitiative["workflow"]["lastDecision"] }),
+    initiative("in_progress", { directionCode: "raw", directionLabel: "Сырьё", expectedEffectAmount: "500.00", risks: ["Рост цен", "Простой"] }),
+    initiative("done_confirmed", { directionCode: "raw", directionLabel: "Сырьё", expectedEffectAmount: "300.00" }, {
       result,
       effectConfirmation: { confirmedByDisplayName: "Контролёр", confirmedAt: "", result },
     }),
@@ -56,7 +56,11 @@ test("dashboard counts stages, sums effect exactly and ranks the top lists", () 
     { status: "in_progress", currentOccurrenceDate: "2026-10-01", sourceInitiativeId: "hidden" },
   ] as unknown as DirectorAssignment[];
 
-  const dashboard = buildCollegiumDashboard({ today: "2026-10-05", initiatives, meetings, assignments });
+  const reference = {
+    direction: [{ code: "energy", label: "Энергия" }, { code: "raw", label: "Сырьё", archived: true }],
+    effect_type: [], risk_level: [], site: [], kpi: [],
+  };
+  const dashboard = buildCollegiumDashboard({ today: "2026-10-05", initiatives, meetings, assignments, reference });
 
   assert.equal(dashboard.total, 10);
   assert.deepEqual(dashboard.statusCounts.find(({ status }) => status === "rework"), { status: "rework", count: 2 });
@@ -69,9 +73,10 @@ test("dashboard counts stages, sums effect exactly and ranks the top lists", () 
   assert.equal(dashboard.plannedEffect, "850.30");
   assert.equal(dashboard.confirmedEffect, "100.10");
   assert.deepEqual(dashboard.effectByDirection, [
-    { directionLabel: "Сырьё", planned: "800.00", confirmed: "100.10" },
-    { directionLabel: "Без направления", planned: "50.00", confirmed: "0.00" },
-    { directionLabel: "Энергия", planned: "0.30", confirmed: "0.00" },
+    { directionCode: "raw", directionLabel: "Сырьё", planned: "800.00", confirmed: "100.10" },
+    { directionCode: "", directionLabel: "Без направления", planned: "50.00", confirmed: "0.00" },
+    // A renamed label in an old card still lands in one group.
+    { directionCode: "energy", directionLabel: "Энергия", planned: "0.30", confirmed: "0.00" },
   ]);
   assert.equal(dashboard.nextMeeting?.id, "m-next");
   assert.deepEqual(dashboard.nextMeeting?.items, [{ id: "i-9", number: "И-2026-0009", title: "Снимок" }]);
@@ -85,7 +90,10 @@ test("dashboard counts stages, sums effect exactly and ranks the top lists", () 
 });
 
 test("an empty portfolio has zero effect and no meeting", () => {
-  const dashboard = buildCollegiumDashboard({ today: "2026-10-05", initiatives: [], meetings: [], assignments: [] });
+  const dashboard = buildCollegiumDashboard({
+    today: "2026-10-05", initiatives: [], meetings: [], assignments: [],
+    reference: { direction: [], effect_type: [], risk_level: [], site: [], kpi: [] },
+  });
   assert.equal(dashboard.plannedEffect, "0.00");
   assert.equal(dashboard.nextMeeting, undefined);
   assert.deepEqual(dashboard.statusCounts, []);

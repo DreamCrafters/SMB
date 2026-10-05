@@ -18,8 +18,11 @@ const DOM_GLOBAL_NAMES = [
 ];
 
 const reference = {
-  direction: [{ code: "production", label: "Производство" }],
+  direction: [{ code: "production", label: "Производство" }, { code: "legacy", label: "Старое направление", archived: true }],
   effect_type: [{ code: "cost_saving", label: "Экономия затрат" }],
+  risk_level: [],
+  site: [],
+  kpi: [],
 };
 const people = [
   { id: "account:owner", displayName: "Петров П.П.", position: "Член Коллегии", hasInitiativesTab: true },
@@ -149,6 +152,8 @@ test("participant creates a draft and opens its card from the registry", async (
     await React.act(async () => findButtonByText(container, "Новая инициатива").click());
     const form = container.querySelector(".collegium-form");
     assert.ok(form);
+    // Archived reference values are not offered for a new card.
+    assert.doesNotMatch(form.textContent, /Старое направление/u);
     // Only accounts with the initiatives tab can be assigned.
     const ownerSelect = Array.from(form.querySelectorAll("label")).find(
       (label) => label.querySelector(":scope > span")?.textContent === "Владелец результата",
@@ -427,6 +432,59 @@ test("the dashboard shows server figures with labelled effect bars and opens a c
   }
 });
 
+test("the secretary edits thresholds and reference values on the settings tab", async () => {
+  const requests = [];
+  const settings = {
+    oneTimeCostThreshold: "", capexThreshold: "", paybackNormMonths: "24", discountRatePercent: "",
+    criticalImportance: ["Высокая"], revision: 3, updatedByDisplayName: "Председатель", updatedAt: "2026-10-05T09:00:00.000Z",
+  };
+  const view = await renderWorkspace(
+    { canView: true, canParticipate: true, canManage: true, canApprove: false },
+    async (url, init, permissions) => {
+      if (url.pathname === "/api/collegium-initiatives") {
+        return [{ initiatives: [], people, reference, permissions, meetings: [], overdueIds: [] }];
+      }
+      if (url.pathname === "/api/collegium-settings") {
+        return [{ settings, reference, canEditReference: true, canEditSettings: false }];
+      }
+      if (url.pathname.startsWith("/api/collegium-settings/reference")) {
+        requests.push([init.method, url.pathname, JSON.parse(init.body)]);
+        return [{ reference }, init.method === "POST" ? 201 : 200];
+      }
+      throw new Error(`Unexpected request: ${url.pathname}`);
+    },
+  );
+  const { dom, React, container } = view;
+  try {
+    await waitFor(React, () => container.querySelector(".collegium-section-tabs") !== null);
+    await React.act(async () => findButtonByText(container, "Настройки").click());
+    await waitFor(React, () => container.querySelector(".collegium-reference-table") !== null);
+    // Thresholds are read-only below the chair level.
+    const payback = Array.from(container.querySelectorAll("label")).find((label) =>
+      label.textContent.includes("Норматив срока окупаемости")).querySelector("input");
+    assert.equal(payback.value, "24");
+    assert.equal(payback.disabled, true);
+    assert.match(container.textContent, /Пороги и параметры меняет председатель/u);
+    assert.match(container.querySelector(".collegium-reference-table").textContent, /Старое направлениеВ архиве/u);
+
+    await React.act(async () => findButtonByText(container, "Вернуть").click());
+    const input = Array.from(container.querySelectorAll("label")).find((label) =>
+      label.textContent.startsWith("Новое значение")).querySelector("input");
+    await React.act(async () => {
+      setNativeInputValue(input, "Логистика");
+      input.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+    });
+    await React.act(async () => findButtonByText(container, "Добавить").click());
+    await waitFor(React, () => requests.length === 2);
+    assert.deepEqual(requests, [
+      ["PATCH", "/api/collegium-settings/reference/direction/legacy", { archived: false }],
+      ["POST", "/api/collegium-settings/reference", { kind: "direction", label: "Логистика" }],
+    ]);
+  } finally {
+    await view.cleanup();
+  }
+});
+
 test("viewer sees the registry without the create action", async () => {
   const view = await renderWorkspace(
     { canView: true, canParticipate: false, canManage: false, canApprove: false },
@@ -442,6 +500,10 @@ test("viewer sees the registry without the create action", async () => {
     await waitFor(React, () => container.querySelector(".collegium-initiatives-table") !== null);
     assert.equal(
       Array.from(container.querySelectorAll("button")).some((button) => button.textContent === "Новая инициатива"),
+      false,
+    );
+    assert.equal(
+      Array.from(container.querySelectorAll("button")).some((button) => button.textContent === "Настройки"),
       false,
     );
     assert.match(container.textContent, /Чужая идея/u);

@@ -18,6 +18,9 @@ import { DirectorAssignmentError } from "./directorAssignment.js";
 const reference: CollegiumReference = {
   direction: [{ code: "production", label: "Производство" }],
   effect_type: [{ code: "cost_saving", label: "Экономия затрат" }],
+  risk_level: [],
+  site: [],
+  kpi: [],
 };
 
 function profile(userId: string, level: CollegiumInitiativeAccess): ServerUserProfile {

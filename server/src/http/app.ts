@@ -5,9 +5,10 @@ import { renderBoardAssignmentsPdf } from "../integrations/boardAssignmentsPdf.j
 import { renderDirectorAssignmentsPdf } from "../integrations/directorAssignmentsPdf.js";
 import { assignmentInboxNavigationItem, assignmentInboxSourceOptions, assignmentRegistries, isAssignmentInboxAccess, type AssignmentRegistryId } from "../contracts/directorAssignments.js";
 import type { DirectorAssignmentsService } from "../domain/directorAssignmentsService.js";
-import { collegiumAttachmentLimits, collegiumInitiativeAccessOptions, collegiumInitiativesApiPath, collegiumMeetingsApiPath, collegiumInitiativesNavigationItem, isCollegiumInitiativeAccess } from "../contracts/collegiumInitiatives.js";
+import { collegiumAttachmentLimits, collegiumInitiativeAccessOptions, collegiumInitiativesApiPath, collegiumMeetingsApiPath, collegiumSettingsApiPath, collegiumInitiativesNavigationItem, isCollegiumInitiativeAccess } from "../contracts/collegiumInitiatives.js";
 import type { CollegiumInitiativesService } from "../domain/collegiumInitiativesService.js";
 import type { CollegiumMeetingsService } from "../domain/collegiumMeetingsService.js";
+import type { CollegiumSettingsService } from "../domain/collegiumSettingsService.js";
 import { CollegiumInitiativeError } from "../domain/collegiumInitiative.js";
 import { readCollegiumInitiativeFilters } from "../domain/collegiumRegistry.js";
 import type { CollegiumNotification, CollegiumOutbox } from "../domain/collegiumNotifications.js";
@@ -493,6 +494,7 @@ type AppDependencies = {
   collegiumAssignments?: DirectorAssignmentsService;
   collegiumInitiatives?: CollegiumInitiativesService;
   collegiumMeetings?: CollegiumMeetingsService;
+  collegiumSettings?: CollegiumSettingsService;
   boardAssignments?: BoardAssignmentsRepository;
   warehouse1c?: Warehouse1cRepository;
   railwayWagons?: RailwayWagonsRepository;
@@ -623,6 +625,7 @@ export function createApiServer({
   collegiumAssignments,
   collegiumInitiatives,
   collegiumMeetings,
+  collegiumSettings,
   boardAssignments,
   warehouse1c,
   railwayWagons,
@@ -1107,6 +1110,43 @@ export function createApiServer({
             await deliverCollegiumOutbox(outbox);
           }
           else throw new CollegiumInitiativeError("Действие недоступно.", 405);
+        } catch (error) {
+          if (isDatabaseLockConflict(error)) {
+            sendJson(res, 409, { error: { code: "invalid_response", message: "Данные одновременно меняет другой пользователь. Повторите действие." } });
+            return;
+          }
+          if (!(error instanceof CollegiumInitiativeError)) throw error;
+          sendJson(res, error.status, { error: { code: error.status === 403 ? "access_denied" : "invalid_response", message: error.message } });
+        }
+        return;
+      }
+
+      if (
+        url.pathname === collegiumSettingsApiPath ||
+        url.pathname.startsWith(`${collegiumSettingsApiPath}/`)
+      ) {
+        const access = await requireAuthentication(req, res, { config, devSessions, authService, accounts });
+        if (!access) return;
+        if (!collegiumSettings) {
+          sendJson(res, 503, { error: { code: "server_error", message: "Раздел временно недоступен." } });
+          return;
+        }
+        try {
+          const match = /^\/api\/collegium-settings(?:\/reference(?:\/([a-z_]{1,20})\/([a-zA-Z0-9_-]{1,60}))?)?$/u.exec(url.pathname);
+          if (!match) throw new CollegiumInitiativeError("Страница не найдена.", 404);
+          const [, kind, code] = match;
+          const isReference = url.pathname.startsWith(`${collegiumSettingsApiPath}/reference`);
+          if (!isReference && req.method === "GET") {
+            sendJson(res, 200, await collegiumSettings.read(access.profile));
+          } else if (!isReference && req.method === "PUT") {
+            sendJson(res, 200, { settings: await collegiumSettings.updateSettings(access.profile, await readJsonBody(req)) });
+          } else if (isReference && !kind && req.method === "POST") {
+            sendJson(res, 201, { reference: await collegiumSettings.createReference(access.profile, await readJsonBody(req)) });
+          } else if (isReference && kind && code && req.method === "PATCH") {
+            sendJson(res, 200, { reference: await collegiumSettings.updateReference(access.profile, kind, code, await readJsonBody(req)) });
+          } else {
+            throw new CollegiumInitiativeError("Действие недоступно.", 405);
+          }
         } catch (error) {
           if (isDatabaseLockConflict(error)) {
             sendJson(res, 409, { error: { code: "invalid_response", message: "Данные одновременно меняет другой пользователь. Повторите действие." } });

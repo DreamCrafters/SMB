@@ -34,6 +34,7 @@ import {
 import type { ServerUserProfile } from "./contracts";
 import { CollegiumMeetingsView } from "./CollegiumMeetings";
 import { CollegiumDashboardView } from "./CollegiumDashboard";
+import { CollegiumSettingsView } from "./CollegiumSettings";
 import { LoadingIndicator } from "./LoadingIndicator";
 import { ManagedTable } from "./ManagedTable";
 import { TableCell, TableHeader } from "./TableCell";
@@ -92,7 +93,7 @@ export function CollegiumInitiativesWorkspace({
   });
   const [refreshVersion, setRefreshVersion] = useState(0);
   const [view, setView] = useState<View>({ kind: "registry" });
-  const [section, setSection] = useState<"initiatives" | "meetings" | "dashboard">("initiatives");
+  const [section, setSection] = useState<"initiatives" | "meetings" | "dashboard" | "settings">("initiatives");
   const [filters, setFilters] = useState<CollegiumInitiativeFilters>({});
   const filtersKey = JSON.stringify(filters);
 
@@ -146,6 +147,7 @@ export function CollegiumInitiativesWorkspace({
             ["initiatives", "Инициативы"],
             ["meetings", "Заседания"],
             ["dashboard", "Дашборд"],
+            ...(data.permissions.canManage ? [["settings", "Настройки"] as const] : []),
           ] as const).map(([id, label]) => (
             <button
               aria-selected={section === id}
@@ -163,7 +165,9 @@ export function CollegiumInitiativesWorkspace({
           ))}
         </div>
       </header>
-      {section === "dashboard" ? (
+      {section === "settings" ? (
+        <CollegiumSettingsView onShowToast={onShowToast} />
+      ) : section === "dashboard" ? (
         <CollegiumDashboardView
           refreshVersion={refreshVersion}
           onOpen={(id) => {
@@ -378,7 +382,7 @@ function InitiativeRegistry({
             >
               <option value="">Все направления</option>
               {data.reference.direction.map((option) => (
-                <option key={option.code} value={option.code}>{option.label}</option>
+                <option key={option.code} value={option.code}>{option.archived === true ? `${option.label} (архив)` : option.label}</option>
               ))}
             </select>
           </label>
@@ -414,7 +418,7 @@ function InitiativeRegistry({
               >
                 <option value="">Все типы</option>
                 {data.reference.effect_type.map((option) => (
-                  <option key={option.code} value={option.code}>{option.label}</option>
+                  <option key={option.code} value={option.code}>{option.archived === true ? `${option.label} (архив)` : option.label}</option>
                 ))}
               </select>
             </label>
@@ -1575,6 +1579,8 @@ function InitiativeForm({
   }
 
   const status = loaded?.initiative.status ?? "draft";
+  // Archived reference values stay selectable only where the saved card uses them.
+  const saved = loaded?.initiative.card;
   const reasonRequired = id !== undefined && status !== "draft";
   const assignable = data.people.filter((person) => person.hasInitiativesTab);
   const update = <K extends keyof FormState>(field: K, value: FormState[K]) => {
@@ -1715,14 +1721,20 @@ function InitiativeForm({
             }}
           >
             <option value="">Не выбрано</option>
-            {data.reference.direction.map((option) => (
-              <option key={option.code} value={option.code}>{option.label}</option>
-            ))}
+            {data.reference.direction
+              .filter((option) => option.archived !== true || saved?.directionCode === option.code)
+              .map((option) => (
+                <option key={option.code} value={option.code}>
+                  {option.archived === true ? `${option.label} (архив)` : option.label}
+                </option>
+              ))}
           </select>
         </label>
         <fieldset className="collegium-field collegium-field-wide collegium-checkbox-group">
           <legend>{collegiumInitiativeFieldLabels.effectTypeCodes}</legend>
-          {data.reference.effect_type.map((option) => (
+          {data.reference.effect_type
+            .filter((option) => option.archived !== true || saved?.effectTypeCodes.includes(option.code))
+            .map((option) => (
             <label className="collegium-checkbox" key={option.code}>
               <input
                 checked={form.effectTypeCodes.includes(option.code)}
@@ -1735,9 +1747,9 @@ function InitiativeForm({
                     : form.effectTypeCodes.filter((code) => code !== option.code));
                 }}
               />
-              <span>{option.label}</span>
+              <span>{option.archived === true ? `${option.label} (архив)` : option.label}</span>
             </label>
-          ))}
+            ))}
         </fieldset>
       </FormSection>
 

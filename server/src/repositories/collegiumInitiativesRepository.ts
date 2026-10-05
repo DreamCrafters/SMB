@@ -103,7 +103,31 @@ type ReferenceRow = RowDataPacket & {
   kind: CollegiumReferenceKind;
   code: string;
   label: string;
+  is_active: number;
+  is_significant: number;
+  unit: string;
 };
+
+/** Все значения справочника, архивные — с флагом. */
+export async function readCollegiumReference(pool: DatabasePool, lock = false): Promise<CollegiumReference> {
+  const [rows] = await pool.query<ReferenceRow[]>(
+    `select kind, code, label, is_active, is_significant, unit from collegium_initiative_reference
+     order by kind, sort_order, code${lock ? " for update" : ""}`,
+  );
+  const reference = Object.fromEntries(
+    collegiumReferenceKinds.map((kind) => [kind, []]),
+  ) as unknown as CollegiumReference;
+  for (const row of rows) {
+    reference[row.kind]?.push({
+      code: row.code,
+      label: row.label,
+      ...(Number(row.is_active) === 1 ? {} : { archived: true }),
+      ...(row.kind === "risk_level" ? { significant: Number(row.is_significant) === 1 } : {}),
+      ...(row.kind === "kpi" ? { unit: row.unit } : {}),
+    });
+  }
+  return reference;
+}
 
 type PersonRow = RowDataPacket & {
   user_id: string;
@@ -169,18 +193,8 @@ export function createCollegiumInitiativesRepository(pool: DatabasePool) {
   }
 
   return {
-    async listReference(): Promise<CollegiumReference> {
-      const [rows] = await pool.query<ReferenceRow[]>(
-        `select kind, code, label from collegium_initiative_reference
-         where is_active = 1 order by kind, sort_order, code`,
-      );
-      const reference = Object.fromEntries(
-        collegiumReferenceKinds.map((kind) => [kind, []]),
-      ) as unknown as CollegiumReference;
-      for (const row of rows) {
-        reference[row.kind]?.push({ code: row.code, label: row.label });
-      }
-      return reference;
+    listReference(): Promise<CollegiumReference> {
+      return readCollegiumReference(pool);
     },
 
     listPeople() {

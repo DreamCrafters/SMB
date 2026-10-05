@@ -239,7 +239,7 @@ function EffectByDirection({ rows }: { rows: CollegiumDashboard["effectByDirecti
           <tbody>
             {rows.map((row) => (
               <tr
-                key={row.directionLabel}
+                key={row.directionCode}
                 title={`${row.directionLabel}: плановый ${formatAmount(row.planned)}, подтверждённый ${formatAmount(row.confirmed)}`}
               >
                 <TableHeader scope="row">{row.directionLabel}</TableHeader>

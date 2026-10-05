@@ -23,6 +23,9 @@ const reference: CollegiumReference = {
     { code: "cost_saving", label: "Экономия затрат" },
     { code: "defect_reduction", label: "Снижение брака" },
   ],
+  risk_level: [],
+  site: [],
+  kpi: [],
 };
 
 function profile(userId: string, level: CollegiumInitiativeAccess): ServerUserProfile {
@@ -76,6 +79,28 @@ function createHarness(activeUsers = ["author", "other", "secretary", "owner", "
   });
   return { service, initiatives, revisions, comments, attachments, auditEvents, transactions: () => transactions };
 }
+
+test("an archived reference value stays valid only where it was already chosen", () => {
+  const archived: CollegiumReference = {
+    ...reference,
+    direction: [...reference.direction, { code: "legacy", label: "Старое направление", archived: true }],
+    effect_type: [...reference.effect_type, { code: "old_effect", label: "Старый эффект", archived: true }],
+  };
+  const input = { ...card(), directionCode: "legacy", effectTypeCodes: ["old_effect", "cost_saving"] };
+  assert.throws(() => readCollegiumInitiativeCardInput(input, archived), /направление/u);
+  assert.throws(
+    () => readCollegiumInitiativeCardInput({ ...input, directionCode: "" }, archived),
+    /типы эффекта/u,
+  );
+  const previous = readCollegiumInitiativeCardInput({ ...card(), directionCode: "production" }, reference);
+  const kept = readCollegiumInitiativeCardInput(input, archived, {
+    ...previous,
+    directionCode: "legacy",
+    effectTypeCodes: ["old_effect"],
+  });
+  assert.equal(kept.directionLabel, "Старое направление");
+  assert.deepEqual(kept.effectTypeLabels, ["Старый эффект", "Экономия затрат"]);
+});
 
 test("card input canonicalizes amounts, labels and rejects malformed fields", () => {
   const parsed = readCollegiumInitiativeCardInput({

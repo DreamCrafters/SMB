@@ -10212,6 +10212,30 @@ p {
   font-size: 13px;
 }
 
+.collegium-settings {
+  display: grid;
+  gap: var(--density-3);
+}
+
+.collegium-reference-table tr.is-archived {
+  color: var(--muted);
+}
+
+.collegium-reference-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--density-1);
+}
+
+.collegium-reference-actions .secondary-button {
+  padding: 4px 8px;
+}
+
+.collegium-reference-add {
+  display: flex;
+  align-items: flex-end;
+}
+
 @media (forced-colors: active) {
   .collegium-bar,
   .collegium-bar-key {

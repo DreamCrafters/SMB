@@ -4710,6 +4710,37 @@ const migrations: Migration[] = [
       ) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci;`,
     ],
   },
+  {
+    /**
+     * Задача 135, срез 8: справочники и настройки модуля (ТЗ 14). Архивное
+     * значение — `is_active = 0`: код не удаляется и читается старыми
+     * карточками. Уровни риска засеваются, участки и KPI заводит секретарь.
+     * Настройки — одна запись с ревизией; пустое значение — «не задано».
+     */
+    id: "096_collegium_reference_settings",
+    statements: [
+      `alter table collegium_initiative_reference
+        add column is_significant tinyint(1) not null default 0,
+        add column unit varchar(40) not null default '';`,
+      ...[
+        ["low", "Низкий", 0],
+        ["medium", "Средний", 0],
+        ["high", "Высокий", 1],
+        ["critical", "Критический", 1],
+      ].map(([code, label, significant], index) =>
+        `insert ignore into collegium_initiative_reference (kind, code, label, sort_order, is_significant)
+          values ('risk_level', ${sqlString(String(code))}, ${sqlString(String(label))}, ${index}, ${significant});`),
+      `create table if not exists collegium_initiative_settings (
+        id tinyint unsigned not null primary key,
+        revision int unsigned not null,
+        payload longtext not null check (json_valid(payload)),
+        updated_by_display_name varchar(255) not null,
+        updated_at timestamp(3) not null default current_timestamp(3)
+      ) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci;`,
+      `insert ignore into collegium_initiative_settings (id, revision, payload, updated_by_display_name, updated_at)
+        values (1, 1, '{}', '', utc_timestamp(3));`,
+    ],
+  },
 ];
 
 function removePositionJsonValue(
