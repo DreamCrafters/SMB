@@ -98,6 +98,54 @@ export function updateAdminNotificationChannels(
   );
 }
 
+export type OwnNotificationEmailResult =
+  | { status: "ready"; email?: string }
+  | ErrorResult;
+
+export function requestOwnNotificationEmail(options: RequestOptions = {}) {
+  return requestEmail("GET", undefined, options);
+}
+
+export function updateOwnNotificationEmail(
+  email: string,
+  options: RequestOptions = {},
+) {
+  return requestEmail("PATCH", { email }, options);
+}
+
+/**
+ * UX-подсказка формы: та же форма адреса, что проверяет backend. Сохранение
+ * всё равно валидирует сервер.
+ */
+export function isNotificationEmailInput(value: string) {
+  const email = value.trim();
+  return email.length <= 320 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/u.test(email);
+}
+
+async function requestEmail(
+  method: "GET" | "PATCH",
+  body: unknown,
+  options: RequestOptions,
+): Promise<OwnNotificationEmailResult> {
+  const result = await requestJson(
+    "/api/notification-email",
+    method,
+    body,
+    options,
+  );
+
+  return result.ok && isRecord(result.payload) &&
+    (result.payload.email === undefined ||
+      typeof result.payload.email === "string")
+    ? {
+        status: "ready",
+        ...(result.payload.email === undefined
+          ? {}
+          : { email: result.payload.email }),
+      }
+    : { status: "error", message: result.message ?? "Сервер вернул Email в неподдерживаемом формате." };
+}
+
 export async function requestLoginNotifications(
   options: RequestOptions = {},
 ): Promise<LoginNotificationsResult> {

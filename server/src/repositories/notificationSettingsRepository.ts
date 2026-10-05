@@ -86,6 +86,11 @@ export type NotificationSettingsRepository = {
     email?: string;
     maxUserId?: string;
   }) => Promise<boolean>;
+  readEmail: (userId: string) => Promise<{ email?: string } | undefined>;
+  updateEmail: (input: {
+    userId: string;
+    email: string;
+  }) => Promise<{ previousEmail?: string } | undefined>;
   listDeliveryRecipients: (
     type: NotificationType,
   ) => Promise<NotificationDeliveryRecipient[]>;
@@ -536,6 +541,52 @@ export function createNotificationSettingsRepository(
     }
   }
 
+  async function readEmail(userId: string) {
+    const [rows] = await pool.query<ContactRow[]>(
+      `select users.email, users.max_user_id
+       from app_users users
+       where users.id = ? and users.status <> 'archived'
+       limit 1`,
+      [userId],
+    );
+    const row = rows[0];
+    if (row === undefined) return undefined;
+    const email = normalizeOptional(row.email);
+    return email === undefined ? {} : { email };
+  }
+
+  async function updateEmail({
+    userId,
+    email,
+  }: {
+    userId: string;
+    email: string;
+  }) {
+    const connection = await pool.getConnection();
+
+    try {
+      await connection.beginTransaction();
+      const contact = await readContactForUpdate(connection, userId);
+      if (contact === undefined) {
+        await connection.rollback();
+        return undefined;
+      }
+
+      await connection.query(
+        "update app_users set email = ? where id = ?",
+        [email.trim(), userId],
+      );
+      await connection.commit();
+      const previousEmail = normalizeOptional(contact.email);
+      return previousEmail === undefined ? {} : { previousEmail };
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    } finally {
+      connection.release();
+    }
+  }
+
   async function listDeliveryRecipients(type: NotificationType) {
     const [rows] = await pool.query<DeliveryRecipientRow[]>(
       `select distinct users.id as user_id, accesses.position_code,
@@ -591,6 +642,8 @@ export function createNotificationSettingsRepository(
     setPositionPermission,
     setUserChannels,
     updateContacts,
+    readEmail,
+    updateEmail,
     listDeliveryRecipients,
     claimLoginDelivery,
   };

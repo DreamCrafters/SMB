@@ -190,6 +190,7 @@ import {
   notificationTypes,
   validateAdminNotificationSettingRequest,
   validateNotificationContactsRequest,
+  validateOwnNotificationEmailRequest,
   validateOwnNotificationSettingRequest,
   type NotificationType,
 } from "../domain/notificationSettings.js";
@@ -833,6 +834,7 @@ export function createApiServer({
 
       if (
         url.pathname === "/api/login-notifications" ||
+        url.pathname === "/api/notification-email" ||
         url.pathname === "/api/notification-settings" ||
         url.pathname.startsWith("/api/notification-settings/") ||
         url.pathname === "/api/admin/notification-settings" ||
@@ -2071,6 +2073,21 @@ async function handleNotificationSettingsRequest({
     }
 
     sendJson(res, 200, { notifications });
+    return;
+  }
+
+  if (url.pathname === "/api/notification-email") {
+    await handleOwnNotificationEmailRequest({
+      req,
+      res,
+      config,
+      devSessions,
+      authService,
+      accounts,
+      notificationSettings,
+      audit,
+      databaseTransaction,
+    });
     return;
   }
 
@@ -8404,6 +8421,104 @@ async function recordAuditEvent(
   event: Parameters<AuditRepository["record"]>[0],
 ) {
   await audit.record(event);
+}
+
+/**
+ * Задача 130: Email для рассылок указывает сам пользователь, поэтому endpoint
+ * требует только вход, а не вкладку `Настройки`. Работает с учётной записью
+ * текущего запроса: при предпросмотре конкретного аккаунта — с целевой, а
+ * журнал сохраняет настоящего администратора. Сам адрес в аудит не пишется.
+ */
+async function handleOwnNotificationEmailRequest({
+  req,
+  res,
+  config,
+  devSessions,
+  authService,
+  accounts,
+  notificationSettings,
+  audit,
+  databaseTransaction,
+}: {
+  req: IncomingMessage;
+  res: ServerResponse;
+  config: ServerConfig;
+  devSessions: Map<string, DevAccessSession>;
+  authService: AuthSessionService | undefined;
+  accounts: AccountsRepository | undefined;
+  notificationSettings: NotificationSettingsRepository | undefined;
+  audit: AuditRepository;
+  databaseTransaction: DatabaseTransactionRunner;
+}) {
+  if (req.method !== "GET" && req.method !== "PATCH") {
+    sendJson(res, 405, {
+      error: { code: "access_denied", message: "Для Email рассылок используются GET и PATCH." },
+    });
+    return;
+  }
+  const access = await requireAuthentication(req, res, {
+    config,
+    devSessions,
+    authService,
+    accounts,
+  });
+  if (access === undefined) return;
+
+  if (notificationSettings === undefined) {
+    sendJson(res, 503, {
+      error: { code: "server_error", message: "Хранилище настроек рассылок не настроено." },
+    });
+    return;
+  }
+
+  const userId = access.profile.userId;
+  if (req.method === "GET") {
+    const contact = await notificationSettings.readEmail(userId);
+    if (contact === undefined) {
+      sendJson(res, 404, {
+        error: { code: "not_found", message: "Учётная запись не найдена." },
+      });
+      return;
+    }
+    sendJson(res, 200, contact);
+    return;
+  }
+
+  const validation = validateOwnNotificationEmailRequest(
+    await readJsonBody(req),
+  );
+  if (!validation.ok) {
+    sendJson(res, 400, {
+      error: { code: "invalid_response", message: validation.errors.join(" ") },
+    });
+    return;
+  }
+  const { email } = validation.value;
+  const updated = await runAuditedMutation({
+    transaction: databaseTransaction,
+    audit,
+    mutate: () => notificationSettings.updateEmail({ userId, email }),
+    buildEvent: (result) => result === undefined ||
+      result.previousEmail === email
+      ? undefined
+      : {
+          actor: buildAuditActor(access.profile),
+          category: "administration",
+          action: "account.notification_email_update",
+          summary: result.previousEmail === undefined
+            ? "Добавлен Email для рассылок"
+            : "Изменён Email для рассылок",
+          targetType: "user_account",
+          targetId: userId,
+        },
+  });
+  if (updated === undefined) {
+    sendJson(res, 404, {
+      error: { code: "not_found", message: "Учётная запись не найдена." },
+    });
+    return;
+  }
+  sendJson(res, 200, { email });
 }
 
 async function runAuditedMutation<T>({

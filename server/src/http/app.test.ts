@@ -12789,6 +12789,12 @@ test("notification settings API returns login reminders and persists server-owne
     async updateContacts() {
       return true;
     },
+    async readEmail() {
+      return { email: "director@example.com" };
+    },
+    async updateEmail() {
+      return { previousEmail: "director@example.com" };
+    },
     async listDeliveryRecipients() {
       return [{
         userId: profile.userId,
@@ -13034,6 +13040,168 @@ test("notification settings API returns login reminders and persists server-owne
     assert.ok(auditDetailValues.includes("Включён"));
     assert.equal(auditDetailValues.includes("board_assignments"), false);
     assert.equal(auditDetailValues.includes(profile.userId), false);
+  } finally {
+    server.close();
+    await once(server, "close");
+  }
+});
+
+test("every signed-in account reads and changes its own notification email", async () => {
+  const profile = buildProductionProfile("business_owner");
+  profile.userId = "dispatcher-user";
+  profile.activeAccess.position = "dispatcher";
+  profile.activeAccess.positionDisplayName = "Диспетчер";
+  profile.activeAccess.navigationItems = ["business.dispatcher_form"];
+  profile.activeAccess.capabilities = [];
+  let storedEmail: string | undefined;
+  const emailUpdates: unknown[] = [];
+  const auditEvents: Parameters<AuditRepository["record"]>[0][] = [];
+  const notificationSettings: NotificationSettingsRepository = {
+    async listPositions() {
+      throw new Error("not used");
+    },
+    async readUserSettings() {
+      throw new Error("not used");
+    },
+    async setPositionPermission() {
+      throw new Error("not used");
+    },
+    async setUserChannels() {
+      throw new Error("not used");
+    },
+    async updateContacts() {
+      throw new Error("not used");
+    },
+    async readEmail(userId) {
+      if (userId !== profile.userId) return undefined;
+      return storedEmail === undefined ? {} : { email: storedEmail };
+    },
+    async updateEmail(input) {
+      emailUpdates.push(input);
+      const previousEmail = storedEmail;
+      storedEmail = input.email;
+      return previousEmail === undefined ? {} : { previousEmail };
+    },
+    async listDeliveryRecipients() {
+      return [];
+    },
+    async claimLoginDelivery() {
+      return false;
+    },
+  };
+  const server = createApiServer({
+    config: productionConfig,
+    dispatcherSubmissions,
+    authService: buildAuthService({ profile }),
+    notificationSettings,
+    audit: {
+      async record(event) {
+        auditEvents.push(event);
+      },
+      async listReport() {
+        throw new Error("not used");
+      },
+    },
+    databaseTransaction: {
+      async run(operation) {
+        return operation();
+      },
+    },
+  });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const address = server.address() as AddressInfo;
+  const baseUrl = `http://127.0.0.1:${address.port}`;
+  const headers = {
+    "Content-Type": "application/json",
+    Cookie: `${productionConfig.session.cookieName}=prod-session`,
+  };
+
+  try {
+    const anonymousResponse = await fetch(`${baseUrl}/api/notification-email`);
+    assert.equal(anonymousResponse.status, 401);
+
+    const emptyResponse = await fetch(`${baseUrl}/api/notification-email`, {
+      headers,
+    });
+    assert.equal(emptyResponse.status, 200);
+    assert.deepEqual(await emptyResponse.json(), {});
+
+    const invalidResponse = await fetch(`${baseUrl}/api/notification-email`, {
+      method: "PATCH",
+      headers,
+      body: JSON.stringify({ email: "не адрес" }),
+    });
+    assert.equal(invalidResponse.status, 400);
+    const emptyEmailResponse = await fetch(`${baseUrl}/api/notification-email`, {
+      method: "PATCH",
+      headers,
+      body: JSON.stringify({ email: "  " }),
+    });
+    assert.equal(emptyEmailResponse.status, 400);
+    const extraFieldResponse = await fetch(`${baseUrl}/api/notification-email`, {
+      method: "PATCH",
+      headers,
+      body: JSON.stringify({ email: "a@example.com", maxUserId: "1" }),
+    });
+    assert.equal(extraFieldResponse.status, 400);
+    assert.deepEqual(emailUpdates, []);
+
+    const createResponse = await fetch(`${baseUrl}/api/notification-email`, {
+      method: "PATCH",
+      headers,
+      body: JSON.stringify({ email: " dispatcher@example.com " }),
+    });
+    assert.equal(createResponse.status, 200);
+    assert.deepEqual(await createResponse.json(), {
+      email: "dispatcher@example.com",
+    });
+    const changeResponse = await fetch(`${baseUrl}/api/notification-email`, {
+      method: "PATCH",
+      headers,
+      body: JSON.stringify({ email: "shift@example.com" }),
+    });
+    assert.equal(changeResponse.status, 200);
+    const unchangedResponse = await fetch(`${baseUrl}/api/notification-email`, {
+      method: "PATCH",
+      headers,
+      body: JSON.stringify({ email: "shift@example.com" }),
+    });
+    assert.equal(unchangedResponse.status, 200);
+
+    const readResponse = await fetch(`${baseUrl}/api/notification-email`, {
+      headers,
+    });
+    assert.deepEqual(await readResponse.json(), { email: "shift@example.com" });
+    assert.deepEqual(emailUpdates, [
+      { userId: profile.userId, email: "dispatcher@example.com" },
+      { userId: profile.userId, email: "shift@example.com" },
+      { userId: profile.userId, email: "shift@example.com" },
+    ]);
+    assert.deepEqual(
+      auditEvents.map(({ action, summary, targetId }) => ({
+        action,
+        summary,
+        targetId,
+      })),
+      [
+        {
+          action: "account.notification_email_update",
+          summary: "Добавлен Email для рассылок",
+          targetId: profile.userId,
+        },
+        {
+          action: "account.notification_email_update",
+          summary: "Изменён Email для рассылок",
+          targetId: profile.userId,
+        },
+      ],
+    );
+    assert.equal(
+      JSON.stringify(auditEvents).includes("@example.com"),
+      false,
+      "The address itself must not be copied into the audit log.",
+    );
   } finally {
     server.close();
     await once(server, "close");

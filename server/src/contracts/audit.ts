@@ -75,6 +75,7 @@ export const auditEventActions = [
   "admin.account_notification_channels_update",
   "admin.position_notification_permission_update",
   "account.notification_settings_update",
+  "account.notification_email_update",
   "admin.position_create",
   "admin.position_update",
   "admin.position_protection_enable",

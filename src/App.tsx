@@ -258,6 +258,7 @@ import { ProductBrandPicker } from "./ProductBrandPicker";
 import { LoadingIndicator } from "./LoadingIndicator";
 import { useProductionBrands } from "./useProductionBrands";
 import { formatUserShortName } from "./services/userDisplayName";
+import { NotificationEmailButton } from "./NotificationEmailDialog";
 import {
   markToastExiting,
   prependToast,
@@ -2132,6 +2133,7 @@ export default function App() {
         returnedRefractoryShifts={
           returnedRefractoryShifts
         }
+        onShowToast={handleShowToast}
       />
 
       {isMobileNavigation && isNavigationOpen ? (
@@ -2754,6 +2756,7 @@ export function SideRail({
   pendingRefractoryCount,
   returnedRefractoryCount,
   returnedRefractoryShifts,
+  onShowToast,
 }: {
   profile: ServerUserProfile;
   signedInDisplayName: string;
@@ -2783,6 +2786,7 @@ export function SideRail({
   pendingRefractoryCount: number;
   returnedRefractoryCount: number;
   returnedRefractoryShifts: readonly ReturnedRefractoryShift[];
+  onShowToast: ShowToast;
 }) {
   const railRef = useRef<HTMLElement>(null);
   const mobileMenuButtonRef = useRef<HTMLButtonElement>(null);
@@ -3019,6 +3023,12 @@ export function SideRail({
         <div className="rail-note">
           <span>доступ</span>
           <strong>{profile.activeAccess.positionDisplayName}</strong>
+          <NotificationEmailButton
+            onOpen={() => {
+              if (isMobile) onRequestClose();
+            }}
+            onShowToast={onShowToast}
+          />
           <button
             className="rail-logout-button"
             type="button"

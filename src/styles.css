@@ -749,6 +749,15 @@ p {
   opacity: 0.62;
 }
 
+.rail-notification-email-button {
+  line-height: 1.3;
+}
+
+.notification-email-dialog form {
+  display: grid;
+  gap: var(--density-3);
+}
+
 .rail-session-error {
   display: block;
   margin-top: var(--density-2);

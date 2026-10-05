@@ -124,10 +124,7 @@ export function validateNotificationContactsRequest(
   const email = input.email.trim();
   const maxUserId = input.maxUserId.trim();
   const errors: string[] = [];
-  if (
-    email.length > 0 &&
-    (email.length > 320 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/u.test(email))
-  ) {
+  if (email.length > 0 && !isNotificationEmail(email)) {
     errors.push("Укажите корректный Email.");
   }
   if (maxUserId.length > 120) {
@@ -145,6 +142,35 @@ export function validateNotificationContactsRequest(
       ...(maxUserId.length > 0 ? { maxUserId } : {}),
     },
   };
+}
+
+/**
+ * Задача 130: любой пользователь сам указывает или исправляет свой Email для
+ * рассылок. Адрес обязателен — очистка контакта остаётся действием
+ * администратора, потому что снимает включённые Email-каналы.
+ */
+export function validateOwnNotificationEmailRequest(
+  input: unknown,
+): ValidationResult<{ email: string }> {
+  if (
+    !isRecord(input) ||
+    Array.isArray(input) ||
+    Object.keys(input).length !== 1 ||
+    typeof input.email !== "string"
+  ) {
+    return { ok: false, errors: ["Укажите только Email."] };
+  }
+
+  const email = input.email.trim();
+  if (!isNotificationEmail(email)) {
+    return { ok: false, errors: ["Укажите корректный Email."] };
+  }
+
+  return { ok: true, value: { email } };
+}
+
+function isNotificationEmail(email: string) {
+  return email.length <= 320 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/u.test(email);
 }
 
 export function buildGeneralDirectorLoginNotifications({

@@ -385,6 +385,59 @@ test("removing a contact keeps administrator permission and disables only the mi
   ]);
 });
 
+test("own email update changes only the email and reports the previous address", async () => {
+  const writes: Array<{ sql: string; parameters: unknown[] }> = [];
+  let contactRows: unknown[] = [{
+    email: "old@example.com",
+    max_user_id: "101",
+  }];
+  const connection = {
+    async beginTransaction() {},
+    async commit() {},
+    async rollback() {},
+    release() {},
+    async query(sql: string, parameters: unknown[] = []) {
+      if (sql.includes("from app_users")) return [contactRows, []];
+      writes.push({ sql, parameters });
+      return [{ affectedRows: 1 }, []];
+    },
+  };
+  const pool = {
+    async getConnection() {
+      return connection;
+    },
+    async query(sql: string, parameters: unknown[] = []) {
+      assert.match(sql, /status <> 'archived'/u);
+      assert.deepEqual(parameters, ["dispatcher-user"]);
+      return [[{ email: " ", max_user_id: "101" }], []];
+    },
+  } as unknown as DatabasePool;
+  const repository = createNotificationSettingsRepository(pool);
+
+  assert.deepEqual(await repository.readEmail("dispatcher-user"), {});
+  assert.deepEqual(
+    await repository.updateEmail({
+      userId: "dispatcher-user",
+      email: "new@example.com",
+    }),
+    { previousEmail: "old@example.com" },
+  );
+  assert.deepEqual(writes, [{
+    sql: "update app_users set email = ? where id = ?",
+    parameters: ["new@example.com", "dispatcher-user"],
+  }]);
+
+  contactRows = [];
+  assert.equal(
+    await repository.updateEmail({
+      userId: "archived-user",
+      email: "new@example.com",
+    }),
+    undefined,
+  );
+  assert.equal(writes.length, 1);
+});
+
 test("notification changes ignore account and position protection", async () => {
   const writes: Array<{ sql: string; parameters: unknown[] }> = [];
   const connection = {
