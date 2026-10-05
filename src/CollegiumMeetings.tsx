@@ -19,6 +19,7 @@ import {
   AttachmentsSection,
   formatDate,
   formatDateTime,
+  saveBlob,
   usePeopleIndex,
   useServerData,
 } from "./CollegiumShared";
@@ -27,6 +28,8 @@ import { ManagedTable } from "./ManagedTable";
 import { TableCell, TableHeader } from "./TableCell";
 import {
   collegiumMeetingAttachmentsApi,
+  collegiumProtocolPdfPath,
+  downloadCollegiumFile,
   requestCollegiumInitiatives,
   requestCollegiumMeeting,
   requestCollegiumMeetings,
@@ -441,6 +444,23 @@ function MeetingCard({
         </div>
         <div className="collegium-form-actions">
           <button className="secondary-button" type="button" onClick={onBack}>К заседаниям</button>
+          {meeting.protocol.text === "" ? null : (
+            <button
+              className="secondary-button"
+              type="button"
+              onClick={() => {
+                void downloadCollegiumFile(collegiumProtocolPdfPath(meeting.id)).then(
+                  (blob) => saveBlob(blob, `Протокол ${meeting.number}.pdf`),
+                  (error: unknown) => setMessage(readShortUserMessage(
+                    error instanceof Error ? error.message : "",
+                    "Не удалось сформировать PDF протокола.",
+                  )),
+                );
+              }}
+            >
+              {meeting.status === "approved" ? "PDF протокола" : "PDF проекта протокола"}
+            </button>
+          )}
           {canChange ? (
             <>
               <button className="secondary-button" disabled={isSaving} type="button" onClick={() => onEdit(meeting)}>

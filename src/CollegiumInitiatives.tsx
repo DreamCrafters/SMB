@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import {
   collegiumActionsRequiringComment,
   collegiumResultConclusionLabels,
@@ -13,6 +13,8 @@ import {
   collegiumDecisionLabels,
   collegiumInitiativeFieldLabels,
   collegiumInitiativeStatusLabels,
+  collegiumInitiativeStages,
+  collegiumInitiativeStageLabels,
   collegiumInitiativeStatuses,
   collegiumRecurringPeriodLabels,
   collegiumRecurringPeriods,
@@ -24,6 +26,7 @@ import {
   type CollegiumInitiativeCard,
   type CollegiumInitiativeCardInput,
   type CollegiumInitiativeDetailResponse,
+  type CollegiumInitiativeFilters,
   type CollegiumInitiativeListResponse,
   type CollegiumInitiativeStatus,
   type CollegiumPerson,
@@ -35,6 +38,9 @@ import { ManagedTable } from "./ManagedTable";
 import { TableCell, TableHeader } from "./TableCell";
 import {
   actOnCollegiumInitiative,
+  collegiumInitiativeCardPdfPath,
+  collegiumRegistryExportPath,
+  downloadCollegiumFile,
   createCollegiumAssignmentFromInitiative,
   recordCollegiumInitiativeResult,
   collegiumInitiativeAttachmentsApi,
@@ -51,6 +57,7 @@ import {
   formatAmount,
   formatDate,
   formatDateTime,
+  saveBlob,
   usePeopleIndex,
 } from "./CollegiumShared";
 
@@ -83,10 +90,12 @@ export function CollegiumInitiativesWorkspace({
   const [refreshVersion, setRefreshVersion] = useState(0);
   const [view, setView] = useState<View>({ kind: "registry" });
   const [section, setSection] = useState<"initiatives" | "meetings">("initiatives");
+  const [filters, setFilters] = useState<CollegiumInitiativeFilters>({});
+  const filtersKey = JSON.stringify(filters);
 
   useEffect(() => {
     const controller = new AbortController();
-    requestCollegiumInitiatives(controller.signal).then(
+    requestCollegiumInitiatives(controller.signal, JSON.parse(filtersKey) as CollegiumInitiativeFilters).then(
       (data) => setListState({ status: "ready", data }),
       (error: unknown) => {
         if (controller.signal.aborted) return;
@@ -100,7 +109,7 @@ export function CollegiumInitiativesWorkspace({
       },
     );
     return () => controller.abort();
-  }, [refreshVersion, profile.userId]);
+  }, [refreshVersion, profile.userId, filtersKey]);
 
   if (listState.status === "loading") {
     return <LoadingIndicator label="Загружаем инициативы…" variant="page" />;
@@ -159,7 +168,8 @@ export function CollegiumInitiativesWorkspace({
       ) : view.kind === "registry" ? (
         <InitiativeRegistry
           data={data}
-          profile={profile}
+          filters={filters}
+          onApplyFilters={setFilters}
           onCreate={() => setView({ kind: "form" })}
           onOpen={(id) => setView({ kind: "card", id })}
         />
@@ -189,115 +199,238 @@ export function CollegiumInitiativesWorkspace({
 
 function InitiativeRegistry({
   data,
-  profile,
+  filters,
+  onApplyFilters,
   onCreate,
   onOpen,
 }: {
   data: CollegiumInitiativeListResponse;
-  profile: ServerUserProfile;
+  filters: CollegiumInitiativeFilters;
+  onApplyFilters: (filters: CollegiumInitiativeFilters) => void;
   onCreate: () => void;
   onOpen: (id: string) => void;
 }) {
-  const [query, setQuery] = useState("");
-  const [status, setStatus] = useState<CollegiumInitiativeStatus | "">("");
-  const [direction, setDirection] = useState("");
-  const [onlyMine, setOnlyMine] = useState(false);
+  const [draft, setDraft] = useState<CollegiumInitiativeFilters>(filters);
+  const [showMore, setShowMore] = useState(() =>
+    Object.keys(filters).some((key) => !["query", "status", "directionCode", "mine"].includes(key)));
+  const [message, setMessage] = useState("");
+  const [isExporting, setIsExporting] = useState(false);
   const people = usePeopleIndex(data.people);
-  const ownAccountId = `account:${profile.userId}`;
-
-  const initiatives = useMemo(() => {
-    const normalizedQuery = query.trim().toLocaleLowerCase("ru-RU");
-    return data.initiatives.filter((initiative) => {
-      if (status !== "" && initiative.status !== status) return false;
-      if (direction !== "" && initiative.card.directionCode !== direction) return false;
-      if (onlyMine && ![
-        initiative.card.initiatorId,
-        initiative.card.ownerId,
-        initiative.card.executorId,
-        initiative.card.executionControllerId,
-        initiative.card.effectControllerId,
-      ].includes(ownAccountId) && initiative.createdByUserId !== profile.userId) {
-        return false;
-      }
-      if (normalizedQuery === "") return true;
-      return [
-        initiative.number,
-        initiative.card.title,
-        initiative.card.problem,
-        initiative.card.solution,
-        people.name(initiative.card.initiatorId),
-      ].some((value) => value.toLocaleLowerCase("ru-RU").includes(normalizedQuery));
+  const initiatives = data.initiatives;
+  const overdue = new Set(data.overdueIds);
+  const hasFilters = Object.values(filters).some((value) => value !== undefined && value !== "");
+  const setField = <K extends keyof CollegiumInitiativeFilters>(key: K, value: string) => {
+    setDraft((current) => {
+      const next = { ...current };
+      if (value === "") delete next[key];
+      else next[key] = value as CollegiumInitiativeFilters[K];
+      return next;
     });
-  }, [data.initiatives, direction, onlyMine, ownAccountId, people, profile.userId, query, status]);
+  };
+  const text = (key: keyof CollegiumInitiativeFilters, label: string, options: { type?: string; placeholder?: string } = {}) => (
+    <label className="collegium-field">
+      <span>{label}</span>
+      <input
+        inputMode={options.type === "amount" ? "decimal" : undefined}
+        maxLength={120}
+        placeholder={options.placeholder}
+        type={options.type === "date" ? "date" : "text"}
+        value={(draft[key] as string | undefined) ?? ""}
+        onChange={(event) => {
+          const value = event.currentTarget.value;
+          setField(key, value);
+        }}
+      />
+    </label>
+  );
+  const personFilter = (key: "initiatorId" | "ownerId" | "executorId" | "controllerId", label: string) => (
+    <label className="collegium-field">
+      <span>{label}</span>
+      <select
+        value={draft[key] ?? ""}
+        onChange={(event) => {
+          const value = event.currentTarget.value;
+          setField(key, value);
+        }}
+      >
+        <option value="">Все</option>
+        {data.people.map((person) => (
+          <option key={person.id} value={person.id}>{person.displayName}</option>
+        ))}
+      </select>
+    </label>
+  );
+  const flag = (key: "boardDecision" | "overdue" | "mine", label: string) => (
+    <label className="collegium-checkbox">
+      <input
+        checked={draft[key] === "yes"}
+        type="checkbox"
+        onChange={(event) => {
+          const checked = event.currentTarget.checked;
+          setField(key, checked ? "yes" : "");
+        }}
+      />
+      <span>{label}</span>
+    </label>
+  );
+
+  async function exportRegistry(kind: "xlsx" | "pdf") {
+    setIsExporting(true);
+    setMessage("");
+    try {
+      const blob = await downloadCollegiumFile(collegiumRegistryExportPath(kind, filters));
+      saveBlob(blob, `Реестр инициатив Коллегии.${kind}`);
+    } catch (error) {
+      setMessage(readShortUserMessage(error instanceof Error ? error.message : "", "Не удалось сформировать выгрузку."));
+    } finally {
+      setIsExporting(false);
+    }
+  }
 
   return (
     <div className="collegium-registry">
-      <div className="collegium-toolbar">
-        <label className="collegium-field">
-          <span>Поиск</span>
-          <input
-            maxLength={120}
-            placeholder="Номер, название, текст идеи или автор"
-            value={query}
-            onChange={(event) => {
-              const value = event.currentTarget.value;
-              setQuery(value);
-            }}
-          />
-        </label>
-        <label className="collegium-field">
-          <span>Статус</span>
-          <select
-            value={status}
-            onChange={(event) => {
-              const value = event.currentTarget.value as CollegiumInitiativeStatus | "";
-              setStatus(value);
-            }}
-          >
-            <option value="">Все статусы</option>
-            {collegiumInitiativeStatuses.map((item) => (
-              <option key={item} value={item}>{collegiumInitiativeStatusLabels[item]}</option>
-            ))}
-          </select>
-        </label>
-        <label className="collegium-field">
-          <span>Направление</span>
-          <select
-            value={direction}
-            onChange={(event) => {
-              const value = event.currentTarget.value;
-              setDirection(value);
-            }}
-          >
-            <option value="">Все направления</option>
-            {data.reference.direction.map((option) => (
-              <option key={option.code} value={option.code}>{option.label}</option>
-            ))}
-          </select>
-        </label>
-        <label className="collegium-checkbox">
-          <input
-            checked={onlyMine}
-            type="checkbox"
-            onChange={(event) => {
-              const checked = event.currentTarget.checked;
-              setOnlyMine(checked);
-            }}
-          />
-          <span>Только мои</span>
-        </label>
-        {data.permissions.canParticipate ? (
-          <button className="primary-button collegium-create-button" type="button" onClick={onCreate}>
-            Новая инициатива
-          </button>
+      <form
+        className="collegium-filters"
+        noValidate
+        onSubmit={(event) => {
+          event.preventDefault();
+          onApplyFilters(draft);
+        }}
+      >
+        <div className="collegium-toolbar">
+          {text("query", "Поиск", { placeholder: "Номер, название, текст идеи, автор, комментарии" })}
+          <label className="collegium-field">
+            <span>Статус</span>
+            <select
+              value={draft.status ?? ""}
+              onChange={(event) => {
+                const value = event.currentTarget.value;
+                setField("status", value);
+              }}
+            >
+              <option value="">Все статусы</option>
+              {collegiumInitiativeStatuses.map((item) => (
+                <option key={item} value={item}>{collegiumInitiativeStatusLabels[item]}</option>
+              ))}
+            </select>
+          </label>
+          <label className="collegium-field">
+            <span>Направление</span>
+            <select
+              value={draft.directionCode ?? ""}
+              onChange={(event) => {
+                const value = event.currentTarget.value;
+                setField("directionCode", value);
+              }}
+            >
+              <option value="">Все направления</option>
+              {data.reference.direction.map((option) => (
+                <option key={option.code} value={option.code}>{option.label}</option>
+              ))}
+            </select>
+          </label>
+          {flag("mine", "Только мои")}
+        </div>
+        {showMore ? (
+          <div className="collegium-field-grid collegium-more-filters">
+            {text("createdFrom", "Создана с", { type: "date" })}
+            {text("createdTo", "Создана по", { type: "date" })}
+            <label className="collegium-field">
+              <span>Стадия</span>
+              <select
+                value={draft.stage ?? ""}
+                onChange={(event) => {
+                  const value = event.currentTarget.value;
+                  setField("stage", value);
+                }}
+              >
+                <option value="">Все стадии</option>
+                {collegiumInitiativeStages.map((stage) => (
+                  <option key={stage} value={stage}>{collegiumInitiativeStageLabels[stage]}</option>
+                ))}
+              </select>
+            </label>
+            <label className="collegium-field">
+              <span>Тип эффекта</span>
+              <select
+                value={draft.effectTypeCode ?? ""}
+                onChange={(event) => {
+                  const value = event.currentTarget.value;
+                  setField("effectTypeCode", value);
+                }}
+              >
+                <option value="">Все типы</option>
+                {data.reference.effect_type.map((option) => (
+                  <option key={option.code} value={option.code}>{option.label}</option>
+                ))}
+              </select>
+            </label>
+            {personFilter("initiatorId", "Инициатор")}
+            {personFilter("ownerId", "Владелец")}
+            {personFilter("executorId", "Исполнитель")}
+            {personFilter("controllerId", "Контролёр")}
+            {text("costMin", "Разовые затраты от, ₽", { type: "amount" })}
+            {text("costMax", "Разовые затраты до, ₽", { type: "amount" })}
+            {text("plannedEffectMin", "Плановый эффект от, ₽", { type: "amount" })}
+            {text("plannedEffectMax", "Плановый эффект до, ₽", { type: "amount" })}
+            {text("actualEffectMin", "Фактический эффект от, ₽", { type: "amount" })}
+            {text("actualEffectMax", "Фактический эффект до, ₽", { type: "amount" })}
+            <label className="collegium-field">
+              <span>Заседание Коллегии</span>
+              <select
+                value={draft.meetingId ?? ""}
+                onChange={(event) => {
+                  const value = event.currentTarget.value;
+                  setField("meetingId", value);
+                }}
+              >
+                <option value="">Все заседания</option>
+                {data.meetings.map((meeting) => (
+                  <option key={meeting.id} value={meeting.id}>{`${meeting.number} от ${formatDate(meeting.meetingDate)}`}</option>
+                ))}
+              </select>
+            </label>
+            {text("risk", "Риск содержит")}
+            <div className="collegium-checkbox-group">
+              {flag("boardDecision", "Требует решения СД")}
+              {flag("overdue", "Есть просроченные поручения")}
+            </div>
+          </div>
         ) : null}
-      </div>
+        <div className="collegium-form-actions">
+          <button className="secondary-button" type="submit">Применить</button>
+          <button
+            className="secondary-button"
+            disabled={!hasFilters && Object.keys(draft).length === 0}
+            type="button"
+            onClick={() => {
+              setDraft({});
+              onApplyFilters({});
+            }}
+          >
+            Сбросить
+          </button>
+          <button className="secondary-button" type="button" onClick={() => setShowMore((current) => !current)}>
+            {showMore ? "Меньше фильтров" : "Ещё фильтры"}
+          </button>
+          <button className="secondary-button" disabled={isExporting} type="button" onClick={() => void exportRegistry("xlsx")}>
+            Выгрузить в Excel
+          </button>
+          <button className="secondary-button" disabled={isExporting} type="button" onClick={() => void exportRegistry("pdf")}>
+            Выгрузить в PDF
+          </button>
+          {data.permissions.canParticipate ? (
+            <button className="primary-button collegium-create-button" type="button" onClick={onCreate}>
+              Новая инициатива
+            </button>
+          ) : null}
+        </div>
+        {message === "" ? null : <p className="form-message is-error" role="alert">{message}</p>}
+      </form>
 
       {initiatives.length === 0 ? (
         <p className="collegium-empty-note">
-          {data.initiatives.length === 0
-            ? "Инициатив пока нет."
-            : "По выбранным фильтрам инициатив нет."}
+          {hasFilters ? "По выбранным фильтрам инициатив нет." : "Инициатив пока нет."}
         </p>
       ) : (
         <div className="table-scroll history-table-scroll collegium-table-scroll">
@@ -332,6 +465,7 @@ function InitiativeRegistry({
                     <span className={`collegium-status collegium-status-${initiative.status}`}>
                       {collegiumInitiativeStatusLabels[initiative.status]}
                     </span>
+                    {overdue.has(initiative.id) ? <span className="collegium-overdue-mark">просрочены поручения</span> : null}
                   </TableCell>
                   <TableCell>{initiative.card.directionLabel || "—"}</TableCell>
                   <TableCell>{people.name(initiative.card.initiatorId) || "—"}</TableCell>
@@ -405,6 +539,22 @@ function InitiativeCardView({
         </div>
         <div className="collegium-form-actions">
           <button className="secondary-button" type="button" onClick={onBack}>К реестру</button>
+          <button
+            className="secondary-button"
+            type="button"
+            onClick={() => {
+              void downloadCollegiumFile(collegiumInitiativeCardPdfPath(initiative.id)).then(
+                (blob) => saveBlob(blob, `Инициатива ${initiative.number}.pdf`),
+                (error: unknown) => onShowToast(
+                  "Печатная форма недоступна",
+                  readShortUserMessage(error instanceof Error ? error.message : "", "Не удалось сформировать PDF."),
+                  "warning",
+                ),
+              );
+            }}
+          >
+            Печать (PDF)
+          </button>
           {canEdit ? (
             <button className="primary-button" type="button" onClick={onEdit}>Изменить</button>
           ) : null}

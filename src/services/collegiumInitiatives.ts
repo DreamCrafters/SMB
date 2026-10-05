@@ -7,6 +7,7 @@ import {
   type CollegiumInitiativeActionRequest,
   type CollegiumInitiativeComment,
   type CollegiumInitiativeDetailResponse,
+  type CollegiumInitiativeFilters,
   type CollegiumInitiativeListResponse,
   type CollegiumInitiativeResultInput,
   type CollegiumInitiativeSaveRequest,
@@ -66,13 +67,51 @@ async function request<T>(
   return payload as T;
 }
 
-export function requestCollegiumInitiatives(signal?: AbortSignal) {
+/** Фильтры реестра применяет сервер; пустые значения не передаются. */
+export function buildCollegiumFilterQuery(filters: CollegiumInitiativeFilters) {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(filters)) {
+    if (typeof value === "string" && value.trim() !== "") params.set(key, value.trim());
+  }
+  const query = params.toString();
+  return query === "" ? "" : `?${query}`;
+}
+
+export function requestCollegiumInitiatives(
+  signal?: AbortSignal,
+  filters: CollegiumInitiativeFilters = {},
+) {
   return request<CollegiumInitiativeListResponse>(
-    collegiumInitiativesApiPath,
+    `${collegiumInitiativesApiPath}${buildCollegiumFilterQuery(filters)}`,
     "GET",
     undefined,
     signal,
   );
+}
+
+/** Выгрузка или печатная форма: файл отдаёт сервер по тем же правам и фильтрам. */
+export async function downloadCollegiumFile(path: string) {
+  const response = await fetch(resolveApiEndpoint(path, path, {}), {
+    credentials: "include",
+    headers: buildDevAccessHeaders({}),
+  });
+  if (!response.ok) {
+    const payload: unknown = await response.json().catch(() => undefined);
+    throw readRequestError(payload, response.status, "Не удалось сформировать файл.");
+  }
+  return response.blob();
+}
+
+export function collegiumRegistryExportPath(kind: "xlsx" | "pdf", filters: CollegiumInitiativeFilters) {
+  return `${collegiumInitiativesApiPath}/export.${kind}${buildCollegiumFilterQuery(filters)}`;
+}
+
+export function collegiumInitiativeCardPdfPath(id: string) {
+  return `${collegiumInitiativesApiPath}/${encodeURIComponent(id)}/card.pdf`;
+}
+
+export function collegiumProtocolPdfPath(meetingId: string) {
+  return `${collegiumMeetingsApiPath}/${encodeURIComponent(meetingId)}/protocol.pdf`;
 }
 
 export function requestCollegiumInitiative(id: string, signal?: AbortSignal) {

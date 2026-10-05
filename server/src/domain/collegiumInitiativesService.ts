@@ -13,6 +13,7 @@ import {
   type CollegiumInitiativeCard,
   type CollegiumInitiativeComment,
   type CollegiumInitiativeDetailResponse,
+  type CollegiumInitiativeFilters,
   type CollegiumInitiativeListResponse,
   type CollegiumInitiativePermissions,
   type CollegiumLinkedAssignment,
@@ -35,6 +36,7 @@ import {
   readCollegiumAttachmentLink,
 } from "./collegiumAttachment.js";
 import { recordCollegiumInitiativeEvent } from "./collegiumInitiativeEvents.js";
+import { filterCollegiumInitiatives } from "./collegiumRegistry.js";
 import type { DatabaseTransactionRunner } from "../db/transactionContext.js";
 import type { AuditRepository } from "../repositories/auditRepository.js";
 import type { CollegiumInitiativesRepository } from "../repositories/collegiumInitiativesRepository.js";
@@ -61,6 +63,7 @@ const maxDiscussionCommentLength = 4000;
 /** Поручения реестра Коллегии, созданные из инициативы (порт к реестру). */
 export type CollegiumLinkedAssignmentsSource = {
   listBySourceInitiative: (initiativeId: string) => Promise<DirectorAssignment[]>;
+  listWithInitiativeLink: () => Promise<DirectorAssignment[]>;
 };
 
 const assignableStatuses: readonly CollegiumInitiative["status"][] = [
@@ -247,6 +250,84 @@ export function createCollegiumInitiativesService({
     }
   }
 
+  /**
+   * Видимый пользователю реестр с применёнными фильтрами ТЗ 13.2. Просрочка
+   * берётся из связанных поручений реестра Коллегии, заседания — из повесток.
+   */
+  async function loadRegistry(
+    profile: ServerUserProfile,
+    permissions: CollegiumInitiativePermissions,
+    filters: CollegiumInitiativeFilters,
+  ) {
+    const [initiatives, people, reference, meetings, linked, commentMatches] = await Promise.all([
+      repository.list(),
+      repository.listPeople(),
+      repository.listReference(),
+      repository.listMeetings(),
+      assignments?.listWithInitiativeLink() ?? Promise.resolve([]),
+      filters.query === undefined
+        ? Promise.resolve([] as string[])
+        : repository.findInitiativeIdsByCommentText(filters.query),
+    ]);
+    const names = new Map(people.map((person) => [person.id, person.displayName]));
+    const overdueIds = new Set(linked
+      .filter((assignment) =>
+        assignment.status !== "completed" && assignment.currentOccurrenceDate < today())
+      .map((assignment) => assignment.sourceInitiativeId ?? ""));
+    const meetingInitiativeIds = new Map(meetings.map((meeting) => [
+      meeting.id,
+      new Set(meeting.items.filter((item) => item.removedAt === undefined).map((item) => item.initiativeId)),
+    ]));
+    const visible = initiatives.filter((initiative) =>
+      canViewCollegiumInitiative(initiative, profile, permissions));
+    return {
+      initiatives: filterCollegiumInitiatives(visible, filters, {
+        overdueIds,
+        meetingInitiativeIds,
+        commentMatchIds: new Set(commentMatches),
+        name: (accountId) => names.get(accountId) ?? "",
+        userId: profile.userId,
+      }),
+      people,
+      reference,
+      meetings,
+      overdueIds,
+      linked,
+      name: (accountId: string) => names.get(accountId) ?? "",
+    };
+  }
+
+  async function readDetail(
+    profile: ServerUserProfile,
+    id: string,
+  ): Promise<CollegiumInitiativeDetailResponse> {
+    const { initiative, permissions } = await requireInitiative(profile, id);
+    const [revisions, comments, attachments, people, linkedAssignments] = await Promise.all([
+      repository.listRevisions(id),
+      repository.listComments(id),
+      repository.listAttachments({ type: "initiative", id }),
+      readRolePeople(initiative.card),
+      listLinkedAssignments(id),
+    ]);
+    return {
+      initiative,
+      revisions,
+      comments,
+      attachments,
+      canEdit: canEditCollegiumInitiative(initiative, profile, permissions),
+      canAttach: canAttach(initiative, profile, permissions),
+      canComment: permissions.canParticipate && initiative.status !== "closed",
+      canResolveComments: canResolveComments(initiative, profile, permissions),
+      actions: listAvailableCollegiumActions(initiative, profile.userId, permissions),
+      missingAdmissionFields: listCollegiumAdmissionGaps(initiative.card, people),
+      linkedAssignments,
+      summaryStatus: readCollegiumSummaryStatus(initiative, linkedAssignments),
+      canCreateAssignments: assignableStatuses.includes(initiative.status) &&
+        hasProfileCapability(profile, "business.manage_collegium_assignments"),
+      canRecordResult: canRecordResult(initiative, profile, permissions),
+    };
+  }
+
   function canRecordResult(
     initiative: CollegiumInitiative,
     profile: ServerUserProfile,
@@ -266,51 +347,41 @@ export function createCollegiumInitiativesService({
   }
 
   return {
-    async list(profile: ServerUserProfile): Promise<CollegiumInitiativeListResponse> {
+    async list(
+      profile: ServerUserProfile,
+      filters: CollegiumInitiativeFilters = {},
+    ): Promise<CollegiumInitiativeListResponse> {
       const permissions = requireView(profile);
-      const [initiatives, people, reference] = await Promise.all([
-        repository.list(),
-        repository.listPeople(),
-        repository.listReference(),
-      ]);
+      const registry = await loadRegistry(profile, permissions, filters);
       return {
-        initiatives: initiatives.filter((initiative) =>
-          canViewCollegiumInitiative(initiative, profile, permissions)),
-        people,
-        reference,
+        initiatives: registry.initiatives,
+        people: registry.people,
+        reference: registry.reference,
         permissions,
+        meetings: registry.meetings
+          .filter((meeting) => meeting.status !== "cancelled")
+          .map((meeting) => ({ id: meeting.id, number: meeting.number, meetingDate: meeting.meetingDate })),
+        overdueIds: registry.initiatives
+          .filter((initiative) => registry.overdueIds.has(initiative.id))
+          .map((initiative) => initiative.id),
       };
     },
 
-    async read(
-      profile: ServerUserProfile,
-      id: string,
-    ): Promise<CollegiumInitiativeDetailResponse> {
-      const { initiative, permissions } = await requireInitiative(profile, id);
-      const [revisions, comments, attachments, people, linkedAssignments] = await Promise.all([
-        repository.listRevisions(id),
-        repository.listComments(id),
-        repository.listAttachments({ type: "initiative", id }),
-        readRolePeople(initiative.card),
-        listLinkedAssignments(id),
-      ]);
-      return {
-        initiative,
-        revisions,
-        comments,
-        attachments,
-        canEdit: canEditCollegiumInitiative(initiative, profile, permissions),
-        canAttach: canAttach(initiative, profile, permissions),
-        canComment: permissions.canParticipate && initiative.status !== "closed",
-        canResolveComments: canResolveComments(initiative, profile, permissions),
-        actions: listAvailableCollegiumActions(initiative, profile.userId, permissions),
-        missingAdmissionFields: listCollegiumAdmissionGaps(initiative.card, people),
-        linkedAssignments,
-        summaryStatus: readCollegiumSummaryStatus(initiative, linkedAssignments),
-        canCreateAssignments: assignableStatuses.includes(initiative.status) &&
-          hasProfileCapability(profile, "business.manage_collegium_assignments"),
-        canRecordResult: canRecordResult(initiative, profile, permissions),
-      };
+    /** Карточка для печатной формы с именами людей. */
+    async printCard(profile: ServerUserProfile, id: string) {
+      const detail = await readDetail(profile, id);
+      const names = new Map((await repository.listPeople()).map((person) => [person.id, person.displayName]));
+      return { detail, name: (accountId: string) => names.get(accountId) ?? "" };
+    },
+
+    /** Тот же отфильтрованный реестр для выгрузок XLSX и PDF. */
+    async exportRegistry(profile: ServerUserProfile, filters: CollegiumInitiativeFilters) {
+      const permissions = requireView(profile);
+      return loadRegistry(profile, permissions, filters);
+    },
+
+    read(profile: ServerUserProfile, id: string) {
+      return readDetail(profile, id);
     },
 
     async create(profile: ServerUserProfile, body: unknown) {

@@ -308,6 +308,10 @@ export type CollegiumInitiativeListResponse = {
   people: CollegiumPerson[];
   reference: CollegiumReference;
   permissions: CollegiumInitiativePermissions;
+  /** Заседания для фильтра «Заседание Коллегии». */
+  meetings: Array<{ id: string; number: string; meetingDate: string }>;
+  /** Инициативы с просроченными связанными поручениями. */
+  overdueIds: string[];
 };
 
 export type CollegiumInitiativeDetailResponse = {
@@ -750,3 +754,89 @@ export const collegiumSummaryStatusLabels: Record<CollegiumSummaryStatus, string
   suspended: "Приостановлена",
   closed: "Закрыта",
 };
+
+/** Стадии реестра (ТЗ 13.2): группы статусов для фильтра. */
+export const collegiumInitiativeStages = [
+  "preparation",
+  "collegium",
+  "implementation",
+  "result",
+  "suspended",
+  "closed",
+] as const;
+export type CollegiumInitiativeStage = (typeof collegiumInitiativeStages)[number];
+export const collegiumInitiativeStageLabels: Record<CollegiumInitiativeStage, string> = {
+  preparation: "Подготовка",
+  collegium: "Рассмотрение Коллегией и СД",
+  implementation: "Пилот и внедрение",
+  result: "Подтверждение результата",
+  suspended: "Приостановлены",
+  closed: "Отклонены и закрыты",
+};
+export const collegiumInitiativeStageStatuses: Record<
+  CollegiumInitiativeStage,
+  readonly CollegiumInitiativeStatus[]
+> = {
+  preparation: ["draft", "preliminary_review", "rework", "ready", "needs_elaboration"],
+  collegium: ["on_agenda", "in_discussion", "board_referral"],
+  implementation: ["approved_pilot", "approved_implementation", "in_progress"],
+  result: ["result_confirmation", "done_confirmed", "done_unconfirmed"],
+  suspended: ["suspended"],
+  closed: ["rejected", "closed"],
+};
+
+/**
+ * Фильтры реестра (ТЗ 13.2). Даты — `YYYY-MM-DD` по дате создания; суммы —
+ * канонические рубли; люди — `account:<userId>`. Срок окупаемости и уровни
+ * риска появятся с полным паспортом (очередь 3).
+ */
+export type CollegiumInitiativeFilters = {
+  query?: string;
+  createdFrom?: string;
+  createdTo?: string;
+  initiatorId?: string;
+  ownerId?: string;
+  executorId?: string;
+  controllerId?: string;
+  directionCode?: string;
+  status?: CollegiumInitiativeStatus;
+  stage?: CollegiumInitiativeStage;
+  effectTypeCode?: string;
+  costMin?: string;
+  costMax?: string;
+  plannedEffectMin?: string;
+  plannedEffectMax?: string;
+  actualEffectMin?: string;
+  actualEffectMax?: string;
+  meetingId?: string;
+  boardDecision?: "yes";
+  overdue?: "yes";
+  risk?: string;
+  /** Где пользователь автор или в любой роли карточки. */
+  mine?: "yes";
+};
+
+export const collegiumInitiativeFilterKeys = [
+  "query",
+  "createdFrom",
+  "createdTo",
+  "initiatorId",
+  "ownerId",
+  "executorId",
+  "controllerId",
+  "directionCode",
+  "status",
+  "stage",
+  "effectTypeCode",
+  "costMin",
+  "costMax",
+  "plannedEffectMin",
+  "plannedEffectMax",
+  "actualEffectMin",
+  "actualEffectMax",
+  "meetingId",
+  "boardDecision",
+  "overdue",
+  "risk",
+  "mine",
+] as const satisfies readonly (keyof CollegiumInitiativeFilters)[];

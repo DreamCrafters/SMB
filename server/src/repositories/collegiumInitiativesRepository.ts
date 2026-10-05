@@ -261,6 +261,16 @@ export function createCollegiumInitiativesRepository(pool: DatabasePool) {
       );
     },
 
+    /** Registry search through discussion text (ТЗ 17). */
+    async findInitiativeIdsByCommentText(text: string): Promise<string[]> {
+      const [rows] = await pool.query<(RowDataPacket & { initiative_id: string })[]>(
+        `select distinct initiative_id from collegium_initiative_comments
+         where locate(?, text) > 0`,
+        [text],
+      );
+      return rows.map((row) => row.initiative_id);
+    },
+
     async listComments(initiativeId: string): Promise<CollegiumInitiativeComment[]> {
       const [rows] = await pool.query<CommentRow[]>(
         `select id, kind, text, author_user_id, author_display_name, created_at,

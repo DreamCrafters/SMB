@@ -68,6 +68,12 @@ export function createCollegiumMemoryRepository({
         .map(({ revision }) => ({ ...revision, createdAt: "2026-10-05T09:00:00.000Z" }))
         .reverse();
     },
+    async findInitiativeIdsByCommentText(text: string) {
+      const needle = text.toLocaleLowerCase("ru-RU");
+      return [...new Set(comments
+        .filter(({ comment }) => comment.text.toLocaleLowerCase("ru-RU").includes(needle))
+        .map(({ initiativeId }) => initiativeId))];
+    },
     async listComments(initiativeId: string) {
       return comments.filter((entry) => entry.initiativeId === initiativeId).map(({ comment }) => comment);
     },

@@ -143,6 +143,14 @@ export function createDirectorAssignmentsRepository(pool: DatabasePool, registry
       );
       return rows.map(assignmentPayload);
     },
+    async listWithInitiativeLink() {
+      const [rows] = await pool.query<JsonRow[]>(
+        `select payload from ${tables.assignments}
+         where json_type(json_extract(payload, '$.sourceInitiativeId')) = 'STRING'
+         order by sequence_id`,
+      );
+      return rows.map(assignmentPayload);
+    },
     async listBySourceInitiative(initiativeId: string) {
       const [rows] = await pool.query<JsonRow[]>(
         `select payload from ${tables.assignments}

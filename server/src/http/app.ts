@@ -9,6 +9,13 @@ import { collegiumAttachmentLimits, collegiumInitiativeAccessOptions, collegiumI
 import type { CollegiumInitiativesService } from "../domain/collegiumInitiativesService.js";
 import type { CollegiumMeetingsService } from "../domain/collegiumMeetingsService.js";
 import { CollegiumInitiativeError } from "../domain/collegiumInitiative.js";
+import { readCollegiumInitiativeFilters } from "../domain/collegiumRegistry.js";
+import {
+  buildCollegiumRegistryXlsx,
+  renderCollegiumInitiativeCardPdf,
+  renderCollegiumProtocolPdf,
+  renderCollegiumRegistryPdf,
+} from "../integrations/collegiumInitiativesExport.js";
 import { DirectorAssignmentError } from "../domain/directorAssignment.js";
 import { isAdminDatabaseLayoutColumn } from "../repositories/adminDatabaseRepository.js";
 import { tableDefinitions, validateTableLayout } from "../contracts/tableLayouts.js";
@@ -983,6 +990,29 @@ export function createApiServer({
           return;
         }
         try {
+          const xlsxType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+          if (req.method === "GET" && (url.pathname === `${collegiumInitiativesApiPath}/export.xlsx` || url.pathname === `${collegiumInitiativesApiPath}/export.pdf`)) {
+            const registry = await collegiumInitiatives.exportRegistry(access.profile, readCollegiumInitiativeFilters(url.searchParams));
+            const isXlsx = url.pathname.endsWith(".xlsx");
+            sendCollegiumAttachment(res, {
+              fileName: isXlsx ? "Реестр инициатив Коллегии.xlsx" : "Реестр инициатив Коллегии.pdf",
+              contentType: isXlsx ? xlsxType : "application/pdf",
+              content: isXlsx
+                ? buildCollegiumRegistryXlsx(registry.initiatives, registry.name, registry.overdueIds)
+                : await renderCollegiumRegistryPdf(registry.initiatives, registry.name, registry.overdueIds),
+            });
+            return;
+          }
+          const cardPdf = /^\/api\/collegium-initiatives\/([a-zA-Z0-9-]{1,100})\/card\.pdf$/u.exec(url.pathname);
+          if (cardPdf && req.method === "GET") {
+            const { detail, name } = await collegiumInitiatives.printCard(access.profile, cardPdf[1]);
+            sendCollegiumAttachment(res, {
+              fileName: `Инициатива ${detail.initiative.number}.pdf`,
+              contentType: "application/pdf",
+              content: await renderCollegiumInitiativeCardPdf(detail, name),
+            });
+            return;
+          }
           const match = /^\/api\/collegium-initiatives(?:\/([a-zA-Z0-9-]{1,100})(?:\/(actions|comments|attachments|result)(?:\/([a-zA-Z0-9-]{1,100})(?:\/(resolve))?)?)?)?$/u.exec(url.pathname);
           if (!match) throw new CollegiumInitiativeError("Страница не найдена.", 404);
           const [, id, section, itemId, itemAction] = match;
@@ -1027,7 +1057,7 @@ export function createApiServer({
             await collegiumInitiatives.deleteAttachment(access.profile, id, itemId);
             sendJson(res, 200, { ok: true });
           } else if (section) throw new CollegiumInitiativeError("Действие недоступно.", 405);
-          else if (!id && req.method === "GET") sendJson(res, 200, await collegiumInitiatives.list(access.profile));
+          else if (!id && req.method === "GET") sendJson(res, 200, await collegiumInitiatives.list(access.profile, readCollegiumInitiativeFilters(url.searchParams)));
           else if (!id && req.method === "POST") sendJson(res, 201, { initiative: await collegiumInitiatives.create(access.profile, await readJsonBody(req)) });
           else if (id && req.method === "GET") sendJson(res, 200, await collegiumInitiatives.read(access.profile, id));
           else if (id && req.method === "PATCH") sendJson(res, 200, { initiative: await collegiumInitiatives.update(access.profile, id, await readJsonBody(req)) });
@@ -1054,6 +1084,16 @@ export function createApiServer({
           return;
         }
         try {
+          const protocolPdf = /^\/api\/collegium-meetings\/([a-zA-Z0-9-]{1,100})\/protocol\.pdf$/u.exec(url.pathname);
+          if (protocolPdf && req.method === "GET") {
+            const { meeting } = await collegiumMeetings.read(access.profile, protocolPdf[1]);
+            sendCollegiumAttachment(res, {
+              fileName: `Протокол ${meeting.number}.pdf`,
+              contentType: "application/pdf",
+              content: await renderCollegiumProtocolPdf(meeting),
+            });
+            return;
+          }
           const match = /^\/api\/collegium-meetings(?:\/([a-zA-Z0-9-]{1,100})(?:\/(items|protocol|cancel|attachments)(?:\/([a-zA-Z0-9-]{1,100})(?:\/(remove|discussion|decision))?)?)?)?$/u.exec(url.pathname);
           if (!match) throw new CollegiumInitiativeError("Страница не найдена.", 404);
           const [, id, section, itemId, itemAction] = match;

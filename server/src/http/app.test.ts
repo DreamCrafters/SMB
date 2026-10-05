@@ -16119,6 +16119,10 @@ test("collegium initiatives API routes requests and maps module errors", async (
       calls.push(`add:${id}:${fileName}:${content.length}`);
       return { id: "file-1", kind: "file", label: fileName, fileName, fileType: "pdf", sizeBytes: content.length, createdByDisplayName: "x", createdAt: "2026-10-05T09:00:00.000Z" };
     },
+    async exportRegistry(_profile: ServerUserProfile, filters: unknown) {
+      calls.push(`export:${JSON.stringify(filters)}`);
+      return { initiatives: [], name: () => "", overdueIds: new Set<string>() };
+    },
     async readFile(_profile: ServerUserProfile, id: string, attachmentId: string) {
       calls.push(`read-file:${id}:${attachmentId}`);
       return { fileName: "Расчёт эффекта.pdf", contentType: "application/pdf", content: Buffer.from("%PDF-1.7") };
@@ -16166,6 +16170,16 @@ test("collegium initiatives API routes requests and maps module errors", async (
     });
     assert.equal(locked.status, 409);
     assert.doesNotMatch(JSON.stringify(await locked.json()), /Deadlock/u);
+    calls.length = 0;
+
+    const xlsx = await fetch(`${baseUrl}/api/collegium-initiatives/export.xlsx?stage=implementation`, { headers });
+    assert.equal(xlsx.status, 200);
+    assert.equal(xlsx.headers.get("content-type"), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    assert.equal(Buffer.from(await xlsx.arrayBuffer()).subarray(0, 2).toString("latin1"), "PK");
+    const pdf = await fetch(`${baseUrl}/api/collegium-initiatives/export.pdf`, { headers });
+    assert.equal(pdf.headers.get("content-type"), "application/pdf");
+    assert.equal((await fetch(`${baseUrl}/api/collegium-initiatives/export.xlsx?stage=all`, { headers })).status, 400);
+    assert.deepEqual(calls, ['export:{"stage":"implementation"}', "export:{}"]);
     calls.length = 0;
 
     const binaryHeaders = { Cookie: headers.Cookie, "Content-Type": "application/octet-stream" };

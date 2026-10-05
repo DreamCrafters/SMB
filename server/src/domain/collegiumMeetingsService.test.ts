@@ -97,6 +97,9 @@ function createHarness() {
       async listBySourceInitiative(initiativeId: string) {
         return linkedAssignments.filter((assignment) => assignment.sourceInitiativeId === initiativeId);
       },
+      async listWithInitiativeLink() {
+        return [...linkedAssignments];
+      },
     },
   });
   const meetings = createCollegiumMeetingsService(shared);
@@ -520,4 +523,23 @@ test("a chair who was the executor after admission cannot confirm the effect", a
   );
   const confirmed = await initiatives.act(secretary, ready.id, { action: "confirm_effect", revision: initiative.revision });
   assert.equal(confirmed.status, "done_confirmed");
+});
+
+test("the registry filters on the server by meeting and overdue assignments", async () => {
+  const { initiatives, approvedInitiative, addAssignment, readyInitiative } = createHarness();
+  const approved = await approvedInitiative("Просроченная");
+  const other = await readyInitiative("Готовая");
+  addAssignment(approved.id, "in_progress", "2026-10-01");
+  const all = await initiatives.list(secretary);
+  assert.deepEqual(all.overdueIds, [approved.id]);
+  assert.equal(all.meetings.length, 1);
+  assert.deepEqual((await initiatives.list(secretary, { overdue: "yes" })).initiatives.map(({ id }) => id), [approved.id]);
+  assert.deepEqual(
+    (await initiatives.list(secretary, { meetingId: all.meetings[0].id })).initiatives.map(({ id }) => id),
+    [approved.id],
+  );
+  assert.deepEqual((await initiatives.list(secretary, { status: "ready" })).initiatives.map(({ id }) => id), [other.id]);
+  const exported = await initiatives.exportRegistry(secretary, { stage: "implementation" });
+  assert.deepEqual(exported.initiatives.map(({ id }) => id), [approved.id]);
+  assert.equal(exported.name("account:owner"), "ФИО owner");
 });

@@ -119,7 +119,7 @@ test("participant creates a draft and opens its card from the registry", async (
         return [{ initiative: stored }, 201];
       }
       if (url.pathname === "/api/collegium-initiatives") {
-        return [{ initiatives: stored === undefined ? [] : [stored], people, reference, permissions }];
+        return [{ initiatives: stored === undefined ? [] : [stored], people, reference, permissions, meetings: [], overdueIds: [] }];
       }
       if (url.pathname === "/api/collegium-initiatives/initiative-1") {
         return [{
@@ -243,7 +243,7 @@ test("an approved initiative creates a linked collegium assignment with protocol
         return [{ assignment: { id: "a-1", number: "К-15" } }, 201];
       }
       if (url.pathname === "/api/collegium-initiatives") {
-        return [{ initiatives: [stored], people, reference, permissions }];
+        return [{ initiatives: [stored], people, reference, permissions, meetings: [], overdueIds: [] }];
       }
       if (url.pathname === "/api/collegium-initiatives/initiative-1") {
         return [{
@@ -301,12 +301,53 @@ test("an approved initiative creates a linked collegium assignment with protocol
   }
 });
 
+test("registry filters and exports are applied by the server", async () => {
+  const listQueries = [];
+  const downloads = [];
+  const view = await renderWorkspace(
+    { canView: true, canParticipate: false, canManage: false, canApprove: false },
+    async (url, _init, permissions) => {
+      if (url.pathname === "/api/collegium-initiatives") {
+        listQueries.push(url.search);
+        return [{ initiatives: [buildInitiative({ title: "Идея" })], people, reference, permissions, meetings: [], overdueIds: ["initiative-1"] }];
+      }
+      if (url.pathname === "/api/collegium-initiatives/export.xlsx") {
+        downloads.push(url.search);
+        return [{ error: { message: "Выгрузка недоступна." } }, 403];
+      }
+      throw new Error(`Unexpected request: ${url.pathname}`);
+    },
+  );
+  const { dom, React, container } = view;
+  try {
+    await waitFor(React, () => container.querySelector(".collegium-initiatives-table") !== null);
+    assert.match(container.textContent, /просрочены поручения/u);
+    const status = Array.from(container.querySelectorAll("label")).find(
+      (label) => label.querySelector(":scope > span")?.textContent === "Статус",
+    ).querySelector("select");
+    await React.act(async () => {
+      setNativeInputValue(status, "ready");
+      status.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
+    });
+    // Nothing is requested before the filters are applied.
+    assert.deepEqual(listQueries, [""]);
+    await React.act(async () => findButtonByText(container, "Применить").click());
+    await waitFor(React, () => listQueries.length === 2);
+    assert.equal(listQueries[1], "?status=ready");
+    await React.act(async () => findButtonByText(container, "Выгрузить в Excel").click());
+    await waitFor(React, () => container.textContent.includes("Выгрузка недоступна."));
+    assert.deepEqual(downloads, ["?status=ready"]);
+  } finally {
+    await view.cleanup();
+  }
+});
+
 test("viewer sees the registry without the create action", async () => {
   const view = await renderWorkspace(
     { canView: true, canParticipate: false, canManage: false, canApprove: false },
     async (url, _init, permissions) => {
       if (url.pathname === "/api/collegium-initiatives") {
-        return [{ initiatives: [buildInitiative({ title: "Чужая идея" })], people, reference, permissions }];
+        return [{ initiatives: [buildInitiative({ title: "Чужая идея" })], people, reference, permissions, meetings: [], overdueIds: [] }];
       }
       throw new Error(`Unexpected request: ${url.pathname}`);
     },
