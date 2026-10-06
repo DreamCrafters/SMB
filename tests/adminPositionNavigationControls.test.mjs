@@ -232,6 +232,7 @@ test("delegated manager edits working tabs and combines railway roles without lo
     const reopenedRoles = rootElement.querySelector('[role="group"][aria-label="Роли в разделе ЖД Вагоны"]');
     assert.equal(findCheckbox(reopenedRoles, "Менеджер по продажам").checked, true);
     assert.equal(findCheckbox(reopenedRoles, "Сотрудник по работе с РЖД").checked, true);
+    assert.equal(findPositionCopySelect(rootElement.querySelector('[role="dialog"]')), undefined);
     await React.act(async () => Array.from(rootElement.querySelectorAll('[role="dialog"] button'))
       .find((button) => button.textContent?.trim() === "Отмена").click());
 
@@ -261,6 +262,46 @@ test("delegated manager edits working tabs and combines railway roles without lo
       .map((input) => input.closest("label")?.textContent?.trim());
     assert.equal(checkedByDefault.length, 1);
     assert.match(checkedByDefault[0], /^Настройки/u);
+
+    const nameInput = createDialog.querySelector("input:not([type])");
+    assert.ok(nameInput);
+    await React.act(async () => {
+      setNativeInputValue(nameInput, "Копия руководителя");
+      nameInput.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+    });
+    const copySelect = findPositionCopySelect(createDialog);
+    assert.ok(copySelect);
+    assert.deepEqual(
+      Array.from(copySelect.options, (option) => option.textContent),
+      ["Не копировать", "Руководитель с БД"],
+    );
+    await React.act(async () => {
+      copySelect.value = "hybrid-position";
+      copySelect.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
+    });
+    assert.equal(nameInput.value, "Копия руководителя");
+    assert.equal(findCheckbox(createDialog, "Диспетчерская (").checked, true);
+    assert.equal(findCheckbox(createDialog, "Настройки (").checked, true);
+    const copiedRoles = createDialog.querySelector('[role="group"][aria-label="Роли в разделе ЖД Вагоны"]');
+    assert.equal(findCheckbox(copiedRoles, "Менеджер по продажам").checked, true);
+    assert.equal(findCheckbox(copiedRoles, "Сотрудник по работе с РЖД").checked, true);
+    assert.equal(
+      findCheckbox(createDialog, "Показывать «Посетители»").checked,
+      true,
+    );
+    await React.act(async () => {
+      copySelect.value = "";
+      copySelect.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
+    });
+    assert.equal(nameInput.value, "Копия руководителя");
+    assert.deepEqual(
+      Array.from(
+        createDialog.querySelectorAll('.admin-account-navigation-option input[type="checkbox"]'),
+      )
+        .filter((input) => input.checked)
+        .map((input) => input.closest("label")?.textContent?.trim().replace(/ \(.*$/u, "")),
+      ["Настройки"],
+    );
     await React.act(async () => Array.from(createDialog.querySelectorAll("button"))
       .find((button) => button.textContent?.trim() === "Отмена")?.click());
 
@@ -440,6 +481,20 @@ function findCheckbox(rootElement, labelPrefix) {
   return Array.from(rootElement.querySelectorAll("label")).find((label) =>
     label.textContent?.trim().startsWith(labelPrefix)
   )?.querySelector('input[type="checkbox"]');
+}
+
+function findPositionCopySelect(rootElement) {
+  return Array.from(rootElement.querySelectorAll("label")).find((label) =>
+    label.querySelector("span")?.textContent === "Скопировать доступы из должности"
+  )?.querySelector("select");
+}
+
+function setNativeInputValue(input, value) {
+  const descriptor = Object.getOwnPropertyDescriptor(
+    input.constructor.prototype,
+    "value",
+  );
+  descriptor?.set?.call(input, value);
 }
 
 function buildDelegatedProfile() {

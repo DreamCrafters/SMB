@@ -11405,6 +11405,23 @@ const emptyAdminPositionForm: AdminPositionFormState = {
   showOverviewVisitors: false,
 };
 
+// Доступы формы без названия: их же использует копирование в новую должность.
+// Права админа сюда не входят — их выдаёт только корневой аккаунт отдельной отметкой.
+function readPositionFormAccess(
+  position: AdminPositionSummary,
+): Omit<AdminPositionFormState, "id" | "displayName"> {
+  return {
+    navigationItems: position.navigationItems.filter((id) =>
+      nonAdminNavigationItems.some((item) => item.id === id),
+    ),
+    assignmentInboxAccess: position.assignmentInboxAccess,
+    boardAssignmentAccess: position.boardAssignmentAccess,
+    railwayWagonAccess: position.railwayWagonAccess,
+    collegiumInitiativeAccess: position.collegiumInitiativeAccess,
+    showOverviewVisitors: position.showOverviewVisitors,
+  };
+}
+
 const adminAccountPositionOptions: AccountPosition[] = [
   "administrator",
   "business_owner",
@@ -11658,6 +11675,7 @@ function AdminAccountsWorkspace({
     useState<AdminAccountsSection>("accounts");
   const [positionForm, setPositionForm] = useState<AdminPositionFormState>(emptyAdminPositionForm);
   const [positionFormStatus, setPositionFormStatus] = useState("");
+  const [positionCopySourceId, setPositionCopySourceId] = useState("");
   const [isPositionModalOpen, setIsPositionModalOpen] = useState(false);
   const [deletingPositionId, setDeletingPositionId] = useState<string>();
   const [passwordResetForm, setPasswordResetForm] =
@@ -11861,15 +11879,9 @@ function AdminAccountsWorkspace({
       : {
           id: position.id,
           displayName: position.displayName,
-          navigationItems: position.navigationItems.filter((id) =>
-            nonAdminNavigationItems.some((item) => item.id === id),
-          ),
-          assignmentInboxAccess: position.assignmentInboxAccess,
-          boardAssignmentAccess: position.boardAssignmentAccess,
-          railwayWagonAccess: position.railwayWagonAccess,
-          collegiumInitiativeAccess: position.collegiumInitiativeAccess,
-          showOverviewVisitors: position.showOverviewVisitors,
+          ...readPositionFormAccess(position),
         });
+    setPositionCopySourceId("");
     setPositionFormStatus("");
     setIsPositionModalOpen(true);
   }
@@ -13203,6 +13215,40 @@ function AdminAccountsWorkspace({
                   setPositionForm((current) => ({ ...current, displayName }));
                 }} required />
               </label>
+              {positionForm.id === undefined ? (
+                <label>
+                  <span>Скопировать доступы из должности</span>
+                  <select
+                    value={positionCopySourceId}
+                    disabled={isSubmitting}
+                    onChange={(event) => {
+                      const sourceId = event.currentTarget.value;
+                      const source = positionsState.positions.find(({ id }) => id === sourceId);
+                      setPositionCopySourceId(source === undefined ? "" : sourceId);
+                      setPositionForm((current) => ({
+                        ...current,
+                        ...(source === undefined
+                          ? {
+                              ...emptyAdminPositionForm,
+                              navigationItems: [...emptyAdminPositionForm.navigationItems],
+                              displayName: current.displayName,
+                            }
+                          : readPositionFormAccess(source)),
+                      }));
+                    }}
+                  >
+                    <option value="">Не копировать</option>
+                    {positionsState.positions
+                      .filter(({ accountType }) => accountType !== "admin")
+                      .map((position) => (
+                        <option key={position.id} value={position.id}>
+                          {position.displayName}
+                        </option>
+                      ))}
+                  </select>
+                  <small>Вкладки и уровни можно изменить после копирования. Права админа не копируются.</small>
+                </label>
+              ) : null}
               <fieldset className="admin-account-navigation-fieldset">
                 <legend>Рабочие вкладки</legend>
                 <div className="admin-account-navigation-grid">
