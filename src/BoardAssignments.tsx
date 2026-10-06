@@ -1,3 +1,4 @@
+import { AssignmentCreateOverview } from "./AssignmentCreateOverview";
 import { BoardAssignmentDelegations } from "./BoardAssignmentDelegations";
 import { BoardAssignmentRegister, boardRegisterLabels, matchesBoardColumnFilters, type BoardRegisterColumn } from "./BoardAssignmentRegister";
 import type { BoardAssignmentPdfRequest } from "../server/src/contracts/boardAssignmentPdf";
@@ -367,13 +368,13 @@ export function BoardAssignmentsWorkspace({
     setCreateComment("");
     setCreateDocuments([]);
     setListVersion((current) => current + 1);
-    if (mode === "control") setSelectedId(result.assignment.id);
+    setSelectedId(result.assignment.id);
     if (documentError === undefined) {
       onShowToast(
         "Поручение добавлено",
         createDocuments.length === 0
-          ? "Новое поручение появилось в реестре во вкладке «Поручения»."
-          : "Поручение и документы появились в реестре во вкладке «Поручения».",
+          ? "Новое поручение появилось в общем реестре."
+          : "Поручение и документы появились в общем реестре.",
         "success",
       );
     } else {
@@ -616,68 +617,20 @@ export function BoardAssignmentsWorkspace({
     />
   ) : null;
 
-  if (mode === "create") {
-    return (
-      <main className="board-assignments-workspace is-access-create">
-        <header className="board-assignments-heading">
-          <div>
-            <span className="eyebrow">Создание поручений</span>
-            <h1>Поручения Совета директоров</h1>
-          </div>
-        </header>
-        {listState.status === "loading" && permissions === emptyPermissions ? (
-          <LoadingIndicator label="Загружаем доступ…" variant="inline" />
-        ) : listState.status === "error" ? (
-          <p className="form-message is-error" role="alert">{listState.message}</p>
-        ) : canCreate ? (
-          <section
-            className="board-assignment-create-overview"
-            aria-label="Постановка поручений"
-          >
-            <div>
-              <span>Постановка поручений</span>
-              <h2>Создать новое поручение</h2>
-              <p>
-                Зафиксируйте решение Совета директоров, срок и ответственных.
-                Просматривать, принимать и править поручения можно во вкладке
-                «Поручения».
-              </p>
-              <button
-                className="primary-button"
-                type="button"
-                onClick={openCreateDialog}
-              >
-                Добавить поручение
-              </button>
-            </div>
-          </section>
-        ) : (
-          <section
-            className="board-assignment-view-notice"
-            aria-label="Режим просмотра"
-          >
-            <div>
-              <span>Только просмотр</span>
-              <p>
-                Создание поручений недоступно. Поручения Совета директоров
-                открываются во вкладке «Поручения».
-              </p>
-            </div>
-          </section>
-        )}
-        {createDialog}
-      </main>
-    );
-  }
+  const isCreateMode = mode === "create";
+  // The create tab lists the register read-only: decisions and edits live in «Поручения».
+  const detailPermissions = isCreateMode
+    ? { ...permissions, canCreate: false, canExecute: false, canReview: false }
+    : { ...permissions, canExecute: false };
 
   return (
     <main
-      className={`board-assignments-workspace is-access-${accessMode}`}
+      className={`board-assignments-workspace is-access-${isCreateMode ? "create" : accessMode}`}
     >
       <header className="board-assignments-heading">
         <div>
-          <span className="eyebrow">Совет директоров</span>
-          <h1>Поручения Генеральному директору</h1>
+          <span className="eyebrow">{isCreateMode ? "Создание поручений" : "Совет директоров"}</span>
+          <h1>{isCreateMode ? "Поручения Совета директоров" : "Поручения Генеральному директору"}</h1>
         </div>
         <nav aria-label="Разделы поручений">
           <button
@@ -731,6 +684,13 @@ export function BoardAssignmentsWorkspace({
             <small>выполнено</small>
           </strong>
         </section>
+      ) : isCreateMode ? (
+        <AssignmentCreateOverview
+          canCreate={canCreate}
+          count={visibleAssignments.length}
+          text="Зафиксируйте решение Совета директоров, срок и ответственных. Принимать и править поручения можно во вкладке «Поручения»."
+          onCreate={openCreateDialog}
+        />
       ) : accessMode === "create" ? (
         <section
           className="board-assignment-create-overview"
@@ -907,7 +867,7 @@ export function BoardAssignmentsWorkspace({
         </section>
       ) : (
         <>
-          {accessMode === "review" && reviewAssignments.length > 0 ? (
+          {!isCreateMode && accessMode === "review" && reviewAssignments.length > 0 ? (
             <section
               className="board-assignment-review-queue"
               aria-label="Поручения, ожидающие решения"
@@ -964,6 +924,8 @@ export function BoardAssignmentsWorkspace({
         </>
       )}
 
+      {createDialog}
+
       {isEditOpen ? (
         <BoardAssignmentEditorDialog
           mode="edit"
@@ -1015,8 +977,8 @@ export function BoardAssignmentsWorkspace({
           isOverdue={selectedAssignmentIsOverdue}
           isMaterialOpening={isMaterialOpening}
           isSaving={isSaving}
-          // Execution lives in «Поручения»; this tab only views, creates and reviews.
-          permissions={{ ...permissions, canExecute: false }}
+          // Execution lives in «Поручения мне»; the register sub-tab views and reviews.
+          permissions={detailPermissions}
           onCommentChange={setActionComment}
           onCancel={() => {
             if (isSaving) return;
@@ -1026,7 +988,7 @@ export function BoardAssignmentsWorkspace({
           onOpenMaterial={(material) => {
             void openMaterial(material);
           }}
-          onEdit={openEditDialog}
+          onEdit={isCreateMode ? undefined : openEditDialog}
           onSubmit={saveAction}
         />
       )}

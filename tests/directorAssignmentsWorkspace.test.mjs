@@ -53,7 +53,13 @@ for (const mode of ["send", "send-linked", "send-unlinked", "both"]) {
       assert.match(rootElement.textContent, workspaceMode === "create" ? /Создание поручений/u : /Контроль исполнения/u);
       assert.doesNotMatch(rootElement.textContent, /Получение и выполнение/u);
       assert.equal([...rootElement.querySelectorAll("button")].some(button => button.textContent === "Создать поручение"), false);
-      if (workspaceMode === "create") assert.equal(rootElement.querySelector(".director-register"), null);
+      if (workspaceMode === "create") {
+        // Same layout as the board creation tab: the create button above the register with statuses.
+        assert.ok(rootElement.querySelector(".board-assignment-create-overview"));
+        assert.ok(rootElement.querySelector(".director-register"));
+        assert.equal(rootElement.querySelector("form"), null);
+        await React.act(async () => [...rootElement.querySelectorAll("button")].find(button => button.textContent === "Добавить поручение").click());
+      }
       if (mode === "both") {
         // Own assignments are executed in «Поручения»: the registry tab shows the whole register only.
         const numbers = () => [...rootElement.querySelectorAll("tbody tr")].map(row => row.querySelector("td").textContent);
@@ -287,6 +293,7 @@ test("collegium workspace uses its own API, title and protocol fields without a 
     const { DirectorAssignmentsWorkspace } = await vite.ssrLoadModule("/src/DirectorAssignments.tsx");
     await React.act(async () => root.render(React.createElement(DirectorAssignmentsWorkspace, { registryId: "collegium", mode: "create", onShowToast() {} })));
     assert.match(rootElement.querySelector("h2").textContent, /Поручения Коллегии/u);
+    await React.act(async () => [...rootElement.querySelectorAll("button")].find(button => button.textContent === "Добавить поручение").click());
     const form = rootElement.querySelector("form");
     assert.doesNotMatch(form.textContent, /Исходное поручение Совета директоров/u);
     const field = label => [...form.querySelectorAll("label")].find(item => item.textContent.startsWith(label)).querySelector("input, select, textarea");
@@ -305,6 +312,39 @@ test("collegium workspace uses its own API, title and protocol fields without a 
     assert.equal(submitted.assignment.meetingDate, "");
     assert.equal(submitted.assignment.sourceBoardAssignmentId, null);
     assert.ok(paths.length > 0 && paths.every(path => path.startsWith("/api/collegium-assignments")));
+  } finally {
+    await React.act(async () => root.unmount());
+    globalThis.fetch = oldFetch;
+    for (const [name, descriptor] of descriptors) {
+      if (descriptor) Object.defineProperty(globalThis, name, descriptor);
+      else delete globalThis[name];
+    }
+    dom.window.close();
+  }
+});
+
+test("director creation tab lists the register read-only: decisions and edits stay in «Поручения»", async () => {
+  const dom = new JSDOM('<div id="root"></div>', { url: "http://127.0.0.1:5173/" });
+  const descriptors = new Map(globalNames.map(name => [name, Object.getOwnPropertyDescriptor(globalThis, name)]));
+  const oldFetch = globalThis.fetch;
+  for (const name of globalNames) Object.defineProperty(globalThis, name, { value: name === "IS_REACT_ACT_ENVIRONMENT" ? true : dom.window[name], configurable: true, writable: true });
+  dom.window.HTMLElement.prototype.scrollIntoView = () => {};
+  const React = await import("react");
+  const { createRoot } = await import("react-dom/client");
+  const rootElement = document.getElementById("root");
+  const root = createRoot(rootElement);
+  const assignment = { id: "review", number: "ГД-7", revision: 1, assignedOn: "2026-09-10", kind: "Поручение", summary: "Отчёт на проверке", department: "", project: "", responsibleId: "account:employee-1", responsible: { fullName: "Сотрудник" }, coExecutorIds: [], coExecutors: [], recurrence: "once", activeFrom: "2026-09-10", activeTo: "2026-09-10", currentOccurrenceDate: "2026-09-10", urgency: "", importance: "", progress: "", note: "", incomingNumber: "", completedOn: "", status: "under_review", comments: [], documents: [], source: null, sourceBoardAssignmentId: null, postponedUntil: "" };
+  globalThis.fetch = async () => new Response(JSON.stringify({ assignments: [assignment], employees: [], permissions: { canView: true, canManage: true, canExecute: false }, today: "2026-09-15" }));
+  try {
+    const { DirectorAssignmentsWorkspace } = await vite.ssrLoadModule("/src/DirectorAssignments.tsx");
+    await React.act(async () => root.render(React.createElement(DirectorAssignmentsWorkspace, { mode: "create", onShowToast() {} })));
+    assert.equal(rootElement.querySelector(".board-assignment-review-queue"), null);
+    assert.match(rootElement.querySelector("tbody").textContent, /На проверке/u);
+    await React.act(async () => rootElement.querySelector(".table-text-action").click());
+    const buttons = [...rootElement.querySelectorAll("button")].map(button => button.textContent);
+    assert.ok(rootElement.querySelector(".director-assignment-detail"));
+    for (const action of ["Принять исполнение", "Вернуть на доработку", "Редактировать"]) assert.equal(buttons.includes(action), false, action);
+    assert.equal(rootElement.querySelector('.director-assignment-documents input[type="file"]'), null);
   } finally {
     await React.act(async () => root.unmount());
     globalThis.fetch = oldFetch;
