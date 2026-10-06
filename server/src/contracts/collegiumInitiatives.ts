@@ -1344,3 +1344,40 @@ export type CollegiumDashboard = {
   topByEffect: Array<CollegiumInitiativeRef & { expectedEffect: string; status: CollegiumInitiativeStatus }>;
   topRisks: Array<CollegiumInitiativeRef & { risk: string; levelCode: string; levelLabel: string; expectedEffect: string }>;
 };
+
+/** Квартальный отчёт для Совета директоров (ТЗ 13.3); суммы — рубли `1234.50`. */
+export type CollegiumBoardReport = {
+  /** `ГГГГ-QN`. */
+  quarter: string;
+  from: string;
+  to: string;
+  generatedOn: string;
+  /** Состояние на конец квартала (или на сегодня для текущего). */
+  asOf: string;
+  total: number;
+  approved: number;
+  implemented: number;
+  rejected: number;
+  suspended: number;
+  plannedEffect: string;
+  confirmedEffect: string;
+  keyImplemented: Array<CollegiumInitiativeRef & { confirmedEffect: string }>;
+  deviations: Array<CollegiumInitiativeRef & {
+    effectLabel: string;
+    plannedAnnual: string;
+    actualAmount: string;
+    deviationAmount: string;
+    deviationPercent: string;
+  }>;
+  boardDecisions: CollegiumInitiativeRef[];
+  keyRisks: Array<CollegiumInitiativeRef & { risk: string; levelLabel: string }>;
+  /** Просроченные поручения по инициативам; `critical` — по настройке «Важности». */
+  overdueAssignments: Array<{
+    initiativeNumber: string;
+    number: string;
+    summary: string;
+    deadline: string;
+    importance: string;
+    critical: boolean;
+  }>;
+};

@@ -48,6 +48,7 @@ import { ManagedTable } from "./ManagedTable";
 import { TableCell, TableHeader } from "./TableCell";
 import {
   actOnCollegiumInitiative,
+  collegiumBoardMaterialsPath,
   collegiumInitiativeCardPdfPath,
   collegiumRegistryExportPath,
   downloadCollegiumFile,
@@ -664,6 +665,24 @@ function InitiativeCardView({
           >
             Печать (PDF)
           </button>
+          {card.passport !== undefined || initiative.status === "board_referral" ? (
+            <button
+              className="secondary-button"
+              type="button"
+              onClick={() => {
+                void downloadCollegiumFile(collegiumBoardMaterialsPath(initiative.id)).then(
+                  (blob) => saveBlob(blob, `Материалы для СД ${initiative.number}.pdf`),
+                  (error: unknown) => onShowToast(
+                    "Материалы для СД недоступны",
+                    readShortUserMessage(error instanceof Error ? error.message : "", "Не удалось сформировать PDF."),
+                    "warning",
+                  ),
+                );
+              }}
+            >
+              Материалы для СД (PDF)
+            </button>
+          ) : null}
           {canEdit ? (
             <button className="primary-button" type="button" onClick={onEdit}>Изменить</button>
           ) : null}

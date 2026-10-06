@@ -17,6 +17,9 @@ import {
   buildCollegiumRegistryXlsx,
   renderCollegiumInitiativeCardPdf,
   renderCollegiumProtocolPdf,
+  buildCollegiumBoardReportXlsx,
+  renderCollegiumBoardMaterialsPdf,
+  renderCollegiumBoardReportPdf,
   renderCollegiumDashboardPdf,
   renderCollegiumRegistryPdf,
 } from "../integrations/collegiumInitiativesExport.js";
@@ -1041,6 +1044,26 @@ export function createApiServer({
           }
           if (url.pathname === `${collegiumInitiativesApiPath}/attention` && req.method === "GET") {
             sendJson(res, 200, { items: await collegiumInitiatives.attention(access.profile) });
+            return;
+          }
+          if (req.method === "GET" && (url.pathname === `${collegiumInitiativesApiPath}/board-report.pdf` || url.pathname === `${collegiumInitiativesApiPath}/board-report.xlsx`)) {
+            const report = await collegiumInitiatives.boardReport(access.profile, url.searchParams.get("quarter"));
+            const isXlsx = url.pathname.endsWith(".xlsx");
+            sendCollegiumAttachment(res, {
+              fileName: `Отчёт для СД ${report.quarter}.${isXlsx ? "xlsx" : "pdf"}`,
+              contentType: isXlsx ? xlsxType : "application/pdf",
+              content: isXlsx ? buildCollegiumBoardReportXlsx(report) : await renderCollegiumBoardReportPdf(report),
+            });
+            return;
+          }
+          const materialsPdf = /^\/api\/collegium-initiatives\/([a-zA-Z0-9-]{1,100})\/board-materials\.pdf$/u.exec(url.pathname);
+          if (materialsPdf && req.method === "GET") {
+            const { detail, name } = await collegiumInitiatives.printCard(access.profile, materialsPdf[1]);
+            sendCollegiumAttachment(res, {
+              fileName: `Материалы для СД ${detail.initiative.number}.pdf`,
+              contentType: "application/pdf",
+              content: await renderCollegiumBoardMaterialsPdf(detail, name),
+            });
             return;
           }
           const cardPdf = /^\/api\/collegium-initiatives\/([a-zA-Z0-9-]{1,100})\/card\.pdf$/u.exec(url.pathname);

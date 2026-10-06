@@ -8,6 +8,7 @@ import { LoadingIndicator } from "./LoadingIndicator";
 import { ManagedTable } from "./ManagedTable";
 import { TableCell, TableHeader } from "./TableCell";
 import {
+  collegiumBoardReportPath,
   collegiumDashboardPdfPath,
   downloadCollegiumFile,
   requestCollegiumDashboard,
@@ -15,6 +16,23 @@ import {
 import { readShortUserMessage } from "./services/userFacingMessages";
 
 type InitiativeRef = { id: string; number: string; title: string };
+
+/** Текущий и семь предыдущих кварталов по Москве. */
+function recentQuarters() {
+  const today = new Intl.DateTimeFormat("sv-SE", { timeZone: "Europe/Moscow" }).format(new Date());
+  let year = Number(today.slice(0, 4));
+  let quarter = Math.floor((Number(today.slice(5, 7)) - 1) / 3) + 1;
+  const quarters: string[] = [];
+  for (let index = 0; index < 8; index += 1) {
+    quarters.push(`${year}-Q${quarter}`);
+    quarter -= 1;
+    if (quarter === 0) {
+      quarter = 4;
+      year -= 1;
+    }
+  }
+  return quarters;
+}
 
 /** Доля для ширины полосы; нулевой максимум не рисует полос. */
 function share(value: string, max: number) {
@@ -36,22 +54,24 @@ export function CollegiumDashboardView({
   );
   const [message, setMessage] = useState("");
   const [isPrinting, setIsPrinting] = useState(false);
+  const [quarter, setQuarter] = useState(() => recentQuarters()[0]);
 
   if (state.status === "loading") return <LoadingIndicator label="Загружаем дашборд…" />;
   if (state.status === "error") return <p className="form-message is-error" role="alert">{state.message}</p>;
   const dashboard = state.data;
 
-  const printSummary = async () => {
+  const download = async (path: string, fileName: string) => {
     setIsPrinting(true);
     setMessage("");
     try {
-      saveBlob(await downloadCollegiumFile(collegiumDashboardPdfPath), "Сводка инициатив Коллегии.pdf");
+      saveBlob(await downloadCollegiumFile(path), fileName);
     } catch (error) {
-      setMessage(readShortUserMessage(error instanceof Error ? error.message : "", "Не удалось сформировать сводку."));
+      setMessage(readShortUserMessage(error instanceof Error ? error.message : "", "Не удалось сформировать файл."));
     } finally {
       setIsPrinting(false);
     }
   };
+  const printSummary = () => download(collegiumDashboardPdfPath, "Сводка инициатив Коллегии.pdf");
 
   const link = (item: InitiativeRef) => (
     <button className="board-assignment-link" type="button" onClick={() => onOpen(item.id)}>
@@ -63,9 +83,33 @@ export function CollegiumDashboardView({
     <div className="collegium-dashboard">
       <div className="collegium-dashboard-toolbar">
         <span>{`На ${formatDate(dashboard.generatedOn)} · инициатив: ${dashboard.total}`}</span>
-        <button className="secondary-button" disabled={isPrinting} type="button" onClick={() => void printSummary()}>
-          {isPrinting ? "Формируем…" : "Сводка PDF"}
-        </button>
+        <div className="collegium-dashboard-actions">
+          <button className="secondary-button" disabled={isPrinting} type="button" onClick={() => void printSummary()}>
+            {isPrinting ? "Формируем…" : "Сводка PDF"}
+          </button>
+          <label className="collegium-inline-field">
+            <span>Отчёт для СД за</span>
+            <select disabled={isPrinting} value={quarter} onChange={(event) => setQuarter(event.currentTarget.value)}>
+              {recentQuarters().map((item) => <option key={item} value={item}>{item.replace("-Q", ", квартал ")}</option>)}
+            </select>
+          </label>
+          <button
+            className="secondary-button"
+            disabled={isPrinting}
+            type="button"
+            onClick={() => void download(collegiumBoardReportPath("pdf", quarter), `Отчёт для СД ${quarter}.pdf`)}
+          >
+            PDF
+          </button>
+          <button
+            className="secondary-button"
+            disabled={isPrinting}
+            type="button"
+            onClick={() => void download(collegiumBoardReportPath("xlsx", quarter), `Отчёт для СД ${quarter}.xlsx`)}
+          >
+            Excel
+          </button>
+        </div>
       </div>
       {message === "" ? null : <p className="form-message is-error" role="alert">{message}</p>}
 

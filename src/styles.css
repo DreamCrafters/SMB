@@ -10154,6 +10154,19 @@ p {
   font-size: 13px;
 }
 
+.collegium-dashboard-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--density-2);
+  align-items: center;
+}
+
+.collegium-inline-field {
+  display: inline-flex;
+  gap: var(--density-1);
+  align-items: center;
+}
+
 .collegium-dashboard-tiles {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));

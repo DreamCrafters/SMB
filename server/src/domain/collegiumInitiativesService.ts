@@ -9,6 +9,7 @@ import {
   collegiumInitiativeStatusLabels,
   type CollegiumAttachment,
   type CollegiumAttentionItem,
+  type CollegiumBoardReport,
   type CollegiumDashboard,
   type CollegiumInitiativeRevision,
   type CollegiumEffectControl,
@@ -51,6 +52,7 @@ import {
 } from "./collegiumAttachment.js";
 import { recordCollegiumInitiativeEvent } from "./collegiumInitiativeEvents.js";
 import { filterCollegiumInitiatives } from "./collegiumRegistry.js";
+import { buildCollegiumBoardReport, readCollegiumQuarter } from "./collegiumBoardReport.js";
 import { buildCollegiumDashboard } from "./collegiumDashboard.js";
 import {
   buildCollegiumConfirmedEffects,
@@ -809,6 +811,30 @@ export function createCollegiumInitiativesService({
         initiatives: initiatives.filter((initiative) => canViewCollegiumInitiative(initiative, profile, permissions)),
         meetings,
         assignments: linked,
+      });
+    },
+
+    /** Квартальный отчёт для СД (ТЗ 13.3) по инициативам, видимым пользователю. */
+    async boardReport(profile: ServerUserProfile, quarter: string | null): Promise<CollegiumBoardReport> {
+      const permissions = requireView(profile);
+      const period = readCollegiumQuarter(quarter, today());
+      const [all, linked, reference, moduleSettings] = await Promise.all([
+        repository.list(),
+        assignments?.listWithInitiativeLink() ?? Promise.resolve([]),
+        repository.listReference(),
+        readSettings(),
+      ]);
+      const visible = all.filter((initiative) => canViewCollegiumInitiative(initiative, profile, permissions));
+      const revisions = new Map(await Promise.all(visible.map(async (initiative) =>
+        [initiative.id, await repository.listRevisions(initiative.id)] as const)));
+      return buildCollegiumBoardReport({
+        period,
+        today: today(),
+        initiatives: visible,
+        revisions,
+        assignments: linked,
+        settings: moduleSettings,
+        reference,
       });
     },
 

@@ -14,6 +14,7 @@ import {
   collegiumRecurringPeriodLabels,
   collegiumResultConclusionLabels,
   collegiumYesNoLabels,
+  type CollegiumBoardReport,
   type CollegiumDashboard,
   type CollegiumInitiative,
   type CollegiumInitiativeDetailResponse,
@@ -412,6 +413,160 @@ export async function renderCollegiumDashboardPdf(dashboard: CollegiumDashboard)
         heading("Топ-10 рисков"),
         table(["Номер", "Инициатива", "Уровень", "Риск"], [62, 150, 70, "*"], dashboard.topRisks.map((item) =>
           [item.number, item.title, item.levelLabel || "—", item.risk])),
+      ]),
+    ],
+  });
+}
+
+function signedMoney(value: string) {
+  return value.startsWith("-") ? `−${money(value.slice(1))}` : money(value);
+}
+
+const boardReportTitle = (report: CollegiumBoardReport) =>
+  `Отчёт по инициативам Коллегии для Совета директоров, ${report.quarter.replace("-Q", ", квартал ")}`;
+
+/** Квартальный отчёт для СД (ТЗ 13.3), печатная форма. */
+export async function renderCollegiumBoardReportPdf(report: CollegiumBoardReport) {
+  const table = (header: string[], widths: Array<number | string>, rows: string[][]) => ({
+    table: { headerRows: 1, widths, body: [header.map((text) => ({ text, bold: true, fillColor: "#eeeeee" })), ...rows] },
+    layout: { paddingTop: () => 3, paddingBottom: () => 3 },
+  });
+  const heading = (text: string) => ({ text, bold: true, fontSize: 11, margin: [0, 12, 0, 4] });
+  const empty = (text: string) => ({ text, italics: true });
+  return renderPdfDocument({
+    ...baseDocument,
+    pageOrientation: "portrait",
+    pageMargins: [40, 40, 40, 45],
+    info: { title: boardReportTitle(report) },
+    content: [
+      { text: boardReportTitle(report), bold: true, fontSize: 14 },
+      { text: `Период ${date(report.from)} — ${date(report.to)}; состояние на ${date(report.asOf)}`, margin: [0, 2, 0, 4] },
+      table(["Показатель", "Значение"], ["*", 140], [
+        ["Инициатив в портфеле", String(report.total)],
+        ["Одобрено в квартале", String(report.approved)],
+        ["Реализовано с подтверждённым эффектом", String(report.implemented)],
+        ["Отклонено", String(report.rejected)],
+        ["Приостановлено", String(report.suspended)],
+        ["Плановый эффект в год", money(report.plannedEffect)],
+        ["Подтверждённый эффект", money(report.confirmedEffect)],
+      ]),
+      heading("Ключевые реализованные инициативы"),
+      report.keyImplemented.length === 0 ? empty("Нет.") : table(["Номер", "Инициатива", "Подтверждённый эффект"], [62, "*", 110],
+        report.keyImplemented.map((item) => [item.number, item.title, money(item.confirmedEffect)])),
+      heading("Отклонения факта от плана"),
+      report.deviations.length === 0 ? empty("Нет.") : table(["Номер", "Эффект", "План в год", "Факт в год", "Отклонение"], [56, "*", 80, 80, 90],
+        report.deviations.map((item) => [item.number, `${item.title}: ${item.effectLabel}`, money(item.plannedAnnual), signedMoney(item.actualAmount),
+          `${signedMoney(item.deviationAmount)} (${item.deviationPercent.replace("-", "−").replace(".", ",")} %)`])),
+      heading("Требуют решения Совета директоров"),
+      report.boardDecisions.length === 0 ? empty("Нет.") : { ul: report.boardDecisions.map((item) => `${item.number} «${item.title}»`) },
+      heading("Ключевые риски"),
+      report.keyRisks.length === 0 ? empty("Нет.") : table(["Номер", "Инициатива", "Уровень", "Риск"], [56, 140, 70, "*"],
+        report.keyRisks.map((item) => [item.number, item.title, item.levelLabel || "—", item.risk])),
+      heading("Невыполненные и просроченные поручения"),
+      report.overdueAssignments.length === 0 ? empty("Нет.") : table(["Поручение", "Инициатива", "Суть", "Срок", "Критичное"], [60, 60, "*", 60, 55],
+        report.overdueAssignments.map((item) => [item.number, item.initiativeNumber, item.summary, date(item.deadline), item.critical ? "да" : ""])),
+    ],
+  });
+}
+
+export function buildCollegiumBoardReportXlsx(report: CollegiumBoardReport) {
+  return buildXlsxWorkbook([
+    {
+      name: "Сводка",
+      columns: [{ header: "Показатель", width: 40 }, { header: "Значение", width: 20 }],
+      rows: [
+        ["Квартал", report.quarter],
+        ["Состояние на", date(report.asOf)],
+        ["Инициатив в портфеле", report.total],
+        ["Одобрено в квартале", report.approved],
+        ["Реализовано с подтверждённым эффектом", report.implemented],
+        ["Отклонено", report.rejected],
+        ["Приостановлено", report.suspended],
+        ["Плановый эффект в год, ₽", amount(report.plannedEffect)],
+        ["Подтверждённый эффект, ₽", amount(report.confirmedEffect)],
+      ],
+    },
+    {
+      name: "Реализованные",
+      columns: [{ header: "Номер", width: 14 }, { header: "Инициатива", width: 50 }, { header: "Подтверждённый эффект, ₽", width: 20 }],
+      rows: report.keyImplemented.map((item) => [item.number, item.title, amount(item.confirmedEffect)]),
+    },
+    {
+      name: "Отклонения",
+      columns: [
+        { header: "Номер", width: 14 }, { header: "Инициатива", width: 40 }, { header: "Эффект", width: 30 },
+        { header: "План в год, ₽", width: 16 }, { header: "Факт в год, ₽", width: 16 }, { header: "Отклонение, ₽", width: 16 }, { header: "Отклонение, %", width: 12 },
+      ],
+      rows: report.deviations.map((item) => [item.number, item.title, item.effectLabel, amount(item.plannedAnnual), amount(item.actualAmount),
+        amount(item.deviationAmount), amount(item.deviationPercent)]),
+    },
+    {
+      name: "Решения СД и риски",
+      columns: [{ header: "Номер", width: 14 }, { header: "Инициатива", width: 40 }, { header: "Раздел", width: 22 }, { header: "Уровень", width: 14 }, { header: "Риск", width: 40 }],
+      rows: [
+        ...report.boardDecisions.map((item) => [item.number, item.title, "Требует решения СД", "", ""]),
+        ...report.keyRisks.map((item) => [item.number, item.title, "Ключевой риск", item.levelLabel, item.risk]),
+      ],
+    },
+    {
+      name: "Поручения",
+      columns: [
+        { header: "Поручение", width: 14 }, { header: "Инициатива", width: 14 }, { header: "Суть", width: 50 },
+        { header: "Срок", width: 12 }, { header: "Важность", width: 14 }, { header: "Критичное", width: 10 },
+      ],
+      rows: report.overdueAssignments.map((item) => [item.number, item.initiativeNumber, item.summary, date(item.deadline), item.importance, item.critical ? "да" : ""]),
+    },
+  ]);
+}
+
+/** Материалы для СД по инициативе (сценарий 2 ТЗ): паспорт, расчёты, позиция ГД, проект решения. */
+export async function renderCollegiumBoardMaterialsPdf(detail: CollegiumInitiativeDetailResponse, name: Names) {
+  const { initiative, economics } = detail;
+  const { card } = initiative;
+  const passport = card.passport;
+  const row = (label: string, value: string) => [{ text: label, bold: true, fillColor: "#f4f4f4" }, { text: value === "" ? "—" : value }];
+  const section = (title: string, rows: Array<[string, string]>) => [
+    { text: title, bold: true, fontSize: 11, margin: [0, 10, 0, 4] },
+    { table: { widths: [170, "*"], body: rows.map(([label, value]) => row(label, value)) }, layout: { paddingTop: () => 3, paddingBottom: () => 3 } },
+  ];
+  const label = collegiumPassportFieldLabels;
+  return renderPdfDocument({
+    ...baseDocument,
+    pageOrientation: "portrait",
+    pageMargins: [40, 40, 40, 45],
+    info: { title: `Материалы для СД: ${initiative.number}` },
+    ...(passport === undefined ? { watermark: { text: "ПАСПОРТ НЕ ЗАПОЛНЕН", opacity: 0.08, bold: true } } : {}),
+    content: [
+      { text: "Материалы для Совета директоров", bold: true, fontSize: 14 },
+      { text: `Инициатива ${initiative.number} «${card.title}»`, fontSize: 12, margin: [0, 2, 0, 2] },
+      { text: `Статус: ${collegiumInitiativeStatusLabels[initiative.status]} · ${decision(initiative) || "решения Коллегии ещё нет"}`, margin: [0, 0, 0, 4] },
+      ...section("Суть", [
+        ["Проблема / возможность", card.problem],
+        ["Предлагаемое решение", card.solution],
+        ["Владелец результата", name(card.ownerId)],
+        ["Сроки", [date(card.plannedStart), date(card.plannedResult)].filter(Boolean).join(" — ")],
+        [label.alternatives, passport?.alternatives ?? ""],
+      ]),
+      ...section("Экономика", [
+        ["Чистый годовой эффект", signedMoney(economics.netAnnualEffect)],
+        ["Разовые затраты с CAPEX", money(economics.oneTimeCosts)],
+        ["Срок окупаемости", economics.paybackStatus === "not_paying" ? "не окупается" : economics.paybackMonths === "" ? "" : `${economics.paybackMonths.replace(".", ",")} мес.`],
+        ["ROI", economics.roiPercent === "" ? "" : `${economics.roiPercent.replace(".", ",")} %`],
+        ["NPV", signedMoney(economics.npv)],
+        ...collegiumPassportScenarioFields.map((field): [string, string] => [label[field], signedMoney(passport?.[field] ?? "")]),
+      ]),
+      ...section("Условия и риски", [
+        ["Ключевые риски", risks(card)],
+        [label.requirements, passport?.requirements ?? ""],
+        [label.impacts, passport?.impacts ?? ""],
+        [label.dependencies, passport?.dependencies ?? ""],
+        [label.milestones, (passport?.milestones ?? []).map((item) => `${date(item.date)} — ${item.text}`).join("\n")],
+      ]),
+      ...section("Позиции и проект решения", [
+        [label.ceoPosition, passport?.ceoPosition ?? ""],
+        ["Заключение технического верификатора", initiative.workflow.verification?.technical?.text ?? ""],
+        ["Заключение финансового верификатора", initiative.workflow.verification?.financial?.text ?? ""],
+        [label.draftDecision, passport?.draftDecision ?? ""],
       ]),
     ],
   });

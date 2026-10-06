@@ -16138,6 +16138,15 @@ test("collegium initiatives API routes requests and maps module errors", async (
       calls.push(`verdict:${id}:${effectId}`);
       throw new CollegiumInitiativeError("Факт изменён. Обновите карточку и проверьте новую версию.", 409);
     },
+    async boardReport(_profile: ServerUserProfile, quarter: string | null) {
+      calls.push(`board-report:${quarter}`);
+      if (quarter === "bad") throw new CollegiumInitiativeError("Квартал указывается как ГГГГ-QN, например 2026-Q4.");
+      return {
+        quarter: "2026-Q4", from: "2026-10-01", to: "2026-12-31", generatedOn: "2026-10-06", asOf: "2026-10-06",
+        total: 0, approved: 0, implemented: 0, rejected: 0, suspended: 0, plannedEffect: "0.00", confirmedEffect: "0.00",
+        keyImplemented: [], deviations: [], boardDecisions: [], keyRisks: [], overdueAssignments: [],
+      };
+    },
     async saveEffectGroup(_profile: ServerUserProfile, body: { members?: unknown[] }) {
       calls.push(`group:${body.members?.length ?? 0}`);
       if (body.members?.length === 3) throw Object.assign(new Error("Duplicate entry"), { code: "ER_DUP_ENTRY" });
@@ -16253,6 +16262,14 @@ test("collegium initiatives API routes requests and maps module errors", async (
     assert.equal((await fetch(`${baseUrl}/api/collegium-initiatives/abc-1/effects/main/verdict`, { method: "POST", headers, body: "{}" })).status, 409);
     assert.equal((await fetch(`${baseUrl}/api/collegium-initiatives/abc-1/effects/main/resolve`, { method: "POST", headers, body: "{}" })).status, 405);
     assert.deepEqual(calls, ["roles:abc-1", "conclusion:abc-1", "fact:abc-1:main", "verdict:abc-1:main"]);
+    calls.length = 0;
+
+    const boardPdf = await fetch(`${baseUrl}/api/collegium-initiatives/board-report.pdf?quarter=2026-Q4`, { headers });
+    assert.equal(boardPdf.headers.get("content-type"), "application/pdf");
+    const boardXlsx = await fetch(`${baseUrl}/api/collegium-initiatives/board-report.xlsx`, { headers });
+    assert.equal(Buffer.from(await boardXlsx.arrayBuffer()).subarray(0, 2).toString("latin1"), "PK");
+    assert.equal((await fetch(`${baseUrl}/api/collegium-initiatives/board-report.pdf?quarter=bad`, { headers })).status, 400);
+    assert.deepEqual(calls, ["board-report:2026-Q4", "board-report:null", "board-report:bad"]);
     calls.length = 0;
 
     const put = (members: unknown[]) => fetch(`${baseUrl}/api/collegium-effect-groups`, { method: "PUT", headers, body: JSON.stringify({ members }) });

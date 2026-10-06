@@ -4,6 +4,9 @@ import type { CollegiumInitiative, CollegiumMeeting } from "../contracts/collegi
 import { readXlsxWorkbook } from "./xlsxWorkbook.js";
 import {
   buildCollegiumRegistryXlsx,
+  buildCollegiumBoardReportXlsx,
+  renderCollegiumBoardMaterialsPdf,
+  renderCollegiumBoardReportPdf,
   renderCollegiumDashboardPdf,
   renderCollegiumProtocolPdf,
   renderCollegiumRegistryPdf,
@@ -73,4 +76,22 @@ test("dashboard summary PDF renders with every section", async () => {
     topRisks: [{ ...ref, risk: "Рост цен", levelCode: "high", levelLabel: "Высокий", expectedEffect: "1000.00" }],
   });
   assert.equal(summary.subarray(0, 5).toString("latin1"), "%PDF-");
+});
+
+test("board report and board materials render", async () => {
+  const report = {
+    quarter: "2026-Q4", from: "2026-10-01", to: "2026-12-31", generatedOn: "2027-01-10", asOf: "2026-12-31",
+    total: 2, approved: 1, implemented: 1, rejected: 0, suspended: 0, plannedEffect: "1200.00", confirmedEffect: "900.00",
+    keyImplemented: [{ id: "b", number: "И-2026-0002", title: "Обучение", confirmedEffect: "900.00" }],
+    deviations: [{ id: "b", number: "И-2026-0002", title: "Обучение", effectLabel: "Эффект", plannedAnnual: "1200.00", actualAmount: "900.00", deviationAmount: "-300.00", deviationPercent: "-25.0" }],
+    boardDecisions: [], keyRisks: [{ id: "a", number: "И-2026-0001", title: "Горелка", risk: "Срыв", levelLabel: "Высокий" }],
+    overdueAssignments: [{ initiativeNumber: "И-2026-0001", number: "К-1", summary: "Закупка", deadline: "2026-11-01", importance: "Высокая", critical: true }],
+  };
+  assert.equal((await renderCollegiumBoardReportPdf(report)).subarray(0, 5).toString("latin1"), "%PDF-");
+  assert.equal(buildCollegiumBoardReportXlsx(report).subarray(0, 2).toString("latin1"), "PK");
+  const materials = await renderCollegiumBoardMaterialsPdf({
+    initiative,
+    economics: { annualEffect: "", annualRecurringCost: "", netAnnualEffect: "-10.00", oneTimeCosts: "0.00", paybackStatus: "none", paybackMonths: "", roiPercent: "", source: "express", npv: "", npvRequired: false, overrides: {} },
+  } as never, name);
+  assert.equal(materials.subarray(0, 5).toString("latin1"), "%PDF-");
 });

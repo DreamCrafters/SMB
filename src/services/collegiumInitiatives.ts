@@ -126,6 +126,14 @@ export async function requestCollegiumDashboard(signal?: AbortSignal) {
 
 export const collegiumDashboardPdfPath = `${collegiumInitiativesApiPath}/dashboard.pdf`;
 
+export function collegiumBoardReportPath(kind: "pdf" | "xlsx", quarter: string) {
+  return `${collegiumInitiativesApiPath}/board-report.${kind}?quarter=${encodeURIComponent(quarter)}`;
+}
+
+export function collegiumBoardMaterialsPath(id: string) {
+  return `${collegiumInitiativesApiPath}/${encodeURIComponent(id)}/board-materials.pdf`;
+}
+
 /** Выгрузка или печатная форма: файл отдаёт сервер по тем же правам и фильтрам. */
 export async function downloadCollegiumFile(path: string) {
   const response = await fetch(resolveApiEndpoint(path, path, {}), {

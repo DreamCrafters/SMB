@@ -11,7 +11,7 @@ import { readCollegiumConfirmedKopecks, readCollegiumPlannedKopecks } from "./co
 import type { DirectorAssignment } from "../contracts/directorAssignments.js";
 
 /** Одобренные и реализуемые: их ожидаемый эффект — плановый эффект портфеля. */
-const plannedEffectStatuses: readonly CollegiumInitiativeStatus[] = [
+export const collegiumPlannedEffectStatuses: readonly CollegiumInitiativeStatus[] = [
   "approved_pilot",
   "approved_implementation",
   "in_progress",
@@ -86,7 +86,7 @@ export function buildCollegiumDashboard({
       planned: 0n,
       confirmed: 0n,
     };
-    if (plannedEffectStatuses.includes(initiative.status)) {
+    if (collegiumPlannedEffectStatuses.includes(initiative.status)) {
       const value = plannedOf(initiative) ?? 0n;
       planned += value;
       entry.planned += value;

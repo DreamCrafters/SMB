@@ -426,11 +426,16 @@ test("the attention panel lists server-computed actions and opens the card", asy
 test("the dashboard shows server figures with labelled effect bars and opens a card", async () => {
   const stored = buildInitiative({ title: "Экономия газа" });
   const ref = { id: "initiative-1", number: "И-2026-0001", title: "Экономия газа" };
+  const boardReports = [];
   const view = await renderWorkspace(
     { canView: true, canParticipate: false, canManage: false, canApprove: false },
     async (url, _init, permissions) => {
       if (url.pathname === "/api/collegium-initiatives") {
         return [{ initiatives: [stored], people, reference, permissions, meetings: [], overdueIds: [] }];
+      }
+      if (url.pathname === "/api/collegium-initiatives/board-report.pdf") {
+        boardReports.push(url.searchParams.get("quarter"));
+        return [{ error: { message: "Отчёт недоступен." } }, 403];
       }
       if (url.pathname === "/api/collegium-initiatives/dashboard") {
         return [{
@@ -461,6 +466,15 @@ test("the dashboard shows server figures with labelled effect bars and opens a c
     await waitFor(React, () => container.querySelector(".collegium-initiatives-table") !== null);
     await React.act(async () => findButtonByText(container, "Дашборд").click());
     await waitFor(React, () => container.querySelector(".collegium-dashboard") !== null);
+    const quarterSelect = container.querySelector(".collegium-dashboard-actions select");
+    const previousQuarter = quarterSelect.options[1].value;
+    await React.act(async () => {
+      setNativeInputValue(quarterSelect, previousQuarter);
+      quarterSelect.dispatchEvent(new view.dom.window.Event("change", { bubbles: true }));
+    });
+    await React.act(async () => findButtonByText(container, "PDF").click());
+    await waitFor(React, () => container.textContent.includes("Отчёт недоступен."));
+    assert.deepEqual(boardReports, [previousQuarter]);
     assert.match(container.textContent, /просрочено: 1/u);
     assert.match(container.textContent, /КЗ-2026-02: 12\.10\.2026 в 10:00/u);
     assert.match(container.textContent, /Рост цен на газ/u);
