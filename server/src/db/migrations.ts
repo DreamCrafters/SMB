@@ -4741,6 +4741,31 @@ const migrations: Migration[] = [
         values (1, 1, '{}', '', utc_timestamp(3));`,
     ],
   },
+  {
+    /**
+     * Задача 135, срез 10б: совместный эффект нескольких инициатив (ТЗ 11.2).
+     * Группа хранит единственный факт, участники — доли в базисных пунктах.
+     * Уникальный (инициатива, эффект) не даёт учесть эффект в двух группах.
+     */
+    id: "097_collegium_effect_groups",
+    statements: [
+      `create table if not exists collegium_effect_groups (
+        id varchar(36) not null primary key,
+        revision int unsigned not null,
+        fact longtext null check (fact is null or json_valid(fact)),
+        updated_by_display_name varchar(255) not null,
+        updated_at timestamp(3) not null default current_timestamp(3)
+      ) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci;`,
+      `create table if not exists collegium_effect_group_members (
+        group_id varchar(36) not null,
+        initiative_id varchar(100) not null,
+        effect_id varchar(100) not null,
+        share_bp smallint unsigned not null,
+        primary key (group_id, initiative_id, effect_id),
+        unique key uniq_collegium_effect_member (initiative_id, effect_id)
+      ) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci;`,
+    ],
+  },
 ];
 
 function removePositionJsonValue(

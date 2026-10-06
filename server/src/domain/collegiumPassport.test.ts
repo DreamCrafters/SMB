@@ -237,4 +237,10 @@ test("a duplicate is the same type, direction, KPI and site over an overlapping 
       .map(({ initiativeNumber, effectId, otherEffectId }) => [initiativeNumber, effectId, otherEffectId]),
     [["И-2026-2", "1-effect", "2-effect"]],
   );
+  // Members of one joint effect are not duplicates of each other.
+  const grouped = (subject: CollegiumInitiative, effectId: string) => ({
+    ...subject,
+    workflow: { ...subject.workflow, effectShares: { [effectId]: { groupId: "g-1", shareBp: 5000 } } },
+  });
+  assert.deepEqual(findCollegiumEffectDuplicates(grouped(mine, "1-effect"), [grouped(overlapping, "2-effect")]), []);
 });

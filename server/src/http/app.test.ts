@@ -16138,6 +16138,15 @@ test("collegium initiatives API routes requests and maps module errors", async (
       calls.push(`verdict:${id}:${effectId}`);
       throw new CollegiumInitiativeError("Факт изменён. Обновите карточку и проверьте новую версию.", 409);
     },
+    async saveEffectGroup(_profile: ServerUserProfile, body: { members?: unknown[] }) {
+      calls.push(`group:${body.members?.length ?? 0}`);
+      if (body.members?.length === 3) throw Object.assign(new Error("Duplicate entry"), { code: "ER_DUP_ENTRY" });
+      return { groupId: "g-1" };
+    },
+    async recordEffectGroupFact(_profile: ServerUserProfile, groupId: string) {
+      calls.push(`group-fact:${groupId}`);
+      return { groupId };
+    },
     async savePassport(_profile: ServerUserProfile, id: string, body: unknown) {
       calls.push(`passport:${id}:${Buffer.byteLength(JSON.stringify(body)) > 100_000 ? "large" : "small"}`);
       return { id };
@@ -16244,6 +16253,15 @@ test("collegium initiatives API routes requests and maps module errors", async (
     assert.equal((await fetch(`${baseUrl}/api/collegium-initiatives/abc-1/effects/main/verdict`, { method: "POST", headers, body: "{}" })).status, 409);
     assert.equal((await fetch(`${baseUrl}/api/collegium-initiatives/abc-1/effects/main/resolve`, { method: "POST", headers, body: "{}" })).status, 405);
     assert.deepEqual(calls, ["roles:abc-1", "conclusion:abc-1", "fact:abc-1:main", "verdict:abc-1:main"]);
+    calls.length = 0;
+
+    const put = (members: unknown[]) => fetch(`${baseUrl}/api/collegium-effect-groups`, { method: "PUT", headers, body: JSON.stringify({ members }) });
+    assert.equal((await put([1, 2])).status, 200);
+    // A race on the unique (initiative, effect) key is a conflict, not a server error.
+    assert.equal((await put([1, 2, 3])).status, 409);
+    assert.equal((await fetch(`${baseUrl}/api/collegium-effect-groups/g-1/fact`, { method: "POST", headers, body: "{}" })).status, 200);
+    assert.equal((await fetch(`${baseUrl}/api/collegium-effect-groups/g-1`, { headers })).status, 404);
+    assert.deepEqual(calls, ["group:2", "group:3", "group-fact:g-1"]);
     calls.length = 0;
 
     // The passport has its own body budget above the common 100 KB.

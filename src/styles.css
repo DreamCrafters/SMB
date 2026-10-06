@@ -10052,6 +10052,25 @@ p {
   justify-self: start;
 }
 
+.collegium-effect-group {
+  display: grid;
+  gap: var(--density-1);
+  border-left: 4px solid var(--blue-gray);
+  padding: var(--density-2) var(--density-3);
+  background: var(--surface-subtle);
+}
+
+.collegium-effect-group ul {
+  margin: 0;
+  padding-left: 20px;
+  font-size: 13px;
+}
+
+.collegium-share-input {
+  width: 80px;
+  margin-left: var(--density-2);
+}
+
 .collegium-passport-head {
   display: flex;
   flex-wrap: wrap;

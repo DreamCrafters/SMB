@@ -588,6 +588,7 @@ export type CollegiumInitiativeDetailResponse = {
   /** Похожие эффекты видимых инициатив. */
   effectDuplicates: CollegiumEffectDuplicate[];
   effectControl: CollegiumEffectControl;
+  effectGroups: CollegiumEffectGroupView[];
 };
 
 export type CollegiumInitiativeSaveRequest = {
@@ -732,6 +733,8 @@ export type CollegiumInitiativeWorkflow = {
   verification?: Partial<Record<CollegiumVerifierRole, CollegiumSignature & { text: string }>>;
   /** Факты по ID планового эффекта. */
   effectFacts?: Record<string, CollegiumEffectFact>;
+  /** Участие эффектов в совместных группах: копия доли из таблиц групп. */
+  effectShares?: Record<string, { groupId: string; shareBp: number }>;
   /** Текущий вопрос повестки, пока инициатива `on_agenda`/`in_discussion`. */
   agenda?: { meetingId: string; meetingNumber: string; itemId: string };
   lastDecision?: CollegiumInitiativeLastDecision;
@@ -837,8 +840,44 @@ export type CollegiumEffectControl = {
 /** Снимок контроля эффекта в ревизии события (ТЗ 16). */
 export type CollegiumEffectSnapshot = Pick<
   CollegiumInitiativeWorkflow,
-  "effectFacts" | "verifiers" | "verification" | "effectConfirmation" | "effectOutcome"
+  "effectFacts" | "verifiers" | "verification" | "effectConfirmation" | "effectOutcome" | "effectShares"
 >;
+
+export const collegiumEffectGroupsApiPath = "/api/collegium-effect-groups";
+
+/** Единственный факт совместного эффекта; участникам копируется в `effectFacts`. */
+export type CollegiumEffectGroupFact = CollegiumEffectFactInput & {
+  version: number;
+  recordedByUserId: string;
+  recordedByDisplayName: string;
+  recordedAt: string;
+};
+
+/** Совместный эффект в карточке участника (ТЗ 11.2). */
+export type CollegiumEffectGroupView = {
+  id: string;
+  revision: number;
+  fact?: CollegiumEffectGroupFact;
+  members: Array<{
+    initiativeId: string;
+    /** Пусто, если инициатива участника не видна пользователю. */
+    number: string;
+    title: string;
+    effectId: string;
+    effectLabel: string;
+    shareBp: number;
+  }>;
+  canEditShares: boolean;
+  canRecordFact: boolean;
+};
+
+export type CollegiumEffectGroupSaveRequest = {
+  /** Пусто — новая группа. */
+  groupId?: string;
+  revision?: number;
+  /** Пустой список распускает группу. */
+  members: Array<{ initiativeId: string; effectId: string; sharePercent: string }>;
+};
 
 export type CollegiumInitiativeEvent = {
   action: CollegiumInitiativeAction | CollegiumAgendaEvent;

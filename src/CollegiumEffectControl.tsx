@@ -6,6 +6,7 @@ import {
   collegiumVerifierRoleLabels,
   collegiumVerifierRoles,
   type CollegiumEffectControlRow,
+  type CollegiumEffectGroupView,
   type CollegiumInitiativeDetailResponse,
   type CollegiumPerson,
 } from "./contracts/collegiumInitiatives";
@@ -15,6 +16,8 @@ import { ManagedTable } from "./ManagedTable";
 import { TableCell, TableHeader } from "./TableCell";
 import {
   assignCollegiumControlRoles,
+  recordCollegiumEffectGroupFact,
+  saveCollegiumEffectGroup,
   recordCollegiumConclusion,
   recordCollegiumEffectFact,
   recordCollegiumEffectVerdict,
@@ -35,8 +38,9 @@ export function EffectControlSection({ detail, people, userId, onChanged }: {
   const { initiative, effectControl: control } = detail;
   const workflow = initiative.workflow;
   const hasAnything = control.rows.some((row) => row.fact !== undefined) ||
-    workflow.verifiers !== undefined || control.canRecordFacts || control.canAssignRoles;
-  const [editing, setEditing] = useState<"roles" | "conclusion" | { fact: string } | { reject: string }>();
+    workflow.verifiers !== undefined || control.canRecordFacts || control.canAssignRoles || detail.effectGroups.length > 0;
+  const canGroup = control.canAssignRoles || control.verifierRole === "financial";
+  const [editing, setEditing] = useState<Editing>();
   const [message, setMessage] = useState("");
   const [isBusy, setIsBusy] = useState(false);
   if (!hasAnything) return null;
@@ -131,7 +135,12 @@ export function EffectControlSection({ detail, people, userId, onChanged }: {
               const canSign = control.signerRole !== undefined && fact !== undefined && fact.recordedByUserId !== userId;
               return (
                 <tr key={row.effectId}>
-                  <TableCell>{row.label}</TableCell>
+                  <TableCell>
+                    {row.label}
+                    {workflow.effectShares?.[row.effectId] === undefined ? null : (
+                      <span className="collegium-note">{` · совместный, доля ${(workflow.effectShares[row.effectId].shareBp / 100).toLocaleString("ru-RU")} %`}</span>
+                    )}
+                  </TableCell>
                   <TableCell className="is-number">{formatAmount(row.plannedAnnual)}</TableCell>
                   <TableCell className="is-number">
                     {fact === undefined ? "—" : `${formatSignedAmount(fact.actualAmount)} (${fact.period}; ${fact.sources}; версия ${fact.version})`}
@@ -151,7 +160,7 @@ export function EffectControlSection({ detail, people, userId, onChanged }: {
                   </TableCell>
                   <TableCell>
                     <div className="collegium-reference-actions">
-                      {control.canRecordFacts ? (
+                      {control.canRecordFacts && workflow.effectShares?.[row.effectId] === undefined ? (
                         <button className="secondary-button" disabled={isBusy} type="button" onClick={() => setEditing({ fact: row.effectId })}>
                           {fact === undefined ? "Внести факт" : "Новая версия факта"}
                         </button>
@@ -195,8 +204,132 @@ export function EffectControlSection({ detail, people, userId, onChanged }: {
           onSubmit={(comment) => sign(control.rows.find((row) => row.effectId === editing.reject)!, "not_confirmed", comment)}
         />
       ) : null}
+      {detail.effectGroups.map((group) => (
+        <GroupBlock
+          group={group}
+          isBusy={isBusy}
+          editing={editing}
+          key={group.id}
+          onEdit={setEditing}
+          onSaveShares={(members) => run(() => saveCollegiumEffectGroup({ groupId: group.id, revision: group.revision, members }), "Не удалось сохранить доли.")}
+          onSaveFact={(body) => run(() => recordCollegiumEffectGroupFact(group.id, { revision: group.revision, ...body }), "Не удалось сохранить факт группы.")}
+        />
+      ))}
+      {canGroup && detail.effectDuplicates.length > 0 ? (
+        <div className="collegium-form-actions">
+          {detail.effectDuplicates
+            .filter((duplicate) => workflow.effectShares?.[duplicate.effectId] === undefined)
+            .map((duplicate) => (
+              <button
+                className="secondary-button"
+                disabled={isBusy}
+                key={`${duplicate.effectId}:${duplicate.otherEffectId}`}
+                type="button"
+                onClick={() => void run(() => saveCollegiumEffectGroup({
+                  members: [
+                    { initiativeId: initiative.id, effectId: duplicate.effectId, sharePercent: "50" },
+                    { initiativeId: duplicate.initiativeId, effectId: duplicate.otherEffectId, sharePercent: "50" },
+                  ],
+                }), "Не удалось объединить эффекты.")}
+              >
+                {`Объединить в совместный эффект с ${duplicate.initiativeNumber}`}
+              </button>
+            ))}
+        </div>
+      ) : null}
       {message === "" ? null : <p className="form-message is-error" role="alert">{message}</p>}
     </section>
+  );
+}
+
+type Editing = "roles" | "conclusion" | { fact: string } | { reject: string } | { shares: string } | { groupFact: string } | undefined;
+
+/** Совместный эффект: один факт на группу, доли участников (ТЗ 11.2). */
+function GroupBlock({ group, isBusy, editing, onEdit, onSaveShares, onSaveFact }: {
+  group: CollegiumEffectGroupView;
+  isBusy: boolean;
+  editing: Editing;
+  onEdit: (editing: Editing) => void;
+  onSaveShares: (members: Array<{ initiativeId: string; effectId: string; sharePercent: string }>) => void;
+  onSaveFact: (body: { actualAmount: string; period: string; sources: string; calculation: string }) => void;
+}) {
+  const [shares, setShares] = useState(() => group.members.map((member) => String(member.shareBp / 100).replace(".", ",")));
+  const total = group.members.reduce((sum, member) => sum + member.shareBp, 0) / 100;
+  const isEditingShares = typeof editing === "object" && "shares" in editing && editing.shares === group.id;
+  const isEditingFact = typeof editing === "object" && "groupFact" in editing && editing.groupFact === group.id;
+  const hidden = group.members.some((member) => member.initiativeId === "");
+  return (
+    <div className="collegium-effect-group">
+      <strong>{`Совместный эффект: учтено ${total.toLocaleString("ru-RU")} % из 100 %`}</strong>
+      <ul>
+        {group.members.map((member, index) => (
+          <li key={`${member.initiativeId}:${member.effectId}:${index}`}>
+            {member.number === "" ? "Инициатива недоступна для просмотра" : `${member.number} «${member.title}» — ${member.effectLabel}`}
+            {isEditingShares && member.initiativeId !== "" ? (
+              <input
+                aria-label={`Доля ${member.number}, %`}
+                className="collegium-share-input"
+                disabled={isBusy}
+                inputMode="decimal"
+                value={shares[index]}
+                onChange={(event) => {
+                  const value = event.currentTarget.value;
+                  setShares((current) => current.map((item, position) => (position === index ? value : item)));
+                }}
+              />
+            ) : `: ${(member.shareBp / 100).toLocaleString("ru-RU")} %`}
+          </li>
+        ))}
+      </ul>
+      <p className="collegium-note">
+        {group.fact === undefined
+          ? "Факт совместного эффекта ещё не внесён."
+          : `Факт: ${formatSignedAmount(group.fact.actualAmount)} в год (${group.fact.period}; ${group.fact.sources}), ${group.fact.recordedByDisplayName}, версия ${group.fact.version}`}
+      </p>
+      <div className="collegium-form-actions">
+        {group.canEditShares && !hidden ? (
+          isEditingShares ? (
+            <>
+              <button
+                className="primary-button"
+                disabled={isBusy}
+                type="button"
+                onClick={() => onSaveShares(group.members.map((member, index) => ({
+                  initiativeId: member.initiativeId, effectId: member.effectId, sharePercent: shares[index].trim(),
+                })))}
+              >
+                Сохранить доли
+              </button>
+              <button className="secondary-button" disabled={isBusy} type="button" onClick={() => onSaveShares([])}>
+                Распустить группу
+              </button>
+              <button className="secondary-button" disabled={isBusy} type="button" onClick={() => onEdit(undefined)}>Отмена</button>
+            </>
+          ) : (
+            <button className="secondary-button" disabled={isBusy} type="button" onClick={() => onEdit({ shares: group.id })}>
+              Изменить доли
+            </button>
+          )
+        ) : null}
+        {group.canRecordFact && !isEditingFact ? (
+          <button className="secondary-button" disabled={isBusy} type="button" onClick={() => onEdit({ groupFact: group.id })}>
+            {group.fact === undefined ? "Внести факт группы" : "Новая версия факта группы"}
+          </button>
+        ) : null}
+      </div>
+      {isEditingFact ? (
+        <FactForm
+          isBusy={isBusy}
+          row={{
+            effectId: group.id, label: "совместный эффект", plannedAnnual: "", status: "not_checked",
+            deviationAmount: "", deviationPercent: "",
+            ...(group.fact === undefined ? {} : { fact: { ...group.fact, verdicts: {} } }),
+          }}
+          onCancel={() => onEdit(undefined)}
+          onSubmit={onSaveFact}
+        />
+      ) : null}
+    </div>
   );
 }
 

@@ -5,7 +5,7 @@ import { renderBoardAssignmentsPdf } from "../integrations/boardAssignmentsPdf.j
 import { renderDirectorAssignmentsPdf } from "../integrations/directorAssignmentsPdf.js";
 import { assignmentInboxNavigationItem, assignmentInboxSourceOptions, assignmentRegistries, isAssignmentInboxAccess, type AssignmentRegistryId } from "../contracts/directorAssignments.js";
 import type { DirectorAssignmentsService } from "../domain/directorAssignmentsService.js";
-import { collegiumAttachmentLimits, collegiumInitiativeAccessOptions, collegiumInitiativesApiPath, collegiumMeetingsApiPath, collegiumSettingsApiPath, collegiumInitiativesNavigationItem, isCollegiumInitiativeAccess } from "../contracts/collegiumInitiatives.js";
+import { collegiumAttachmentLimits, collegiumInitiativeAccessOptions, collegiumInitiativesApiPath, collegiumMeetingsApiPath, collegiumSettingsApiPath, collegiumEffectGroupsApiPath, collegiumInitiativesNavigationItem, isCollegiumInitiativeAccess } from "../contracts/collegiumInitiatives.js";
 import type { CollegiumInitiativesService } from "../domain/collegiumInitiativesService.js";
 import type { CollegiumMeetingsService } from "../domain/collegiumMeetingsService.js";
 import type { CollegiumSettingsService } from "../domain/collegiumSettingsService.js";
@@ -1136,6 +1136,34 @@ export function createApiServer({
           else throw new CollegiumInitiativeError("Действие недоступно.", 405);
         } catch (error) {
           if (isDatabaseLockConflict(error)) {
+            sendJson(res, 409, { error: { code: "invalid_response", message: "Данные одновременно меняет другой пользователь. Повторите действие." } });
+            return;
+          }
+          if (!(error instanceof CollegiumInitiativeError)) throw error;
+          sendJson(res, error.status, { error: { code: error.status === 403 ? "access_denied" : "invalid_response", message: error.message } });
+        }
+        return;
+      }
+
+      if (url.pathname === collegiumEffectGroupsApiPath || url.pathname.startsWith(`${collegiumEffectGroupsApiPath}/`)) {
+        const access = await requireAuthentication(req, res, { config, devSessions, authService, accounts });
+        if (!access) return;
+        if (!collegiumInitiatives) {
+          sendJson(res, 503, { error: { code: "server_error", message: "Раздел временно недоступен." } });
+          return;
+        }
+        try {
+          const factMatch = /^\/api\/collegium-effect-groups\/([a-zA-Z0-9-]{1,36})\/fact$/u.exec(url.pathname);
+          if (url.pathname === collegiumEffectGroupsApiPath && req.method === "PUT") {
+            sendJson(res, 200, await collegiumInitiatives.saveEffectGroup(access.profile, await readJsonBody(req)));
+          } else if (factMatch && req.method === "POST") {
+            sendJson(res, 200, await collegiumInitiatives.recordEffectGroupFact(access.profile, factMatch[1], await readJsonBody(req)));
+          } else {
+            throw new CollegiumInitiativeError("Страница не найдена.", 404);
+          }
+        } catch (error) {
+          // The unique (initiative, effect) key settles a race between two groups.
+          if (isDatabaseLockConflict(error) || (error as { code?: unknown } | null)?.code === "ER_DUP_ENTRY") {
             sendJson(res, 409, { error: { code: "invalid_response", message: "Данные одновременно меняет другой пользователь. Повторите действие." } });
             return;
           }

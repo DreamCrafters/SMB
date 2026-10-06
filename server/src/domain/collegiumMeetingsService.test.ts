@@ -12,6 +12,8 @@ import { CollegiumInitiativeError } from "./collegiumInitiative.js";
 import { createCollegiumInitiativesService } from "./collegiumInitiativesService.js";
 import { createCollegiumMeetingsService } from "./collegiumMeetingsService.js";
 import { createCollegiumMemoryRepository } from "./testing/collegiumMemoryRepository.js";
+import { createCollegiumEffectGroupsMemory } from "./testing/collegiumEffectGroupsMemory.js";
+import { readCollegiumPlannedKopecks } from "./collegiumEffectControl.js";
 import type { DirectorAssignment } from "../contracts/directorAssignments.js";
 import { DirectorAssignmentError } from "./directorAssignment.js";
 
@@ -98,8 +100,10 @@ function createHarness() {
     },
     now: () => new Date("2026-10-05T09:00:00.000Z"),
   };
+  const groups = createCollegiumEffectGroupsMemory();
   const initiatives = createCollegiumInitiativesService({
     ...shared,
+    effectGroups: groups.repository,
     assignments: {
       async listBySourceInitiative(initiativeId: string) {
         return linkedAssignments.filter((assignment) => assignment.sourceInitiativeId === initiativeId);
@@ -156,7 +160,7 @@ function createHarness() {
     return assignment;
   }
 
-  return { memory, initiatives, meetings, auditEvents, readyInitiative, createMeeting, approvedInitiative, addAssignment, linkedAssignments };
+  return { memory, groups, initiatives, meetings, auditEvents, readyInitiative, createMeeting, approvedInitiative, addAssignment, linkedAssignments };
 }
 
 test("meeting agenda snapshots the card and the protocol applies decisions", async () => {
@@ -758,4 +762,79 @@ test("facts tie planned effects: a measured effect is not removed and roles rese
     initiatives.recordEffectVerdict(profile("author", "secretary"), approved.id, "main", { revision: current.revision, factVersion: 1, verdict: "confirmed" }),
     (error) => error instanceof CollegiumInitiativeError && error.status === 403,
   );
+});
+
+test("a joint effect splits one fact by shares and never counts twice", async () => {
+  const { memory, groups, initiatives, approvedInitiative, addAssignment } = createHarness();
+  const effect = (start: string, end: string) => ({
+    id: "", effectTypeCode: "cost_saving", directionCode: "", kpiCode: "", siteCode: "", baselineValue: "3 %",
+    baselinePeriod: "2026", targetValue: "", annualAmount: "1 000 000", method: "", measurementStart: start,
+    measurementEnd: end, confirmationPeriod: "", confirmationPeriodNote: "", notDuplicateExplanation: "",
+  });
+  const prepare = async (title: string, start: string, end: string) => {
+    let current = await approvedInitiative(title);
+    current = await initiatives.savePassport(secretary, current.id, {
+      revision: current.revision, reason: "Эффекты",
+      passport: { pilotPlan: "План", pilotStopConditions: "Стоп", effects: [effect(start, end)] },
+    });
+    await initiatives.assignmentLinks.recordAssignmentCreated(assignmentController, current.id, addAssignment(current.id, "in_progress"));
+    return memory.initiatives.get(current.id)!;
+  };
+  const first = await prepare("Новая горелка", "2026-11-01", "2026-12-31");
+  const second = await prepare("Обучение операторов", "2027-01-01", "");
+  const firstEffect = first.card.passport!.effects[0].id;
+  const secondEffect = second.card.passport!.effects[0].id;
+  const members = (a: string, b: string) => [
+    { initiativeId: first.id, effectId: firstEffect, sharePercent: a },
+    { initiativeId: second.id, effectId: secondEffect, sharePercent: b },
+  ];
+
+  await assert.rejects(
+    initiatives.saveEffectGroup(author, { members: members("60", "40") }),
+    (error) => error instanceof CollegiumInitiativeError && error.status === 403,
+  );
+  await assert.rejects(initiatives.saveEffectGroup(secretary, { members: members("60", "50") }), /100 %/u);
+  await assert.rejects(
+    initiatives.saveEffectGroup(secretary, { members: [{ initiativeId: first.id, effectId: "main", sharePercent: "50" }, members("1", "1")[1]] }),
+    /описанные плановые эффекты/u,
+  );
+  const { groupId } = await initiatives.saveEffectGroup(secretary, { members: members("60", "40") });
+  let detail = await initiatives.read(secretary, first.id);
+  assert.deepEqual(detail.effectGroups[0].members.map(({ number, shareBp }) => [number, shareBp]), [
+    [first.number, 6000], [second.number, 4000],
+  ].sort((left, right) => String(left[0]).localeCompare(String(right[0]))));
+  // The plan of each member is its share of the effect.
+  assert.equal(readCollegiumPlannedKopecks(memory.initiatives.get(first.id)!), 60_000_000n);
+
+  // One fact for the group, never per member; it is copied to everyone.
+  await assert.rejects(
+    initiatives.recordEffectFact(author, first.id, firstEffect, {
+      revision: memory.initiatives.get(first.id)!.revision, actualAmount: "1", period: "x", sources: "x",
+    }),
+    /один раз для всей группы/u,
+  );
+  await initiatives.recordEffectGroupFact(author, groupId, {
+    revision: detail.effectGroups[0].revision, actualAmount: "900 000", period: "2027", sources: "Бухгалтерия",
+  });
+  for (const [id, effectId] of [[first.id, firstEffect], [second.id, secondEffect]]) {
+    assert.equal(memory.initiatives.get(id)!.workflow.effectFacts?.[effectId].actualAmount, "900000.00");
+  }
+  assert.equal((await groups.repository.readGroup(groupId))?.fact?.version, 1);
+  // A second group cannot take the same effects; a grouped effect stays in the passport.
+  await assert.rejects(
+    initiatives.saveEffectGroup(secretary, { members: members("50", "50") }),
+    /уже входит в другой/u,
+  );
+  const current = memory.initiatives.get(first.id)!;
+  await assert.rejects(
+    initiatives.savePassport(secretary, first.id, { revision: current.revision, reason: "x", passport: { pilotPlan: "План", pilotStopConditions: "Стоп", effects: [] } }),
+    /(внесён факт|совместную группу)/u,
+  );
+
+  detail = await initiatives.read(secretary, first.id);
+  await initiatives.saveEffectGroup(secretary, { groupId, revision: detail.effectGroups[0].revision, members: [] });
+  assert.equal(memory.initiatives.get(first.id)!.workflow.effectShares, undefined);
+  assert.equal(await groups.repository.readGroup(groupId), undefined);
+  // The copied fact stays with each initiative after the group dissolves.
+  assert.equal(memory.initiatives.get(second.id)!.workflow.effectFacts?.[secondEffect].actualAmount, "900000.00");
 });

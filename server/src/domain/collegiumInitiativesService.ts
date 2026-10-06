@@ -12,6 +12,9 @@ import {
   type CollegiumDashboard,
   type CollegiumInitiativeRevision,
   type CollegiumEffectControl,
+  type CollegiumEffectFactInput,
+  type CollegiumEffectGroupFact,
+  type CollegiumEffectGroupView,
   type CollegiumEffectFact,
   type CollegiumVerifierRole,
   collegiumSignerRoleLabels,
@@ -84,6 +87,10 @@ import {
 } from "./collegiumNotifications.js";
 import type { DatabaseTransactionRunner } from "../db/transactionContext.js";
 import type { AuditRepository } from "../repositories/auditRepository.js";
+import type {
+  CollegiumEffectGroupRecord,
+  CollegiumEffectGroupsRepository,
+} from "../repositories/collegiumEffectGroupsRepository.js";
 import type { CollegiumInitiativesRepository } from "../repositories/collegiumInitiativesRepository.js";
 import { hasProfileCapability, type ServerUserProfile } from "./auth.js";
 import type { DirectorAssignment } from "../contracts/directorAssignments.js";
@@ -133,6 +140,51 @@ const conclusionStatuses: readonly CollegiumInitiative["status"][] = [
 ];
 
 const maxFactTextLength = 4000;
+const groupFinishedStatuses: readonly CollegiumInitiative["status"][] = [
+  "done_confirmed",
+  "done_unconfirmed",
+  "closed",
+  "rejected",
+];
+const factStatuses: readonly CollegiumInitiative["status"][] = ["in_progress", "result_confirmation"];
+const maxGroupMembers = 10;
+
+/** Доля в процентах до двух знаков → базисные пункты (0 < доля ≤ 100 %). */
+function readSharePercent(value: unknown) {
+  const text = typeof value === "string" ? value.trim().replace(",", ".") : "";
+  const match = /^(\d{1,3})(?:\.(\d{1,2}))?$/u.exec(text);
+  const shareBp = match === null ? 0 : Number(match[1]) * 100 + Number((match[2] ?? "").padEnd(2, "0"));
+  if (shareBp <= 0 || shareBp > 10_000) {
+    throw new CollegiumInitiativeError("Доля — от 0,01 до 100 %, до двух знаков после запятой.");
+  }
+  return shareBp;
+}
+
+function readFactInput(record: Record<string, unknown>): CollegiumEffectFactInput {
+  const actualAmount = readCollegiumSignedAmount(record.actualAmount, "Фактический эффект в год");
+  const period = readCollegiumOptionalText(record.period, 250, "Период");
+  const sources = readCollegiumOptionalText(record.sources, 1000, "Источники");
+  const calculation = readCollegiumOptionalText(record.calculation, maxFactTextLength, "Расчёт");
+  if (actualAmount === "" || period === "" || sources === "") {
+    throw new CollegiumInitiativeError("Укажите фактический эффект в год, период и источники.");
+  }
+  return { actualAmount, period, sources, calculation };
+}
+
+/** Копия факта группы у участника: своя версия, подписи начинаются заново. */
+function copyGroupFact(fact: CollegiumEffectGroupFact, previous: CollegiumEffectFact | undefined): CollegiumEffectFact {
+  return {
+    actualAmount: fact.actualAmount,
+    period: fact.period,
+    sources: fact.sources,
+    calculation: fact.calculation,
+    version: (previous?.version ?? 0) + 1,
+    recordedByUserId: fact.recordedByUserId,
+    recordedByDisplayName: fact.recordedByDisplayName,
+    recordedAt: fact.recordedAt,
+    verdicts: {},
+  };
+}
 
 function readControlBody(body: unknown, keys: readonly string[]) {
   if (typeof body !== "object" || body === null || Array.isArray(body)) {
@@ -179,6 +231,7 @@ export function createCollegiumInitiativesService({
   repository,
   assignments,
   settings,
+  effectGroups,
   transaction,
   audit,
   now = () => new Date(),
@@ -187,6 +240,8 @@ export function createCollegiumInitiativesService({
   assignments?: CollegiumLinkedAssignmentsSource;
   /** Пороги ТЗ 7.2; без источника условия порогов не срабатывают. */
   settings?: { readSettings(): Promise<CollegiumSettingsInput> };
+  /** Совместные эффекты (срез 10б). */
+  effectGroups?: CollegiumEffectGroupsRepository;
   transaction: DatabaseTransactionRunner;
   audit: AuditRepository;
   now?: () => Date;
@@ -290,6 +345,57 @@ export function createCollegiumInitiativesService({
       throw new CollegiumInitiativeError("Инициатива уже изменена. Обновите карточку.", 409);
     }
     return found;
+  }
+
+  async function readEffectGroups(
+    initiative: CollegiumInitiative,
+    profile: ServerUserProfile,
+    permissions: CollegiumInitiativePermissions,
+  ): Promise<CollegiumEffectGroupView[]> {
+    if (effectGroups === undefined) return [];
+    const me = collegiumAccountId(profile.userId);
+    const groupIds = [...new Set(Object.values(initiative.workflow.effectShares ?? {}).map(({ groupId }) => groupId))];
+    const views: CollegiumEffectGroupView[] = [];
+    for (const groupId of groupIds) {
+      const group = await effectGroups.readGroup(groupId);
+      if (group === undefined) continue;
+      const members = await Promise.all((await effectGroups.listMembers(groupId)).map(async (member) => {
+        const other = member.initiativeId === initiative.id ? initiative : await repository.read(member.initiativeId);
+        const visible = other !== undefined && canViewCollegiumInitiative(other, profile, permissions);
+        return {
+          initiativeId: visible ? member.initiativeId : "",
+          number: visible ? other.number : "",
+          title: visible ? other.card.title : "",
+          effectId: member.effectId,
+          effectLabel: visible ? listCollegiumPlannedEffects(other).find(({ id }) => id === member.effectId)?.label ?? "" : "",
+          shareBp: member.shareBp,
+        };
+      }));
+      views.push({
+        id: group.id,
+        revision: group.revision,
+        ...(group.fact === undefined ? {} : { fact: group.fact }),
+        members,
+        canEditShares: permissions.canManage || initiative.workflow.verifiers?.financialId === me,
+        canRecordFact: factStatuses.includes(initiative.status) &&
+          (permissions.canManage || (permissions.canParticipate && isResultReporter(initiative, profile.userId))),
+      });
+    }
+    return views;
+  }
+
+  function requireGroups() {
+    if (effectGroups === undefined) throw new CollegiumInitiativeError("Совместные эффекты недоступны.", 503);
+    return effectGroups;
+  }
+
+  /** Участники группы под блокировкой, по возрастанию id (порядок блокировок модуля). */
+  async function lockGroupInitiatives(profile: ServerUserProfile, ids: Iterable<string>) {
+    const locked = new Map<string, CollegiumInitiative>();
+    for (const id of [...new Set(ids)].sort()) {
+      locked.set(id, (await requireInitiative(profile, id, true)).initiative);
+    }
+    return locked;
   }
 
   function requirePassport(gaps: readonly string[]) {
@@ -549,6 +655,7 @@ export function createCollegiumInitiativesService({
       canEditPassport: canEditCollegiumPassport(initiative, profile, permissions),
       effectDuplicates: await findVisibleDuplicates(profile, permissions, initiative),
       effectControl: buildEffectControl(initiative, profile, permissions),
+      effectGroups: await readEffectGroups(initiative, profile, permissions),
     };
   }
 
@@ -955,13 +1062,7 @@ export function createCollegiumInitiativesService({
     /** Факт по эффекту (ТЗ 11.1); новая версия снимает подписи. */
     async recordEffectFact(profile: ServerUserProfile, id: string, effectId: string, body: unknown) {
       const record = readControlBody(body, ["actualAmount", "period", "sources", "calculation"]);
-      const actualAmount = readCollegiumSignedAmount(record.actualAmount, "Фактический эффект в год");
-      const period = readCollegiumOptionalText(record.period, 250, "Период");
-      const sources = readCollegiumOptionalText(record.sources, 1000, "Источники");
-      const calculation = readCollegiumOptionalText(record.calculation, maxFactTextLength, "Расчёт");
-      if (actualAmount === "" || period === "" || sources === "") {
-        throw new CollegiumInitiativeError("Укажите фактический эффект в год, период и источники.");
-      }
+      const input = readFactInput(record);
       return transaction.run(async () => {
         const { initiative, permissions } = await lockForControl(profile, id, record.revision);
         if (!canRecordResult(initiative, profile, permissions)) {
@@ -969,12 +1070,12 @@ export function createCollegiumInitiativesService({
         }
         const effect = listCollegiumPlannedEffects(initiative).find((item) => item.id === effectId);
         if (effect === undefined) throw new CollegiumInitiativeError("Плановый эффект не найден.", 404);
+        if (initiative.workflow.effectShares?.[effectId] !== undefined) {
+          throw new CollegiumInitiativeError("Факт совместного эффекта вносится один раз для всей группы.", 409);
+        }
         const previous = initiative.workflow.effectFacts?.[effectId];
         const fact: CollegiumEffectFact = {
-          actualAmount,
-          period,
-          sources,
-          calculation,
+          ...input,
           version: (previous?.version ?? 0) + 1,
           recordedByUserId: profile.userId,
           recordedByDisplayName: profile.displayName,
@@ -1039,6 +1140,170 @@ export function createCollegiumInitiativesService({
       });
     },
 
+    /**
+     * Доли совместного эффекта (ТЗ 11.2) одной операцией: создать, изменить или
+     * распустить группу. Ставит секретарь или общий финансовый верификатор всех
+     * участников; сумма долей не больше 100 %, участники ещё не прошли проверку.
+     */
+    async saveEffectGroup(profile: ServerUserProfile, body: unknown) {
+      const groups = requireGroups();
+      const record = readControlBody(body, ["groupId", "members"]);
+      const requestedGroupId = readCollegiumOptionalText(record.groupId, 36, "Группа");
+      if (!Array.isArray(record.members) || record.members.length > maxGroupMembers) {
+        throw new CollegiumInitiativeError(`В совместном эффекте не больше ${maxGroupMembers} участников.`);
+      }
+      const keys = new Set<string>();
+      const members = record.members.map((raw: unknown) => {
+        if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
+          throw new CollegiumInitiativeError("Проверьте участников совместного эффекта.");
+        }
+        const item = raw as Record<string, unknown>;
+        const initiativeId = typeof item.initiativeId === "string" ? item.initiativeId : "";
+        const effectId = typeof item.effectId === "string" ? item.effectId : "";
+        if (!/^[A-Za-z0-9-]{1,100}$/u.test(initiativeId) || !/^[A-Za-z0-9-]{1,100}$/u.test(effectId) || effectId === collegiumMainEffectId) {
+          throw new CollegiumInitiativeError("В совместный эффект входят описанные плановые эффекты.");
+        }
+        const key = `${initiativeId}:${effectId}`;
+        if (keys.has(key)) throw new CollegiumInitiativeError("Эффект указан в группе дважды.");
+        keys.add(key);
+        return { initiativeId, effectId, shareBp: readSharePercent(item.sharePercent) };
+      });
+      if (members.length > 0 && new Set(members.map(({ initiativeId }) => initiativeId)).size < 2) {
+        throw new CollegiumInitiativeError("Совместный эффект объединяет не меньше двух инициатив.");
+      }
+      if (members.reduce((sum, { shareBp }) => sum + shareBp, 0) > 10_000) {
+        throw new CollegiumInitiativeError("Сумма долей совместного эффекта не может превышать 100 %.");
+      }
+      if (requestedGroupId === "" && members.length === 0) {
+        throw new CollegiumInitiativeError("Укажите участников совместного эффекта.");
+      }
+      return transaction.run(async () => {
+        const at = now();
+        let group;
+        if (requestedGroupId === "") {
+          group = { id: randomUUID(), revision: 1 } as CollegiumEffectGroupRecord;
+          await groups.insertGroup(group.id, profile.displayName, at);
+        } else {
+          group = await groups.readGroup(requestedGroupId, true);
+          if (group === undefined) throw new CollegiumInitiativeError("Совместный эффект не найден.", 404);
+          if (group.revision !== record.revision) {
+            throw new CollegiumInitiativeError("Совместный эффект уже изменён. Обновите карточку.", 409);
+          }
+        }
+        const groupId = group.id;
+        const previous = await groups.listMembers(groupId, true);
+        const locked = await lockGroupInitiatives(profile, [...previous, ...members].map(({ initiativeId }) => initiativeId));
+        const me = collegiumAccountId(profile.userId);
+        if (!collegiumInitiativePermissions(profile).canManage &&
+          ![...locked.values()].every((initiative) => initiative.workflow.verifiers?.financialId === me)) {
+          throw new CollegiumInitiativeError("Доли ставит секретарь или общий финансовый верификатор всех участников.", 403);
+        }
+        if ([...locked.values()].some((initiative) => groupFinishedStatuses.includes(initiative.status))) {
+          throw new CollegiumInitiativeError("Участник уже прошёл проверку эффекта: доли меняются только после корректировки.", 409);
+        }
+        const isPrevious = (initiativeId: string, effectId: string) =>
+          previous.some((item) => item.initiativeId === initiativeId && item.effectId === effectId);
+        for (const member of members) {
+          const initiative = locked.get(member.initiativeId)!;
+          if (!(initiative.card.passport?.effects ?? []).some(({ id }) => id === member.effectId)) {
+            throw new CollegiumInitiativeError(`${initiative.number}: плановый эффект не найден.`, 404);
+          }
+          const other = await groups.findGroupOf(member.initiativeId, member.effectId);
+          if (other !== undefined && other !== groupId) {
+            throw new CollegiumInitiativeError(`${initiative.number}: эффект уже входит в другой совместный эффект.`, 409);
+          }
+          if (!isPrevious(member.initiativeId, member.effectId) && initiative.workflow.effectFacts?.[member.effectId] !== undefined) {
+            throw new CollegiumInitiativeError(`${initiative.number}: по эффекту уже внесён факт — внесите факт для группы.`, 409);
+          }
+        }
+        if (members.length === 0) {
+          await groups.deleteGroup(groupId);
+        } else {
+          await groups.replaceMembers(groupId, members);
+          if (!await groups.updateGroup(groupId, group.revision, group.fact, profile.displayName, at)) {
+            throw new CollegiumInitiativeError("Совместный эффект уже изменён. Обновите карточку.", 409);
+          }
+        }
+        for (const [initiativeId, initiative] of locked) {
+          const shares = { ...initiative.workflow.effectShares };
+          for (const [effectId, entry] of Object.entries(shares)) {
+            if (entry.groupId === groupId) delete shares[effectId];
+          }
+          const own = members.filter((member) => member.initiativeId === initiativeId);
+          for (const member of own) shares[member.effectId] = { groupId, shareBp: member.shareBp };
+          const facts = { ...initiative.workflow.effectFacts };
+          // A changed share changes the counted effect: signatures start over.
+          for (const effectId of new Set([...previous, ...members]
+            .filter((member) => member.initiativeId === initiativeId)
+            .map((member) => member.effectId))) {
+            const joining = own.some((member) => member.effectId === effectId) && !isPrevious(initiativeId, effectId);
+            if (joining && group.fact !== undefined) facts[effectId] = copyGroupFact(group.fact, facts[effectId]);
+            else if (facts[effectId] !== undefined) facts[effectId] = { ...facts[effectId], verdicts: {} };
+          }
+          const workflow: CollegiumInitiative["workflow"] = { ...initiative.workflow, effectFacts: facts, effectShares: shares };
+          if (Object.keys(shares).length === 0) delete workflow.effectShares;
+          if (Object.keys(facts).length === 0) delete workflow.effectFacts;
+          await saveControlChange({
+            profile,
+            initiative,
+            workflow,
+            reason: members.length === 0 ? "Совместный эффект распущен" : "Совместный эффект: доли участников",
+            summary: "Изменён совместный эффект",
+          });
+        }
+        return { groupId: members.length === 0 ? "" : groupId };
+      });
+    },
+
+    /** Единственный факт совместного эффекта; копия у каждого участника, подписи заново. */
+    async recordEffectGroupFact(profile: ServerUserProfile, groupId: string, body: unknown) {
+      const groups = requireGroups();
+      const record = readControlBody(body, ["actualAmount", "period", "sources", "calculation"]);
+      const input = readFactInput(record);
+      return transaction.run(async () => {
+        const group = await groups.readGroup(groupId, true);
+        if (group === undefined) throw new CollegiumInitiativeError("Совместный эффект не найден.", 404);
+        if (group.revision !== record.revision) {
+          throw new CollegiumInitiativeError("Совместный эффект уже изменён. Обновите карточку.", 409);
+        }
+        const members = await groups.listMembers(groupId, true);
+        const locked = await lockGroupInitiatives(profile, members.map(({ initiativeId }) => initiativeId));
+        if ([...locked.values()].some((initiative) => !factStatuses.includes(initiative.status))) {
+          throw new CollegiumInitiativeError("Факт совместного эффекта вносится, когда все участники в реализации или на подтверждении.", 409);
+        }
+        const permissions = collegiumInitiativePermissions(profile);
+        if (!permissions.canManage && !(permissions.canParticipate &&
+          [...locked.values()].some((initiative) => isResultReporter(initiative, profile.userId)))) {
+          throw new CollegiumInitiativeError("Факт вносят владелец или исполнитель участника либо секретарь.", 403);
+        }
+        const at = now();
+        const fact: CollegiumEffectGroupFact = {
+          ...input,
+          version: (group.fact?.version ?? 0) + 1,
+          recordedByUserId: profile.userId,
+          recordedByDisplayName: profile.displayName,
+          recordedAt: at.toISOString(),
+        };
+        if (!await groups.updateGroup(groupId, group.revision, fact, profile.displayName, at)) {
+          throw new CollegiumInitiativeError("Совместный эффект уже изменён. Обновите карточку.", 409);
+        }
+        for (const [initiativeId, initiative] of locked) {
+          const facts = { ...initiative.workflow.effectFacts };
+          for (const member of members.filter((item) => item.initiativeId === initiativeId)) {
+            facts[member.effectId] = copyGroupFact(fact, facts[member.effectId]);
+          }
+          await saveControlChange({
+            profile,
+            initiative,
+            workflow: { ...initiative.workflow, effectFacts: facts },
+            reason: "Факт совместного эффекта",
+            summary: "Внесён факт совместного эффекта",
+          });
+        }
+        return { groupId };
+      });
+    },
+
     /** Полный паспорт (ТЗ 6.3): отдельная ревизия карточки с причиной и аудитом. */
     async savePassport(profile: ServerUserProfile, id: string, body: unknown) {
       const request = readSaveRequest(body, "passport");
@@ -1064,6 +1329,10 @@ export function createCollegiumInitiativesService({
           .filter((effect) => facts[effect.id] !== undefined && !passport.effects.some((item) => item.id === effect.id));
         if (removed.length > 0) {
           throw new CollegiumInitiativeError("По удаляемому эффекту уже внесён факт.", 409);
+        }
+        const shares = initiative.workflow.effectShares ?? {};
+        if (Object.keys(shares).some((effectId) => !passport.effects.some((item) => item.id === effectId))) {
+          throw new CollegiumInitiativeError("Эффект входит в совместную группу: сначала исключите его из группы.", 409);
         }
         if ((initiative.card.passport?.effects.length ?? 0) === 0 && passport.effects.length > 0 &&
           facts[collegiumMainEffectId] !== undefined) {

@@ -8,6 +8,7 @@ import { createCollegiumInitiativesService } from "./domain/collegiumInitiatives
 import { createCollegiumMeetingsService } from "./domain/collegiumMeetingsService.js";
 import { createCollegiumInitiativesRepository } from "./repositories/collegiumInitiativesRepository.js";
 import { createCollegiumSettingsRepository } from "./repositories/collegiumSettingsRepository.js";
+import { createCollegiumEffectGroupsRepository } from "./repositories/collegiumEffectGroupsRepository.js";
 import { createCollegiumSettingsService } from "./domain/collegiumSettingsService.js";
 import { createTableLayoutsRepository } from "./repositories/tableLayoutsRepository.js";
 import { readServerConfig } from "./config/env.js";
@@ -123,6 +124,7 @@ const collegiumInitiatives = createCollegiumInitiativesService({
   repository: createCollegiumInitiativesRepository(pool),
   assignments: collegiumAssignmentsRepository,
   settings: createCollegiumSettingsRepository(pool),
+  effectGroups: createCollegiumEffectGroupsRepository(pool),
   transaction: database.transaction,
   audit: createAuditRepository(pool),
 });

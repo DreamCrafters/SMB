@@ -29,6 +29,11 @@ export function readCollegiumSignerRole(initiative: CollegiumInitiative, account
   });
 }
 
+/** Доля инициативы в эффекте, базисные пункты: из группы или целиком. */
+export function readCollegiumEffectShareBp(initiative: CollegiumInitiative, effectId: string) {
+  return initiative.workflow.effectShares?.[effectId]?.shareBp ?? collegiumFullShareBp;
+}
+
 /** Подпись действительна: на последней версии факта и от текущего держателя роли. */
 function validVerdict(initiative: CollegiumInitiative, fact: CollegiumEffectFact, role: CollegiumSignerRole) {
   const verdict = fact.verdicts[role];
@@ -111,7 +116,7 @@ export function buildCollegiumConfirmedEffects(initiative: CollegiumInitiative):
     plannedAnnual: row.plannedAnnual,
     actualAmount: row.fact?.actualAmount ?? "0.00",
     status: row.status === "confirmed" ? "confirmed" : "not_confirmed",
-    shareBp: collegiumFullShareBp,
+    shareBp: readCollegiumEffectShareBp(initiative, row.effectId),
     verdicts: row.fact?.verdicts ?? {},
   }));
 }
@@ -137,17 +142,21 @@ export function readCollegiumConfirmedKopecks(initiative: CollegiumInitiative): 
 
 /** Плановый эффект инициативы, копейки в год: сумма планов эффектов × доля. */
 export function readCollegiumPlannedKopecks(initiative: CollegiumInitiative): bigint | undefined {
-  const amounts = listCollegiumPlannedEffects(initiative).map(({ id }) => plannedAnnualKopecks(initiative, id));
-  if (amounts.every((amount) => amount === undefined)) return undefined;
-  return amounts.reduce<bigint>((sum, amount) => sum + share(amount ?? 0n, collegiumFullShareBp), 0n);
+  const amounts = listCollegiumPlannedEffects(initiative).map(({ id }) => ({
+    amount: plannedAnnualKopecks(initiative, id),
+    shareBp: readCollegiumEffectShareBp(initiative, id),
+  }));
+  if (amounts.every(({ amount }) => amount === undefined)) return undefined;
+  return amounts.reduce<bigint>((sum, { amount, shareBp }) => sum + share(amount ?? 0n, shareBp), 0n);
 }
 
 export function snapshotCollegiumEffectControl(workflow: CollegiumInitiativeWorkflow): CollegiumEffectSnapshot | undefined {
-  const { effectFacts, verifiers, verification, effectConfirmation, effectOutcome } = workflow;
-  if ([effectFacts, verifiers, verification, effectConfirmation, effectOutcome].every((value) => value === undefined)) {
+  const { effectFacts, verifiers, verification, effectConfirmation, effectOutcome, effectShares } = workflow;
+  if ([effectFacts, verifiers, verification, effectConfirmation, effectOutcome, effectShares].every((value) => value === undefined)) {
     return undefined;
   }
   return {
+    ...(effectShares === undefined ? {} : { effectShares }),
     ...(effectFacts === undefined ? {} : { effectFacts }),
     ...(verifiers === undefined ? {} : { verifiers }),
     ...(verification === undefined ? {} : { verification }),

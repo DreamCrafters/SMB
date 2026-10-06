@@ -40,6 +40,7 @@ const detailExtras = {
   canEditPassport: false,
   effectDuplicates: [],
   effectControl: { rows: [], canRecordFacts: false, canAssignRoles: false },
+  effectGroups: [],
 };
 
 function buildInitiative(card) {
@@ -624,11 +625,16 @@ test("the effect controller signs the latest fact version from the card", async 
     workflow: { verifiers: { technicalId: "", financialId: "account:owner", assignedAt: "", assignedByDisplayName: "" }, effectFacts: { main: fact } },
   };
   const verdicts = [];
+  const groupSaves = [];
   const view = await renderWorkspace(
     { canView: true, canParticipate: true, canManage: false, canApprove: false },
     async (url, init, permissions) => {
       if (url.pathname === "/api/collegium-initiatives") {
         return [{ initiatives: [stored], people, reference, permissions, meetings: [], overdueIds: [] }];
+      }
+      if (url.pathname === "/api/collegium-effect-groups" && init.method === "PUT") {
+        groupSaves.push(JSON.parse(init.body));
+        return [{ groupId: "g-1" }];
       }
       if (url.pathname === "/api/collegium-initiatives/initiative-1/effects/main/verdict") {
         verdicts.push(JSON.parse(init.body));
@@ -644,6 +650,13 @@ test("the effect controller signs the latest fact version from the card", async 
             rows: [{ effectId: "main", label: "Эффект экспресс-карты", plannedAnnual: "1200000.00", fact, status: "in_review", deviationAmount: "-250000.00", deviationPercent: "-20.8" }],
             canRecordFacts: false, canAssignRoles: false, signerRole: "controller",
           },
+          effectGroups: [{
+            id: "g-1", revision: 2, canEditShares: true, canRecordFact: false,
+            members: [
+              { initiativeId: "initiative-1", number: "И-2026-0001", title: "Эффект на проверке", effectId: "e-1", effectLabel: "Экономия", shareBp: 6000 },
+              { initiativeId: "initiative-2", number: "И-2026-0002", title: "Соседняя мера", effectId: "e-2", effectLabel: "Экономия", shareBp: 4000 },
+            ],
+          }],
         }];
       }
       throw new Error(`Unexpected request: ${url.pathname}`);
@@ -661,6 +674,23 @@ test("the effect controller signs the latest fact version from the card", async 
     await React.act(async () => findButtonByText(container, "Подтверждаю").click());
     await waitFor(React, () => verdicts.length === 1);
     assert.deepEqual(verdicts[0], { revision: 9, factVersion: 3, verdict: "confirmed", comment: "" });
+    // A joint effect shows the counted total and lets the verifier change the shares.
+    assert.match(container.querySelector(".collegium-effect-group").textContent, /учтено 100 % из 100 %/u);
+    await React.act(async () => findButtonByText(container, "Изменить доли").click());
+    const share = container.querySelector('input[aria-label="Доля И-2026-0002, %"]');
+    await React.act(async () => {
+      setNativeInputValue(share, "30");
+      share.dispatchEvent(new view.dom.window.Event("input", { bubbles: true }));
+    });
+    await React.act(async () => findButtonByText(container, "Сохранить доли").click());
+    await waitFor(React, () => groupSaves.length === 1);
+    assert.deepEqual(groupSaves[0], {
+      groupId: "g-1", revision: 2,
+      members: [
+        { initiativeId: "initiative-1", effectId: "e-1", sharePercent: "60" },
+        { initiativeId: "initiative-2", effectId: "e-2", sharePercent: "30" },
+      ],
+    });
   } finally {
     await view.cleanup();
   }

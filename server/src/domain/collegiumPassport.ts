@@ -264,7 +264,10 @@ export function findCollegiumEffectDuplicates(
           .every((field) => ours[field] === theirs[field]);
         const overlaps = (theirs.measurementEnd === "" || ours.measurementStart <= theirs.measurementEnd) &&
           (ours.measurementEnd === "" || theirs.measurementStart <= ours.measurementEnd);
-        if (same && overlaps) {
+        // Members of one joint effect share it by design.
+        const ourGroup = initiative.workflow.effectShares?.[ours.id]?.groupId;
+        const jointly = ourGroup !== undefined && ourGroup === other.workflow.effectShares?.[theirs.id]?.groupId;
+        if (same && overlaps && !jointly) {
           duplicates.push({
             effectId: ours.id,
             initiativeId: other.id,

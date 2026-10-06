@@ -2,10 +2,12 @@ import {
   collegiumInitiativesApiPath,
   collegiumMeetingsApiPath,
   collegiumSettingsApiPath,
+  collegiumEffectGroupsApiPath,
   type CollegiumAttachment,
   type CollegiumAttentionItem,
   type CollegiumDashboard,
   type CollegiumEffectFactInput,
+  type CollegiumEffectGroupSaveRequest,
   type CollegiumVerifierRole,
   type CollegiumPassportSaveRequest,
   type CollegiumReference,
@@ -211,6 +213,14 @@ export function recordCollegiumEffectVerdict(
   body: { revision: number; factVersion: number; verdict: "confirmed" | "not_confirmed"; comment: string },
 ) {
   return postInitiativeChange(id, `effects/${encodeURIComponent(effectId)}/verdict`, body);
+}
+
+export function saveCollegiumEffectGroup(body: CollegiumEffectGroupSaveRequest) {
+  return request<{ groupId: string }>(collegiumEffectGroupsApiPath, "PUT", body);
+}
+
+export function recordCollegiumEffectGroupFact(groupId: string, body: CollegiumEffectFactInput & { revision: number }) {
+  return request<{ groupId: string }>(`${collegiumEffectGroupsApiPath}/${encodeURIComponent(groupId)}/fact`, "POST", body);
 }
 
 export async function actOnCollegiumInitiative(
