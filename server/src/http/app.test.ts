@@ -12122,6 +12122,24 @@ test("board assignment API enforces creation, execution and review capabilities"
     };
     assert.equal(activeListPayload.assignments[0]?.isOverdue, true);
     assert.deepEqual(listOptions, { activeOn: "2026-07-20" });
+    // Задача 131: execution combined with review keeps the whole register readable,
+    // while «Поручения мне» still asks for assignments to execute only.
+    profile.activeAccess.capabilities = [
+      "business.view_board_assignments",
+      "business.execute_board_assignments",
+      "business.review_board_assignments",
+    ];
+    assert.equal((await fetch(`${baseUrl}/api/board-assignments`, { headers })).status, 200);
+    assert.equal(listOptions, undefined);
+    assert.equal((await fetch(`${baseUrl}/api/board-assignments?executionOnly=1`, { headers })).status, 200);
+    assert.deepEqual(listOptions, { activeOn: "2026-07-20" });
+    current.currentOccurrenceDate = "2026-07-21";
+    assert.equal((await fetch(`${baseUrl}/api/board-assignments/assignment-1`, { headers })).status, 200);
+    current.currentOccurrenceDate = "2026-07-10";
+    profile.activeAccess.capabilities = [
+      "business.view_board_assignments",
+      "business.execute_board_assignments",
+    ];
     current.currentOccurrenceDate = "2026-07-21";
     const inactiveDetailResponse = await fetch(
       `${baseUrl}/api/board-assignments/assignment-1`,
@@ -15827,12 +15845,13 @@ test("position API gives registry tabs sending and «Поручения» source
     assert.equal((await create({ navigationItems: ["business.director_assignments", "business.assignments"], assignmentInboxAccess: ["director"] })).status, 201);
     // The old receive modes and a tab without sources are refused.
     assert.equal((await create({ navigationItems: ["business.director_assignments"], directorAssignmentAccess: "receive" })).status, 400);
-    assert.equal((await create({ navigationItems: ["business.assignments"] })).status, 400);
+    // Задача 131: «Поручения» alone shows the controlled registers, without receiving.
+    assert.equal((await create({ navigationItems: ["business.assignments"] })).status, 201);
     assert.equal((await create({ navigationItems: ["business.assignments"], assignmentInboxAccess: [] })).status, 400);
     assert.equal((await create({ navigationItems: [], assignmentInboxAccess: ["director"] })).status, 400);
     assert.equal((await create({ navigationItems: ["business.assignments"], assignmentInboxAccess: ["send"] })).status, 400);
-    // Board execution restricts the board register, so it cannot join board creation or review.
-    assert.equal((await create({ navigationItems: ["business.assignments", "business.board_assignments"], assignmentInboxAccess: ["board"], boardAssignmentAccess: "review" })).status, 400);
+    // Board execution may join board creation or review in one position.
+    assert.equal((await create({ navigationItems: ["business.assignments", "business.board_assignments"], assignmentInboxAccess: ["board"], boardAssignmentAccess: "review" })).status, 201);
     assert.equal((await create({ navigationItems: ["business.board_assignments"], boardAssignmentAccess: "execute" })).status, 400);
     assert.equal((await create({ navigationItems: ["business.assignments"], assignmentInboxAccess: ["board"] })).status, 201);
   }, dispatcherSubmissions, emptyReferenceDataSource, undefined, undefined, adminDatabase, config, undefined, repository);
@@ -15840,6 +15859,8 @@ test("position API gives registry tabs sending and «Поручения» source
     ["business.view_director_assignments", "business.manage_director_assignments"],
     ["business.view_director_assignments", "business.execute_director_assignments"],
     ["business.view_director_assignments", "business.manage_director_assignments", "business.execute_director_assignments"],
+    [],
+    ["business.view_board_assignments", "business.create_board_assignments", "business.review_board_assignments", "business.execute_board_assignments"],
     ["business.view_board_assignments", "business.execute_board_assignments"],
   ]);
 });

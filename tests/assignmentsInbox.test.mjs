@@ -361,3 +361,16 @@ function restoreDomGlobals(previous) {
     else Object.defineProperty(globalThis, name, descriptor);
   }
 }
+
+test("«Поручения» opens own assignments and every register the profile controls (задача 131)", async () => {
+  const { readAssignmentsSections } = await vite.ssrLoadModule("/src/AssignmentsInbox.tsx");
+  const sections = (...capabilities) => readAssignmentsSections({ activeAccess: { capabilities } });
+  assert.deepEqual(sections(), []);
+  assert.deepEqual(sections("business.view_director_assignments", "business.execute_director_assignments"), ["mine"]);
+  assert.deepEqual(sections("business.view_director_assignments", "business.manage_director_assignments"), ["director"]);
+  assert.deepEqual(sections("business.view_collegium_assignments", "business.manage_collegium_assignments", "business.execute_collegium_assignments"), ["mine", "collegium"]);
+  // Board execution alone narrows the register to what «Поручения мне» lists.
+  assert.deepEqual(sections("business.view_board_assignments", "business.execute_board_assignments"), ["mine"]);
+  assert.deepEqual(sections("business.view_board_assignments"), ["board"]);
+  assert.deepEqual(sections("business.view_board_assignments", "business.execute_board_assignments", "business.review_board_assignments"), ["mine", "board"]);
+});

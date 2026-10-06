@@ -187,18 +187,6 @@ function resolveAssignmentInboxCapabilities(
 }
 
 /**
- * Board execution restricts the whole board register to active assignments, so it
- * cannot share a position with the board tab's create or review variant.
- */
-export function conflictsWithBoardAssignmentAccess(
-  assignmentInboxAccess: AssignmentInboxAccess,
-  boardAssignmentAccess: BoardAssignmentAccess,
-) {
-  return assignmentInboxAccess !== "none" && assignmentInboxAccess.includes("board") &&
-    (boardAssignmentAccess === "create" || boardAssignmentAccess === "review");
-}
-
-/**
  * Уровни вкладок, которые не выводятся из списка вкладок. Уровень инициатив
  * Коллегии обязателен: пропущенное значение молча понизило бы председателя до
  * просмотра при любой правке должности.
@@ -336,8 +324,8 @@ export function isNavigationAccessLevel(
     return isRailwayWagonAccess(value);
   }
   if (navigationItem === assignmentInboxNavigationItem) {
-    // The tab without a source grants nothing, so an enabled tab always needs one.
-    return isAssignmentInboxAccess(value) && value !== "none";
+    // Задача 131: the tab alone shows the registers the position controls; sources are optional.
+    return isAssignmentInboxAccess(value);
   }
   if (navigationItem === collegiumInitiativesNavigationItem) {
     return isCollegiumInitiativeAccess(value) && value !== "none";
@@ -359,7 +347,15 @@ export function resolveMaximumCapabilitiesForNavigation(
   const base = resolveCapabilitiesForNavigation([navigationItem]);
 
   if (navigationItem === assignmentInboxNavigationItem) {
-    return resolveAssignmentInboxCapabilities([...assignmentInboxSources], [navigationItem]);
+    // Задача 131: the tab also views every register, so the fullest preview adds control
+    // of all registries; board review keeps the whole board register readable.
+    return Array.from(new Set([
+      ...resolveAssignmentInboxCapabilities([...assignmentInboxSources], [navigationItem]),
+      "business.manage_director_assignments",
+      "business.manage_collegium_assignments",
+      "business.create_board_assignments",
+      "business.review_board_assignments",
+    ]));
   }
 
   if (navigationItem === "business.board_assignments") {

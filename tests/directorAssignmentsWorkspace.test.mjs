@@ -47,16 +47,20 @@ for (const mode of ["send", "send-linked", "send-unlinked", "both"]) {
     };
     try {
       const { DirectorAssignmentsWorkspace } = await vite.ssrLoadModule("/src/DirectorAssignments.tsx");
-      await React.act(async () => root.render(React.createElement(DirectorAssignmentsWorkspace, { onShowToast() {} })));
-      assert.match(rootElement.textContent, /Отправка и контроль/u);
+      // Задача 131: the registry tab only creates; the register is controlled inside «Поручения».
+      const workspaceMode = mode === "send" ? "create" : "control";
+      await React.act(async () => root.render(React.createElement(DirectorAssignmentsWorkspace, { mode: workspaceMode, onShowToast() {} })));
+      assert.match(rootElement.textContent, workspaceMode === "create" ? /Создание поручений/u : /Контроль исполнения/u);
       assert.doesNotMatch(rootElement.textContent, /Получение и выполнение/u);
+      assert.equal([...rootElement.querySelectorAll("button")].some(button => button.textContent === "Создать поручение"), false);
+      if (workspaceMode === "create") assert.equal(rootElement.querySelector(".director-register"), null);
       if (mode === "both") {
         // Own assignments are executed in «Поручения»: the registry tab shows the whole register only.
         const numbers = () => [...rootElement.querySelectorAll("tbody tr")].map(row => row.querySelector("td").textContent);
         assert.equal(rootElement.querySelector(".director-assignment-view-switch"), null);
         assert.deepEqual(numbers(), ["ГД-1", "ГД-2", "ГД-3"]);
         assert.match(rootElement.querySelector(".director-register-heading").textContent, /Отправленные поручения/u);
-        assert.ok(rootElement.querySelector("form"));
+        assert.equal(rootElement.querySelector("form"), null);
         await React.act(async () => rootElement.querySelector(".table-text-action").click());
         assert.ok(rootElement.querySelector(".director-assignment-detail"));
         assert.equal([...rootElement.querySelectorAll("button")].some(button => button.textContent === "Отправить на проверку"), false);
@@ -281,7 +285,7 @@ test("collegium workspace uses its own API, title and protocol fields without a 
   };
   try {
     const { DirectorAssignmentsWorkspace } = await vite.ssrLoadModule("/src/DirectorAssignments.tsx");
-    await React.act(async () => root.render(React.createElement(DirectorAssignmentsWorkspace, { registryId: "collegium", onShowToast() {} })));
+    await React.act(async () => root.render(React.createElement(DirectorAssignmentsWorkspace, { registryId: "collegium", mode: "create", onShowToast() {} })));
     assert.match(rootElement.querySelector("h2").textContent, /Поручения Коллегии/u);
     const form = rootElement.querySelector("form");
     assert.doesNotMatch(form.textContent, /Исходное поручение Совета директоров/u);

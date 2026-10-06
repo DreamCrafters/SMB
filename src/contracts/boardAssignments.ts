@@ -84,6 +84,8 @@ export type BoardAssignmentCompletion = Omit<
 };
 
 export type BoardAssignmentFilters = {
+  /** Only active assignments to execute, even for a position that reads the whole register. */
+  executionOnly?: true;
   status?: BoardAssignmentStatus;
   meetingDateFrom?: string;
   meetingDateTo?: string;

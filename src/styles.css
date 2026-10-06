@@ -9921,6 +9921,16 @@ p {
   color: #ffffff;
 }
 
+.assignments-section {
+  display: grid;
+  gap: var(--density-3);
+  min-width: 0;
+}
+
+.assignments-section-tabs {
+  margin-top: 0;
+}
+
 .collegium-agenda {
   display: grid;
   gap: var(--density-3);

@@ -1,5 +1,6 @@
 import { AssignmentInboxSourcePicker } from "./AssignmentInboxSourcePicker";
 import { RowDragHandle } from "./RowDragHandle";
+import type { AssignmentsSectionId } from "./AssignmentsInbox";
 import { assignmentInboxSourceOptions, type AssignmentInboxAccess } from "../server/src/contracts/directorAssignments.js";
 import { WorkspaceBoundary } from "./WorkspaceBoundary";
 import { TableLayoutProvider } from "./TableLayoutProvider";
@@ -289,8 +290,8 @@ import { requestLoginNotifications } from "./services/notificationSettings";
 const DirectorAssignmentsWorkspace = lazy(() =>
   import("./DirectorAssignments").then((module) => ({ default: module.DirectorAssignmentsWorkspace })),
 );
-const AssignmentsInboxWorkspace = lazy(() =>
-  import("./AssignmentsInbox").then((module) => ({ default: module.AssignmentsInboxWorkspace })),
+const AssignmentsSection = lazy(() =>
+  import("./AssignmentsInbox").then((module) => ({ default: module.AssignmentsSection })),
 );
 const PersonnelWorkspace = lazy(() =>
   import("./DirectorAssignments").then((module) => ({ default: module.PersonnelWorkspace })),
@@ -818,6 +819,8 @@ export default function App() {
     useState<DispatcherFormId>();
   const [requestedLaboratoryReviewDateFrom, setRequestedLaboratoryReviewDateFrom] =
     useState<string>();
+  const [requestedAssignmentsSection, setRequestedAssignmentsSection] =
+    useState<OverviewAssignmentsSection>();
   const [isMobileNavigation, setIsMobileNavigation] = useState(() =>
     window.matchMedia(mobileNavigationMediaQuery).matches,
   );
@@ -1413,6 +1416,7 @@ export default function App() {
     if (firstBusinessTab !== undefined) {
       setWorkspaceKind("business");
       setOwnerTab(firstBusinessTab);
+      setRequestedAssignmentsSection(undefined);
       return;
     }
 
@@ -1702,6 +1706,7 @@ export default function App() {
 
   function handleOwnerTabNavigation(tab: BusinessTab) {
     setIsFirstNavigationPending(false);
+    setRequestedAssignmentsSection(undefined);
     setWorkspaceKind("business");
     setOwnerTab(tab);
     if (tab === "dispatcher") {
@@ -1714,6 +1719,7 @@ export default function App() {
   }
 
   function handleAdminViewedOwnerTabNavigation(tab: BusinessTab) {
+    setRequestedAssignmentsSection(undefined);
     setWorkspaceKind("business");
     setAdminViewedOwnerTab(tab);
     if (tab === "dispatcher") {
@@ -1789,6 +1795,17 @@ export default function App() {
     handleAdminViewedOwnerTabNavigation("laboratory_review");
   }
 
+  /** Обзор → плашка поручений: вкладка «Поручения» сразу на реестре плашки. */
+  function handleOverviewAssignmentsNavigate(section: OverviewAssignmentsSection) {
+    handleOwnerTabNavigation("assignments");
+    setRequestedAssignmentsSection(section);
+  }
+
+  function handleAdminViewedOverviewAssignmentsNavigate(section: OverviewAssignmentsSection) {
+    handleAdminViewedOwnerTabNavigation("assignments");
+    setRequestedAssignmentsSection(section);
+  }
+
   function handleOpenIncidentClosingFromLoginPrompt() {
     setDispatcherIncidentLoginPrompt("idle");
     setRequestedDispatcherFormId("incident_close");
@@ -1832,6 +1849,7 @@ export default function App() {
     setWorkspaceKind("business");
     setAdminViewedAccount(account);
     setAdminViewedOwnerTab("overview");
+    setRequestedAssignmentsSection(undefined);
     setAdminViewedDataEntryStatus("");
     setIsAdminViewedDataEntrySubmitting(false);
     setAdminViewedDispatcherFeedFilters(initialDispatcherFeedFilters);
@@ -2238,10 +2256,11 @@ export default function App() {
                 ? handleOverviewLaboratoryNavigate
                 : handleAdminViewedOverviewLaboratoryNavigate
             }
+            requestedAssignmentsSection={requestedAssignmentsSection}
             onOverviewNavigateToAssignments={
               viewedProfile === undefined
-                ? handleOwnerTabNavigation
-                : handleAdminViewedOwnerTabNavigation
+                ? handleOverviewAssignmentsNavigate
+                : handleAdminViewedOverviewAssignmentsNavigate
             }
           />
         </WorkspaceBoundary>
@@ -3090,6 +3109,7 @@ function RoleWorkspace({
   requestedDispatcherFormId,
   onRequestedDispatcherFormHandled,
   requestedLaboratoryReviewDateFrom,
+  requestedAssignmentsSection,
   onOverviewNavigateToDispatcherGroup,
   onOverviewNavigateToLaboratoryReview,
   onOverviewNavigateToAssignments,
@@ -3128,12 +3148,13 @@ function RoleWorkspace({
   requestedDispatcherFormId?: DispatcherFormId;
   onRequestedDispatcherFormHandled: () => void;
   requestedLaboratoryReviewDateFrom?: string;
+  requestedAssignmentsSection?: OverviewAssignmentsSection;
   onOverviewNavigateToDispatcherGroup: (
     group: DispatcherFeedGroup,
     productionSection?: ProductionReportSection,
   ) => void;
   onOverviewNavigateToLaboratoryReview: () => void;
-  onOverviewNavigateToAssignments: (tab: OverviewAssignmentsTab) => void;
+  onOverviewNavigateToAssignments: (section: OverviewAssignmentsSection) => void;
 }) {
   const effectiveOwnerTab = resolveAllowedNavigationTab(
     ownerTab,
@@ -3203,14 +3224,16 @@ function RoleWorkspace({
       />
     );
   }
-  if (effectiveOwnerTab === "assignments") return <AssignmentsInboxWorkspace profile={profile} onShowToast={onShowToast} />;
-  if (effectiveOwnerTab === "director_assignments") return <DirectorAssignmentsWorkspace key="director" registryId="director" onShowToast={onShowToast} />;
-  if (effectiveOwnerTab === "collegium_assignments") return <DirectorAssignmentsWorkspace key="collegium" registryId="collegium" onShowToast={onShowToast} />;
+  if (effectiveOwnerTab === "assignments") return <AssignmentsSection profile={profile} onShowToast={onShowToast} requestedSection={requestedAssignmentsSection} />;
+  // Задача 131: registry tabs only create; viewing and control live in «Поручения».
+  if (effectiveOwnerTab === "director_assignments") return <DirectorAssignmentsWorkspace key="director" registryId="director" mode="create" onShowToast={onShowToast} />;
+  if (effectiveOwnerTab === "collegium_assignments") return <DirectorAssignmentsWorkspace key="collegium" registryId="collegium" mode="create" onShowToast={onShowToast} />;
   if (effectiveOwnerTab === "collegium_initiatives") return <CollegiumInitiativesWorkspace profile={profile} onShowToast={onShowToast} />;
   if (effectiveOwnerTab === "personnel") return <PersonnelWorkspace onShowToast={onShowToast} />;
   if (effectiveOwnerTab === "board_assignments") {
     return (
       <BoardAssignmentsWorkspace
+        mode="create"
         onShowToast={onShowToast}
       />
     );
@@ -3277,7 +3300,10 @@ function RoleWorkspace({
       onDispatcherFeedFiltersChange={onDispatcherFeedFiltersChange}
       onNavigateToDispatcherGroup={onOverviewNavigateToDispatcherGroup}
       onNavigateToLaboratoryReview={onOverviewNavigateToLaboratoryReview}
-      onNavigateToAssignments={onOverviewNavigateToAssignments}
+      // The tiles open the register inside «Поручения», so they need that tab.
+      onNavigateToAssignments={profile.activeAccess.navigationItems.includes("business.assignments")
+        ? onOverviewNavigateToAssignments
+        : undefined}
       canViewVisitors={hasCapability(
         profile,
         "business.view_overview_visitors",
@@ -3311,7 +3337,7 @@ function OwnerWorkspace({
     productionSection?: ProductionReportSection,
   ) => void;
   onNavigateToLaboratoryReview: () => void;
-  onNavigateToAssignments: (tab: OverviewAssignmentsTab) => void;
+  onNavigateToAssignments?: (section: OverviewAssignmentsSection) => void;
   canViewVisitors: boolean;
 }) {
   if (activeTab === "overview") {
@@ -3367,7 +3393,7 @@ export function OwnerOverviewPanel({
     productionSection?: ProductionReportSection,
   ) => void;
   onNavigateToLaboratoryReview?: () => void;
-  onNavigateToAssignments?: (tab: OverviewAssignmentsTab) => void;
+  onNavigateToAssignments?: (section: OverviewAssignmentsSection) => void;
   canViewVisitors?: boolean;
 }) {
   const isLocalTestMode =
@@ -3520,7 +3546,7 @@ export function OwnerOverviewPanel({
                       summary={businessOverview.overview.directorAssignments}
                       onNavigate={onNavigateToAssignments === undefined
                         ? undefined
-                        : () => onNavigateToAssignments("director_assignments")}
+                        : () => onNavigateToAssignments("director")}
                     />
                   )}
               {businessOverview.overview.boardAssignments === undefined
@@ -3531,7 +3557,7 @@ export function OwnerOverviewPanel({
                       summary={businessOverview.overview.boardAssignments}
                       onNavigate={onNavigateToAssignments === undefined
                         ? undefined
-                        : () => onNavigateToAssignments("board_assignments")}
+                        : () => onNavigateToAssignments("board")}
                     />
                   )}
             </>
@@ -3667,10 +3693,7 @@ function OwnerOverviewMetrics({
   );
 }
 
-type OverviewAssignmentsTab = Extract<
-  BusinessTab,
-  "director_assignments" | "board_assignments"
->;
+type OverviewAssignmentsSection = Extract<AssignmentsSectionId, "director" | "board">;
 
 function OwnerAssignmentsOverviewBlock({
   title,
@@ -11461,7 +11484,7 @@ function formatPositionNavigationItem(
 
 function formatAssignmentInboxAccess(access: AssignmentInboxAccess) {
   return access === "none"
-    ? "Нет реестров"
+    ? "Без получения поручений"
     : assignmentInboxSourceOptions.filter(({ id }) => access.includes(id)).map(({ label }) => label).join("; ");
 }
 
@@ -11862,7 +11885,8 @@ function AdminAccountsWorkspace({
     current: AdminPositionFormState,
   ): Partial<AdminPositionFormState> {
     if (navigationItemId === "business.assignments") {
-      return { assignmentInboxAccess: !isChecked ? "none" : current.assignmentInboxAccess === "none" ? ["director"] : current.assignmentInboxAccess };
+      // The tab alone shows the controlled registers; receiving stays a separate choice.
+      return { assignmentInboxAccess: !isChecked ? "none" : current.assignmentInboxAccess };
     }
     if (navigationItemId === "business.board_assignments") {
       return {
@@ -13360,10 +13384,17 @@ function AdminAccountsWorkspace({
               вход, но увидят пустую рабочую область.
             </p>
             {selectedPositionNavigationItem === "business.director_assignments" ||
-            selectedPositionNavigationItem === "business.collegium_assignments" ? (
+            selectedPositionNavigationItem === "business.collegium_assignments" ||
+            selectedPositionNavigationItem === "business.board_assignments" ? (
               <p className="admin-position-navigation-access-hint">
-                Вкладка реестра даёт отправку и контроль исполнения. Получать и
-                выполнять поручения сотрудники будут во вкладке «Поручения».
+                Вкладка реестра даёт только создание поручений. Просмотр,
+                приёмка и правка — во вкладке «Поручения»: включите её этим
+                должностям отдельно.
+              </p>
+            ) : selectedPositionNavigationItem === "business.assignments" ? (
+              <p className="admin-position-navigation-access-hint">
+                Вкладка показывает реестры, которые должность контролирует.
+                Реестры получения добавляют подраздел «Поручения мне».
               </p>
             ) : null}
             <div className="admin-db-table-scroll admin-position-navigation-access-table-scroll">

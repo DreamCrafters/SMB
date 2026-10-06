@@ -88,6 +88,14 @@ export function getBoardAssignmentPermissions(
   };
 }
 
+/**
+ * Execution alone narrows the board register to active assignments. A position may
+ * combine it with creation or review; then the whole register stays readable.
+ */
+export function isBoardAssignmentExecutorOnly(permissions: BoardAssignmentPermissions) {
+  return permissions.canExecute && !permissions.canCreate && !permissions.canReview;
+}
+
 export function validateBoardAssignmentCreateRequest(
   value: unknown,
 ): ValidationResult<ValidatedBoardAssignmentCreateRequest> {

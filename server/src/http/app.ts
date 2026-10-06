@@ -47,7 +47,6 @@ import {
   hasAdminNavigationItems,
   hasSameAdminNavigationItems,
   isBoardAssignmentAccess,
-  conflictsWithBoardAssignmentAccess,
   isNavigationAccessLevel,
   nonAdminNavigationItems,
   resolveCapabilitiesForNavigationLevel,
@@ -189,6 +188,7 @@ import {
   getBoardAssignmentOccurrenceOnOrAfter,
   getNextBoardAssignmentOccurrenceDate,
   getBoardAssignmentPermissions,
+  isBoardAssignmentExecutorOnly,
   isBoardAssignmentActiveOn,
   isBoardAssignmentOverdueOn,
   validateBoardAssignmentAction,
@@ -267,7 +267,6 @@ import {
   ArchivedAccountLoginStatusError,
   AccountLoginAlreadyExistsError,
   SystemAdministratorPositionAssignmentError,
-  PositionAccessConflictError,
   type AccountsRepository,
   type AdminAccountSummary,
   type AdminPositionSummary,
@@ -2330,7 +2329,7 @@ async function readBoardAssignmentOverviewSummary(
   if (
     boardAssignments === undefined ||
     !permissions.canView ||
-    permissions.canExecute
+    isBoardAssignmentExecutorOnly(permissions)
   ) {
     return undefined;
   }
@@ -2952,7 +2951,7 @@ async function handleBoardAssignmentsRequest({
     if (req.method !== "POST") { sendJson(res, 405, { error: { code: "invalid_response", message: "Действие недоступно." } }); return; }
     try {
       const today = buildIncidentOverviewPeriod(now()).today;
-      const selection = await selectBoardAssignmentsForPdf(boardAssignments, await readJsonBody(req), permissions.canExecute, today);
+      const selection = await selectBoardAssignmentsForPdf(boardAssignments, await readJsonBody(req), isBoardAssignmentExecutorOnly(permissions), today);
       sendPdf(res, await renderBoardAssignmentsPdf(selection.records, selection.mode, today), selection.mode === "register" ? "Журнал поручений СД.pdf" : "Поручение СД.pdf");
     } catch (error) {
       if (!(error instanceof BoardAssignmentPdfError)) throw error;
@@ -3229,10 +3228,15 @@ async function handleBoardAssignmentsRequest({
         position: access.profile.activeAccess.position,
         today,
       });
-      const assignments = await boardAssignments.list(
-        filters.value,
-        permissions.canExecute ? { activeOn: today } : undefined,
-      );
+      // «Поручения мне» asks only for assignments to execute, even when the
+      // position may also read the whole register.
+      const executionOnly = url.searchParams.get("executionOnly") === "1";
+      const assignments = executionOnly && !permissions.canExecute
+        ? []
+        : await boardAssignments.list(
+            filters.value,
+            executionOnly || isBoardAssignmentExecutorOnly(permissions) ? { activeOn: today } : undefined,
+          );
       sendJson(res, 200, {
         assignments: assignments.map((assignment) => ({
           ...assignment,
@@ -3611,7 +3615,7 @@ async function handleBoardAssignmentsRequest({
     const isVisibleToExecutor =
       assignment !== undefined &&
       (
-        !permissions.canExecute ||
+        !isBoardAssignmentExecutorOnly(permissions) ||
         isBoardAssignmentActiveOn(
           assignment,
           buildIncidentOverviewPeriod(now()).today,
@@ -13056,12 +13060,6 @@ async function handleAdminAccountsRequest({
         });
         return;
       }
-      if (error instanceof PositionAccessConflictError) {
-        sendJson(res, 409, {
-          error: { code: "invalid_response", message: error.message },
-        });
-        return;
-      }
       throw error;
     }
     return;
@@ -13581,10 +13579,9 @@ function validateCreatePositionRequest(input: unknown):
     : input.showOverviewVisitors;
   const errors: string[] = [];
 
-  if (!isAssignmentInboxAccess(assignmentInboxAccess) || (assignmentInboxAccess === "none") === hasAssignmentInbox) {
+  // Задача 131: the tab may stay without sources; it then shows only the controlled registers.
+  if (!isAssignmentInboxAccess(assignmentInboxAccess) || (!hasAssignmentInbox && assignmentInboxAccess !== "none")) {
     errors.push("Выберите реестры для вкладки «Поручения».");
-  } else if (isBoardAssignmentAccess(boardAssignmentAccess) && conflictsWithBoardAssignmentAccess(assignmentInboxAccess, boardAssignmentAccess)) {
-    errors.push("Исполнение поручений Совета директоров нельзя совмещать с их созданием или приёмкой в одной должности.");
   }
   if (unknownFields.length > 0) {
     errors.push("Запрос содержит неизвестные поля.");

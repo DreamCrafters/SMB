@@ -58,6 +58,7 @@ const migrationsAfterRefractoryWagonLifecycle = [
   "095_collegium_reminder_deliveries",
   "096_collegium_reference_settings",
   "097_collegium_effect_groups",
+  "098_assignments_tab_for_registry_tabs",
 ] as const;
 
 test("laboratory migration creates results storage and the system position", async () => {
@@ -3461,6 +3462,34 @@ test("assignment inbox migration moves receiving before removing registry tabs a
   const order = indexOf(/update app_navigation_settings set navigation_order = json_array_insert/u);
   assert.match(statements[order], /json_search\(navigation_order, 'one', 'business\.director_assignments'\)\) is not null|'business\.director_assignments'\) is not null/u);
   assert.match(statements.at(-1)!, /insert into schema_migrations/u);
+});
+
+test("registry tabs migration adds «Поручения» without touching capabilities", async () => {
+  const statements: string[] = [];
+  const migration = "098_assignments_tab_for_registry_tabs";
+  const pool = {
+    async query(sql: string, parameters?: unknown[]) {
+      return [sql.includes("select id from schema_migrations") && parameters?.[0] !== migration ? [{ id: parameters?.[0] }] : [], []];
+    },
+    async getConnection() { return {
+      async beginTransaction() {}, async commit() {}, async rollback() {}, release() {},
+      async query(sql: string) { statements.push(normalizeSql(sql)); return [[], []]; },
+    }; },
+  } as unknown as DatabasePool;
+  await runMigrations(pool);
+  assert.equal(statements.length, 4);
+  // Sessions go first, while the accounts without «Поручения» are still identifiable.
+  assert.match(statements[0], /^delete sessions from auth_sessions/u);
+  assert.match(statements[0], /where not json_contains\(accesses\.navigation_items, json_quote\('business\.assignments'\)\)/u);
+  assert.match(statements[1], /^update account_positions set navigation_items = json_array_append\(navigation_items, '\$', 'business\.assignments'\)/u);
+  for (const registry of ["director", "collegium", "board"]) {
+    assert.match(statements[1], new RegExp(`json_contains\\(navigation_items, json_quote\\('business\\.${registry}_assignments'\\)\\)`, "u"));
+    assert.match(statements[0], new RegExp(`json_contains\\(accesses\\.navigation_items, json_quote\\('business\\.${registry}_assignments'\\)\\)`, "u"));
+  }
+  assert.match(statements[1], /and not json_contains\(navigation_items, json_quote\('business\.assignments'\)\)/u);
+  assert.match(statements[2], /^update account_accesses accesses set navigation_items = json_array_append/u);
+  assert.doesNotMatch(statements.slice(0, 3).join("\n"), /set capabilities|json_remove/u);
+  assert.match(statements[3], /insert into schema_migrations/u);
 });
 
 test("root authority migration preserves the previous identity once without changing assigned access", async () => {

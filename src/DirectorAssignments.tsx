@@ -178,7 +178,13 @@ export function DirectorAssignmentExecutionCard({ registryId, assignment, canExe
 }
 
 /** Registry tab: sending and control only. Own assignments are executed in «Поручения». */
-export function DirectorAssignmentsWorkspace({ onShowToast, registryId = "director" }: { onShowToast: ShowToast; registryId?: AssignmentRegistryId }) {
+/**
+ * Задача 131: the registry tab only creates assignments (`create`); the register,
+ * review queue, decisions, edits, history and PDF live in «Поручения» (`control`).
+ */
+export type DirectorAssignmentsMode = "create" | "control";
+
+export function DirectorAssignmentsWorkspace({ onShowToast, registryId = "director", mode = "control" }: { onShowToast: ShowToast; registryId?: AssignmentRegistryId; mode?: DirectorAssignmentsMode }) {
   const registry = assignmentRegistries[registryId];
   const columns = registryColumns(registry);
   const [data, setData] = useState<DirectorAssignmentListResponse>();
@@ -205,12 +211,17 @@ export function DirectorAssignmentsWorkspace({ onShowToast, registryId = "direct
   async function refresh() { setData(await directorRequest<DirectorAssignmentListResponse>(registry.apiPath)); }
   useEffect(() => {
     const abort = new AbortController();
-    void directorRequest<DirectorAssignmentListResponse>(registry.apiPath, "GET", undefined, abort.signal).then(next => { setData(next); if (next.permissions.canManage) setForm(createDirectorAssignmentInput(next.today, registryId)); }).catch(e => { if (!abort.signal.aborted) setError(e.message); });
+    void directorRequest<DirectorAssignmentListResponse>(registry.apiPath, "GET", undefined, abort.signal).then(next => { setData(next); if (mode === "create" && next.permissions.canManage) setForm(createDirectorAssignmentInput(next.today, registryId)); }).catch(e => { if (!abort.signal.aborted) setError(e.message); });
     return () => abort.abort();
-  }, [registry.apiPath, registryId]);
+  }, [registry.apiPath, registryId, mode]);
   async function mutate(operation: () => Promise<unknown>) {
     setSaving(true); setError("");
-    try { await operation(); await refresh(); setSelected(undefined); setForm(undefined); setComment(""); onShowToast("Поручение сохранено", "Изменения сохранены.", "success"); }
+    try {
+      await operation(); await refresh(); setSelected(undefined); setComment("");
+      // The create tab stays on a fresh form for the next assignment.
+      setForm(mode === "create" && data ? createDirectorAssignmentInput(data.today, registryId) : undefined);
+      onShowToast("Поручение сохранено", mode === "create" ? "Поручение отправлено. Исполнение контролируйте во вкладке «Поручения»." : "Изменения сохранены.", "success");
+    }
     catch (e) { setError(e instanceof Error ? e.message : "Не удалось сохранить поручение."); }
     finally { setSaving(false); }
   }
@@ -249,6 +260,12 @@ export function DirectorAssignmentsWorkspace({ onShowToast, registryId = "direct
   }
   if (!data) return <section className="workspace-panel">{error ? <p role="alert">{error}</p> : <LoadingIndicator label="Загрузка поручений" />}</section>;
   const canManage = data.permissions.canManage;
+  if (mode === "create") return <section ref={workspaceRef} className="board-assignments-workspace director-assignments">
+    <header className="director-assignment-heading"><div><span className="eyebrow">Создание поручений</span><h2>{registry.title}</h2><p>{canManage ? "Поставьте задачу сотруднику и укажите срок. Просматривать, принимать и править поручения можно во вкладке «Поручения»." : "Создание поручений этого реестра недоступно."}</p></div></header>
+    {error && <p role="alert">{error}</p>}
+    {canManage && form && <DirectorAssignmentForm registryId={registryId} form={form} setForm={setForm} employees={data.employees} saving={saving} comment={comment} onCommentChange={setComment} onSubmit={save}
+      onCancel={() => setForm(createDirectorAssignmentInput(data.today, registryId))} />}
+  </section>;
   // Same decision rule as the board: only a controller decides, and only on a submitted result.
   const canDecideSelected = !history && canManage && selected?.status === "under_review";
   const rows = history ? history.map(item => item.assignment) : data.assignments;
@@ -261,10 +278,9 @@ export function DirectorAssignmentsWorkspace({ onShowToast, registryId = "direct
   });
   const visibleColumns = showAllColumns ? columns : defaultColumns;
   return <section ref={workspaceRef} className="board-assignments-workspace director-assignments">
-    <header className="director-assignment-heading"><div><span className="eyebrow">Отправка и контроль</span><h2>{registry.title}</h2><p>{canManage ? "Поставьте задачу сотруднику, укажите срок и примите результат исполнения. Свои поручения исполняйте во вкладке «Поручения»." : "Для отправки поручений нужен доступ к этой вкладке."}</p></div></header>
+    <header className="director-assignment-heading"><div><span className="eyebrow">Контроль исполнения</span><h2>{registry.title}</h2><p>Проверяйте результат исполнения, принимайте работу или возвращайте её на доработку. Новые поручения создаются во вкладке «{registry.title}».</p></div></header>
     {error && <p role="alert">{error}</p>}
     {canManage && <div className="form-actions director-assignment-actions">
-      <button className="primary-button" type="button" disabled={saving} onClick={() => { setSelected(undefined); setForm(createDirectorAssignmentInput(data.today, registryId)); setComment(""); setHistory(null); }}>Создать поручение</button>
       <button type="button" onClick={() => { setHistory(null); setSelected(undefined); setForm(undefined); }}>Текущие поручения</button>
       <button type="button" onClick={() => { setSelected(undefined); setForm(undefined); void openHistory(); }}>История исполнений</button>
     </div>}

@@ -89,13 +89,17 @@ const defaultPositionDefinitions: Array<{
   { position: "dispatcher", positionDisplayName: "Диспетчер", accountType: "dispatcher" },
 ];
 
-/** The general director executes board assignments from «Поручения»; the board tab is for the board itself. */
+/**
+ * The general director executes board assignments from «Поручения»; the board
+ * creates in its tab and views the register in «Поручения» (задача 131).
+ */
 function buildBoardDevAccessOption(definition: (typeof defaultPositionDefinitions)[number]): DevAccessOption {
   const isExecutor = definition.position === "general_director";
   const navigationItems: AccountNavigationItem[] = [
     ...navigationItemsByAccountType.business_owner,
     "business.laboratory_review",
-    isExecutor ? "business.assignments" : "business.board_assignments",
+    "business.assignments",
+    ...(isExecutor ? [] : ["business.board_assignments" as const]),
   ];
   return {
     ...definition,

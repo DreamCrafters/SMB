@@ -112,10 +112,9 @@ export const localDevAccessOptions: DevAccessOption[] =
                 id !== "business.production_plan" &&
                 id !== "business.laboratory_results" &&
                 id !== "business.collegium_assignments" &&
-                // The general director executes board assignments from «Поручения».
-                id !== (definition.position === "general_director"
-                  ? "business.board_assignments"
-                  : "business.assignments"),
+                // The general director executes board assignments from «Поручения»;
+                // the board creates in its tab and views the register in «Поручения».
+                (definition.position !== "general_director" || id !== "business.board_assignments"),
             ),
             capabilities: [
               ...resolveLocalBoardAssignmentCapabilities(

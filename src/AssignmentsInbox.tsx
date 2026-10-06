@@ -3,8 +3,8 @@ import { assignmentInboxSourceCapabilities, assignmentInboxSources, assignmentRe
 import type { BoardAssignmentStatus } from "../server/src/contracts/assignmentStates";
 import type { BoardAssignmentListItem } from "./contracts/boardAssignments";
 import type { ServerUserProfile } from "./contracts/organization";
-import { DirectorAssignmentExecutionCard, downloadDirectorAssignmentsPdf } from "./DirectorAssignments";
-import { BoardAssignmentExecutionCard, downloadBoardAssignmentPdf } from "./BoardAssignments";
+import { DirectorAssignmentExecutionCard, DirectorAssignmentsWorkspace, downloadDirectorAssignmentsPdf } from "./DirectorAssignments";
+import { BoardAssignmentExecutionCard, BoardAssignmentsWorkspace, downloadBoardAssignmentPdf } from "./BoardAssignments";
 import { directorRequest, type DirectorAssignmentListResponse } from "./services/directorAssignments";
 import { requestBoardAssignments } from "./services/boardAssignments";
 import { ManagedTable } from "./ManagedTable";
@@ -109,7 +109,7 @@ function MultiSelectFilter({ label, options, selected, onChange }: { label: stri
   </div>;
 }
 
-/** «Поручения»: everything the account executes, from every registry it receives. */
+/** «Поручения мне»: everything the account executes, from every registry it receives. */
 export function AssignmentsInboxWorkspace({ profile, onShowToast }: { profile: ServerUserProfile; onShowToast: ShowToast }) {
   // Capabilities only choose which registries to ask; each server re-checks access and ownership.
   const sources = assignmentInboxSources.filter(source => profile.activeAccess.capabilities.includes(assignmentInboxSourceCapabilities[source][1] as never));
@@ -128,7 +128,7 @@ export function AssignmentsInboxWorkspace({ profile, onShowToast }: { profile: S
       // Keep the shown rows during a background refresh after an action.
       setStates(current => current[source]?.status === "ready" ? current : { ...current, [source]: { status: "loading" } });
       if (source === "board") {
-        void requestBoardAssignments({}, { signal: abort.signal }).then(result => settle(source, result.status === "error"
+        void requestBoardAssignments({ executionOnly: true }, { signal: abort.signal }).then(result => settle(source, result.status === "error"
           ? { status: "error", message: result.message }
           : { status: "ready", rows: boardInboxRows(result.assignments), executableIds: result.permissions.canExecute ? result.assignments.map(row => row.id) : [], boardMeetingReminder: result.boardMeetingReminder }));
       } else {
@@ -168,7 +168,7 @@ export function AssignmentsInboxWorkspace({ profile, onShowToast }: { profile: S
   }
 
   return <section className="board-assignments-workspace director-assignments assignment-inbox">
-    <header className="director-assignment-heading"><div><span className="eyebrow">Получение и выполнение</span><h2>Поручения</h2><p>Все поручения, которые вам нужно выполнить. Сохраняйте промежуточные результаты и отправляйте выполненную работу на проверку.</p></div></header>
+    <header className="director-assignment-heading"><div><span className="eyebrow">Получение и выполнение</span><h2>Поручения мне</h2><p>Все поручения, которые вам нужно выполнить. Сохраняйте промежуточные результаты и отправляйте выполненную работу на проверку.</p></div></header>
     {boardMeetingReminder && <section aria-label="Напоминание к Совету директоров" className="board-assignment-view-notice board-assignment-meeting-reminder"><div><span>Напоминание</span><p>{boardMeetingReminder}</p></div></section>}
     {sources.map(source => { const state = states[source]; return state?.status === "error" ? <p role="alert" key={source}>{sourceLabels[source]}: {state.message}</p> : null; })}
     {selectedRow?.director && <DirectorAssignmentExecutionCard key={`${selectedRow.source}-${selectedRow.id}`} registryId={selectedRow.source as "director" | "collegium"} assignment={selectedRow.director}
@@ -203,5 +203,47 @@ export function AssignmentsInboxWorkspace({ profile, onShowToast }: { profile: S
           </tr>; })}</tbody>
         </ManagedTable></div>}
     </section>
+  </section>;
+}
+
+export type AssignmentsSectionId = "mine" | "director" | "collegium" | "board";
+
+const sectionLabels: Record<AssignmentsSectionId, string> = {
+  mine: "Поручения мне",
+  director: "Поручения генерального директора",
+  collegium: "Поручения Коллегии",
+  board: "Поручения Совета директоров",
+};
+
+/**
+ * Sub-tabs of «Поручения» the profile may open. Capabilities only pick the views;
+ * every registry API re-checks access. Board execution alone narrows the board
+ * register to active assignments, which «Поручения мне» already lists.
+ */
+export function readAssignmentsSections(profile: ServerUserProfile): AssignmentsSectionId[] {
+  const has = (capability: string) => profile.activeAccess.capabilities.includes(capability as never);
+  const executorOnly = has("business.execute_board_assignments") && !has("business.create_board_assignments") && !has("business.review_board_assignments");
+  return [
+    ...(assignmentInboxSources.some(source => has(assignmentInboxSourceCapabilities[source][1])) ? ["mine" as const] : []),
+    ...(has(assignmentRegistries.director.manageCapability) ? ["director" as const] : []),
+    ...(has(assignmentRegistries.collegium.manageCapability) ? ["collegium" as const] : []),
+    ...(has("business.view_board_assignments") && !executorOnly ? ["board" as const] : []),
+  ];
+}
+
+/** «Поручения»: one tab to view all assignments — own ones and every register the account controls. */
+export function AssignmentsSection({ profile, onShowToast, requestedSection }: { profile: ServerUserProfile; onShowToast: ShowToast; requestedSection?: AssignmentsSectionId }) {
+  const sections = readAssignmentsSections(profile);
+  const [chosen, setChosen] = useState<AssignmentsSectionId | undefined>(requestedSection);
+  useEffect(() => { if (requestedSection) setChosen(requestedSection); }, [requestedSection]);
+  const section = chosen !== undefined && sections.includes(chosen) ? chosen : sections[0];
+  if (section === undefined) return <section className="workspace-panel"><p className="director-empty">Для должности не выбраны реестры поручений.</p></section>;
+  return <section className="assignments-section">
+    {sections.length > 1 && <div className="collegium-section-tabs assignments-section-tabs" role="tablist" aria-label="Разделы поручений">
+      {sections.map(id => <button key={id} type="button" role="tab" aria-selected={section === id} className={section === id ? "is-active" : undefined} onClick={() => setChosen(id)}>{sectionLabels[id]}</button>)}
+    </div>}
+    {section === "mine" ? <AssignmentsInboxWorkspace profile={profile} onShowToast={onShowToast} />
+      : section === "board" ? <BoardAssignmentsWorkspace key="board" onShowToast={onShowToast} />
+        : <DirectorAssignmentsWorkspace key={section} registryId={section} onShowToast={onShowToast} />}
   </section>;
 }

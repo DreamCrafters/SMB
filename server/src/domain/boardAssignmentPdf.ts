@@ -7,7 +7,7 @@ export class BoardAssignmentPdfError extends Error {
 }
 export type BoardAssignmentPrintRecord = { assignment: BoardAssignment; completedAt?: string };
 
-export async function selectBoardAssignmentsForPdf(repository: BoardAssignmentsRepository, value: unknown, canExecute: boolean, today: string): Promise<{ mode: BoardAssignmentPdfRequest["mode"]; records: BoardAssignmentPrintRecord[] }> {
+export async function selectBoardAssignmentsForPdf(repository: BoardAssignmentsRepository, value: unknown, executorOnly: boolean, today: string): Promise<{ mode: BoardAssignmentPdfRequest["mode"]; records: BoardAssignmentPrintRecord[] }> {
   const invalid = () => new BoardAssignmentPdfError("Проверьте выбор поручений для PDF.");
   if (!value || typeof value !== "object" || Array.isArray(value)) throw invalid();
   const request = value as Record<string, unknown>;
@@ -22,7 +22,7 @@ export async function selectBoardAssignmentsForPdf(repository: BoardAssignmentsR
     ids.add(entry.id);
     const snapshot = request.source === "history" ? await repository.readCompletionById(entry.id) : undefined;
     const assignment = request.source === "history" ? snapshot?.assignment : await repository.readById(entry.id);
-    if (!assignment || (request.source === "current" && canExecute && !isBoardAssignmentActiveOn(assignment, today))) throw new BoardAssignmentPdfError("Поручение недоступно.", 404);
+    if (!assignment || (request.source === "current" && executorOnly && !isBoardAssignmentActiveOn(assignment, today))) throw new BoardAssignmentPdfError("Поручение недоступно.", 404);
     if (assignment.updatedAt !== entry.expectedUpdatedAt) throw new BoardAssignmentPdfError("Поручение изменилось. Обновите список перед выгрузкой.", 409);
     records.push({ assignment, ...(snapshot ? { completedAt: snapshot.completedAt } : {}) });
   }

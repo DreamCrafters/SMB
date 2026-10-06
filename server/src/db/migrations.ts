@@ -4765,6 +4765,35 @@ const migrations: Migration[] = [
         unique key uniq_collegium_effect_member (initiative_id, effect_id)
       ) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci;`,
     ],
+  },  {
+    /**
+     * Задача 131: вкладки реестров ГД, Коллегии и СД оставлены только для создания,
+     * просмотр, приёмка и правка переехали во вкладку «Поручения». Должности с
+     * вкладкой реестра получают «Поручения», чтобы не потерять контроль; права
+     * (capabilities) не меняются, источники получения не добавляются.
+     */
+    id: "098_assignments_tab_for_registry_tabs",
+    statements: [
+      // Changed tabs revoke the sessions of the affected accounts, as any position
+      // edit does; accounts that already had «Поручения» keep theirs.
+      `
+      delete sessions
+      from auth_sessions sessions
+      join account_accesses accesses on accesses.user_id = sessions.user_id
+      where not json_contains(accesses.navigation_items, json_quote('business.assignments'))
+        and (json_contains(accesses.navigation_items, json_quote('business.director_assignments'))
+          or json_contains(accesses.navigation_items, json_quote('business.collegium_assignments'))
+          or json_contains(accesses.navigation_items, json_quote('business.board_assignments')));
+      `,
+      addPositionJsonValue(
+        "navigation_items",
+        "business.assignments",
+        `(json_contains(navigation_items, json_quote('business.director_assignments'))
+          or json_contains(navigation_items, json_quote('business.collegium_assignments'))
+          or json_contains(navigation_items, json_quote('business.board_assignments')))`,
+      ),
+      addAccessJsonValueFromPositions("navigation_items", "business.assignments"),
+    ],
   },
 ];
 

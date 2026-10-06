@@ -5,7 +5,6 @@ import {
   combinePositionAccessDefinitions,
   isNavigationAccessLevel,
   navigationItemsByAccountType,
-  conflictsWithBoardAssignmentAccess,
   readBoardAssignmentAccess,
   readRailwayWagonAccess,
   readRawMaterialWarehouseReviewAccess,
@@ -41,7 +40,9 @@ test("«Поручения» sources survive a capability round trip and validat
     assert.deepEqual(readAssignmentInboxAccess(capabilities, navigation), sources);
     assert.equal(isNavigationAccessLevel(navigation[0], [...sources]), true);
   }
-  for (const value of ["none", [], ["director", "director"], ["send"], "director", null]) {
+  // Задача 131: the tab may stay without sources and then shows only controlled registers.
+  assert.equal(isNavigationAccessLevel(navigation[0], "none"), true);
+  for (const value of [[], ["director", "director"], ["send"], "director", null]) {
     assert.equal(isNavigationAccessLevel(navigation[0], value), false, JSON.stringify(value));
   }
   assert.equal(readAssignmentInboxAccess(["business.execute_director_assignments"], []), "none");
@@ -53,19 +54,19 @@ test("«Поручения» sources survive a capability round trip and validat
     "business.view_director_assignments", "business.execute_director_assignments",
     "business.view_collegium_assignments", "business.execute_collegium_assignments",
     "business.view_board_assignments", "business.execute_board_assignments",
+    "business.manage_director_assignments", "business.manage_collegium_assignments",
+    "business.create_board_assignments", "business.review_board_assignments",
   ]));
   assert.deepEqual(resolveMaximumCapabilitiesForNavigation("business.collegium_assignments"), [
     "business.view_collegium_assignments", "business.manage_collegium_assignments",
   ]);
 });
 
-test("board execution cannot share a position with board creation or review", () => {
-  for (const board of ["create", "review"] as const) {
-    assert.equal(conflictsWithBoardAssignmentAccess(["board"], board), true);
-    assert.equal(conflictsWithBoardAssignmentAccess(["director"], board), false);
-  }
-  assert.equal(conflictsWithBoardAssignmentAccess(["board"], "view"), false);
-  assert.equal(conflictsWithBoardAssignmentAccess("none", "review"), false);
+test("board execution combines with board creation or review in one position", () => {
+  const navigation = ["business.assignments", "business.board_assignments"] as const;
+  assert.deepEqual(new Set(resolveCapabilitiesForPosition("custom", [...navigation], ["board"], { collegiumInitiativeAccess: "none", boardAssignmentAccess: "review" })), new Set([
+    "business.view_board_assignments", "business.create_board_assignments", "business.review_board_assignments", "business.execute_board_assignments",
+  ]));
   assert.equal(isNavigationAccessLevel("business.board_assignments", "execute"), false);
   assert.equal(readBoardAssignmentAccess(["business.view_board_assignments", "business.execute_board_assignments"], ["business.board_assignments"]), "view");
 });

@@ -562,7 +562,7 @@ function restoreDomGlobals(previousGlobals) {
   }
 }
 
-test("assignment source checkboxes combine registries and keep the last one selected", async () => {
+test("assignment source checkboxes combine registries and may all be cleared", async () => {
   const dom = new JSDOM('<div id="root"></div>', { url: "http://127.0.0.1:5173/" });
   const previousGlobals = captureDomGlobals();
   installDomGlobals(dom.window);
@@ -582,7 +582,7 @@ test("assignment source checkboxes combine registries and keep the last one sele
     const collegium = findCheckbox(dom.window.document, "Поручения Коллегии");
     const board = findCheckbox(dom.window.document, "Поручения Совета директоров");
     assert.equal(director.checked, true);
-    assert.equal(director.disabled, true);
+    assert.equal(director.disabled, false);
     await React.act(async () => board.click());
     await React.act(async () => collegium.click());
     // Stored in catalog order regardless of the click order.
@@ -590,7 +590,9 @@ test("assignment source checkboxes combine registries and keep the last one sele
     await React.act(async () => director.click());
     await React.act(async () => board.click());
     assert.deepEqual(selected, ["collegium"]);
-    assert.equal(collegium.disabled, true);
+    // Задача 131: the tab may stay without receiving, showing only controlled registers.
+    await React.act(async () => collegium.click());
+    assert.equal(selected, "none");
   } finally {
     await React.act(async () => root.unmount());
     restoreDomGlobals(previousGlobals);

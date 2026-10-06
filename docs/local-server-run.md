@@ -245,6 +245,11 @@ docker compose stop mariadb
 затем `npm run db:migrate`, сборка и перезапуск backend; подробности — в
 `docs/director-assignments.md`.
 
+Задача 131 добавляет миграцию `098_assignments_tab_for_registry_tabs`: должности с
+вкладкой ГД, Коллегии или СД получают вкладку `Поручения` (права не меняются),
+сессии затронутых сотрудников завершаются. После обновления `npm run db:migrate`,
+сборка и перезапуск backend; подробности — в `docs/director-assignments.md`.
+
 
 ## Корневой доступ и забытый пароль
 

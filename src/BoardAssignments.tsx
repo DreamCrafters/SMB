@@ -116,10 +116,16 @@ type CompletionDetailState =
   | { status: "ready"; completion: BoardAssignmentCompletion }
   | { status: "error"; message: string };
 
+/**
+ * Задача 131: the board tab only creates assignments (`create`); the register,
+ * review queue, decisions, edits, history and PDF live in «Поручения» (`control`).
+ */
 export function BoardAssignmentsWorkspace({
   onShowToast,
+  mode = "control",
 }: {
   onShowToast: ShowToast;
+  mode?: "create" | "control";
 }) {
   const [registerMode, setRegisterMode] = useState<"live" | "history">("live");
   const [query, setQuery] = useState("");
@@ -361,19 +367,21 @@ export function BoardAssignmentsWorkspace({
     setCreateComment("");
     setCreateDocuments([]);
     setListVersion((current) => current + 1);
-    setSelectedId(result.assignment.id);
+    if (mode === "control") setSelectedId(result.assignment.id);
     if (documentError === undefined) {
       onShowToast(
         "Поручение добавлено",
         createDocuments.length === 0
-          ? "Новое поручение появилось в общем реестре."
-          : "Поручение и документы появились в общем реестре.",
+          ? "Новое поручение появилось в реестре во вкладке «Поручения»."
+          : "Поручение и документы появились в реестре во вкладке «Поручения».",
         "success",
       );
     } else {
       onShowToast(
         "Поручение создано",
-        `Поля сохранены, но не все документы загружены: ${documentError} Добавьте их через редактирование.`,
+        mode === "create"
+          ? `Поля сохранены, но не все документы загружены: ${documentError} Добавьте их через редактирование во вкладке «Поручения».`
+          : `Поля сохранены, но не все документы загружены: ${documentError} Добавьте их через редактирование.`,
         "warning",
       );
     }
@@ -578,6 +586,89 @@ export function BoardAssignmentsWorkspace({
   );
   const activeListState =
     registerMode === "history" ? completionListState : listState;
+  const createDialog = isCreateOpen ? (
+    <BoardAssignmentEditorDialog
+      mode="create"
+      createInput={createInput}
+      coExecutorsText={coExecutorsText}
+      comment={createComment}
+      existingDocuments={[]}
+      formMessage={formMessage}
+      isSaving={isSaving}
+      pendingDocuments={createDocuments}
+      removedDocumentIds={[]}
+      onChange={setCreateInput}
+      onCoExecutorsChange={setCoExecutorsText}
+      onCommentChange={setCreateComment}
+      onDocumentError={setFormMessage}
+      onPendingDocumentsChange={setCreateDocuments}
+      onToggleExistingDocument={() => {}}
+      onCancel={() => {
+        if (isSaving) return;
+        setIsCreateOpen(false);
+        setCreateInput(emptyCreateInput);
+        setCoExecutorsText("");
+        setCreateComment("");
+        setCreateDocuments([]);
+        setFormMessage("");
+      }}
+      onSubmit={saveAssignment}
+    />
+  ) : null;
+
+  if (mode === "create") {
+    return (
+      <main className="board-assignments-workspace is-access-create">
+        <header className="board-assignments-heading">
+          <div>
+            <span className="eyebrow">Создание поручений</span>
+            <h1>Поручения Совета директоров</h1>
+          </div>
+        </header>
+        {listState.status === "loading" && permissions === emptyPermissions ? (
+          <LoadingIndicator label="Загружаем доступ…" variant="inline" />
+        ) : listState.status === "error" ? (
+          <p className="form-message is-error" role="alert">{listState.message}</p>
+        ) : canCreate ? (
+          <section
+            className="board-assignment-create-overview"
+            aria-label="Постановка поручений"
+          >
+            <div>
+              <span>Постановка поручений</span>
+              <h2>Создать новое поручение</h2>
+              <p>
+                Зафиксируйте решение Совета директоров, срок и ответственных.
+                Просматривать, принимать и править поручения можно во вкладке
+                «Поручения».
+              </p>
+              <button
+                className="primary-button"
+                type="button"
+                onClick={openCreateDialog}
+              >
+                Добавить поручение
+              </button>
+            </div>
+          </section>
+        ) : (
+          <section
+            className="board-assignment-view-notice"
+            aria-label="Режим просмотра"
+          >
+            <div>
+              <span>Только просмотр</span>
+              <p>
+                Создание поручений недоступно. Поручения Совета директоров
+                открываются во вкладке «Поручения».
+              </p>
+            </div>
+          </section>
+        )}
+        {createDialog}
+      </main>
+    );
+  }
 
   return (
     <main
@@ -643,24 +734,15 @@ export function BoardAssignmentsWorkspace({
       ) : accessMode === "create" ? (
         <section
           className="board-assignment-create-overview"
-          aria-label="Постановка поручений"
+          aria-label="Обзор реестра"
         >
           <div>
-            <span>Постановка поручений</span>
-            <h2>Создать новое поручение</h2>
+            <span>Реестр поручений</span>
+            <h2>Поручения Совета директоров</h2>
             <p>
-              Зафиксируйте решение Совета директоров, срок и ответственных.
-              После сохранения поручение сразу появится в реестре.
+              Реестр поручений Совета директоров. Новые поручения создаются во
+              вкладке «Поручения Совета директоров».
             </p>
-            {canCreate ? (
-              <button
-                className="primary-button"
-                type="button"
-                onClick={openCreateDialog}
-              >
-                Добавить поручение
-              </button>
-            ) : null}
           </div>
           <div className="board-assignment-create-count">
             <strong>{visibleAssignments.length}</strong>
@@ -685,15 +767,6 @@ export function BoardAssignmentsWorkspace({
               {reviewAssignments.length}
               <small>на проверке</small>
             </strong>
-            {canCreate ? (
-              <button
-                className="secondary-button"
-                type="button"
-                onClick={openCreateDialog}
-              >
-                Добавить поручение
-              </button>
-            ) : null}
           </div>
         </section>
       ) : (
@@ -890,36 +963,6 @@ export function BoardAssignmentsWorkspace({
           </section>
         </>
       )}
-
-      {isCreateOpen ? (
-        <BoardAssignmentEditorDialog
-          mode="create"
-          createInput={createInput}
-          coExecutorsText={coExecutorsText}
-          comment={createComment}
-          existingDocuments={[]}
-          formMessage={formMessage}
-          isSaving={isSaving}
-          pendingDocuments={createDocuments}
-          removedDocumentIds={[]}
-          onChange={setCreateInput}
-          onCoExecutorsChange={setCoExecutorsText}
-          onCommentChange={setCreateComment}
-          onDocumentError={setFormMessage}
-          onPendingDocumentsChange={setCreateDocuments}
-          onToggleExistingDocument={() => {}}
-          onCancel={() => {
-            if (isSaving) return;
-            setIsCreateOpen(false);
-            setCreateInput(emptyCreateInput);
-            setCoExecutorsText("");
-            setCreateComment("");
-            setCreateDocuments([]);
-            setFormMessage("");
-          }}
-          onSubmit={saveAssignment}
-        />
-      ) : null}
 
       {isEditOpen ? (
         <BoardAssignmentEditorDialog

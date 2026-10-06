@@ -18,7 +18,6 @@ import {
   readBoardAssignmentAccess,
   readOverviewVisitorsAccess,
   combinePositionAccessDefinitions,
-  conflictsWithBoardAssignmentAccess,
   readRailwayWagonAccess,
   resolveCapabilitiesForPosition,
   resolveNavigationForPosition,
@@ -243,14 +242,6 @@ export class ArchivedAccountLoginStatusError extends Error {
   constructor() {
     super("Архивную учётную запись нельзя включить или отключить.");
     this.name = "ArchivedAccountLoginStatusError";
-  }
-}
-
-/** Board execution and board creation/review cannot share one position. */
-export class PositionAccessConflictError extends Error {
-  constructor(positionName: string) {
-    super(`Должность «${positionName}»: исполнение поручений Совета директоров нельзя совмещать с их созданием или приёмкой.`);
-    this.name = "PositionAccessConflictError";
   }
 }
 
@@ -927,19 +918,12 @@ export function createAccountsRepository(
           ? accessLevel as BoardAssignmentAccess
           : storedBoardAssignmentAccess;
         const storedAssignmentInboxAccess = readAssignmentInboxAccess(storedCapabilities, currentNavigationItems);
-        // The tab grants nothing without a source; a bare checkbox keeps the stored
-        // sources or starts from the director registry.
+        // A bare checkbox keeps the stored sources: the tab alone grants no execution.
         const nextAssignmentInboxAccess: AssignmentInboxAccess = navigationItem !== assignmentInboxNavigationItem
           ? storedAssignmentInboxAccess
           : accessLevel !== undefined
             ? accessLevel as AssignmentInboxAccess
-            : enabled && storedAssignmentInboxAccess === "none" ? ["director"] : storedAssignmentInboxAccess;
-        if (navigationItems.includes("business.board_assignments") && conflictsWithBoardAssignmentAccess(
-          navigationItems.includes(assignmentInboxNavigationItem) ? nextAssignmentInboxAccess : "none",
-          nextBoardAssignmentAccess,
-        )) {
-          throw new PositionAccessConflictError(row.display_name);
-        }
+            : storedAssignmentInboxAccess;
         const storedCollegiumInitiativeAccess = readCollegiumInitiativeAccess(
           storedCapabilities,
           currentNavigationItems,

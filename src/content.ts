@@ -74,7 +74,7 @@ export const navigationAccessLevels: Partial<Record<AccountNavigationItem, {
   title: string;
   options: ReadonlyArray<{ id: string; label: string }>;
 }>> = {
-  "business.assignments": { title: "Реестры поручений", options: assignmentInboxSourceOptions },
+  "business.assignments": { title: "Получение поручений", options: assignmentInboxSourceOptions },
   "business.board_assignments": {
     title: "Уровень доступа",
     options: boardAssignmentAccessOptions,
@@ -222,16 +222,16 @@ export const navigationItemsByAccountType: Record<AccountType, NavigationItem[]>
       description: "Просмотр результатов испытаний",
       state: "active",
     },
-    { id: "business.assignments", label: "Поручения", description: "Исполнение всех полученных поручений", state: "active" },
-    { id: "business.director_assignments", label: "Поручения генерального директора", description: "Отправка поручений сотрудникам и контроль исполнения", state: "active" },
+    { id: "business.assignments", label: "Поручения", description: "Просмотр всех поручений, исполнение и приёмка", state: "active" },
+    { id: "business.director_assignments", label: "Поручения генерального директора", description: "Создание поручений сотрудникам", state: "active" },
     { id: "business.personnel", label: "Сотрудники", description: "Справочник АУП и ИТР", state: "active" },
     {
       id: "business.board_assignments",
       label: "Поручения Совета директоров",
-      description: "Постановка и приёмка поручений",
+      description: "Создание поручений Совета директоров",
       state: "active",
     },
-    { id: "business.collegium_assignments", label: "Поручения Коллегии", description: "Отправка поручений Председателя Коллегии и контроль", state: "active" },
+    { id: "business.collegium_assignments", label: "Поручения Коллегии", description: "Создание поручений Председателя Коллегии", state: "active" },
     { id: "business.collegium_initiatives", label: "Инициативы Коллегии", description: "Идеи, заседания и протоколы Коллегии", state: "active" },
     {
       id: "business.warehouse_1c",

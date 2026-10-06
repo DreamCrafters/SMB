@@ -91,6 +91,7 @@ export async function requestBoardAssignments(
   options: RequestOptions = {},
 ): Promise<BoardAssignmentsResult> {
   const params = new URLSearchParams();
+  if (filters.executionOnly) params.set("executionOnly", "1");
   if (filters.status !== undefined) params.set("status", filters.status);
   if (filters.meetingDateFrom !== undefined) {
     params.set("meetingDateFrom", filters.meetingDateFrom);

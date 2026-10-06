@@ -7,7 +7,7 @@ import type { DatabaseTransactionRunner } from "../db/transactionContext.js";
 import { hasProfileCapability, type ServerUserProfile } from "./auth.js";
 import { canViewDirectorAssignment, canExecuteDirectorAssignment, directorWorkdays, DirectorAssignmentError, readDirectorAssignmentInput, readDirectorRecord, readDirectorText } from "./directorAssignment.js";
 import { buildAssignmentOverviewSummary } from "./assignmentOverview.js";
-import { getBoardAssignmentOccurrenceOnOrAfter, getNextBoardAssignmentOccurrenceDate, isBoardAssignmentActiveOn, validateBoardAssignmentAction } from "./boardAssignment.js";
+import { getBoardAssignmentOccurrenceOnOrAfter, getBoardAssignmentPermissions, getNextBoardAssignmentOccurrenceDate, isBoardAssignmentActiveOn, isBoardAssignmentExecutorOnly, validateBoardAssignmentAction } from "./boardAssignment.js";
 
 export function directorAssignmentPermissions(profile: ServerUserProfile, registryId: AssignmentRegistryId = "director"): DirectorAssignmentPermissions {
   const registry = assignmentRegistries[registryId];
@@ -55,7 +55,7 @@ export function createDirectorAssignmentsService({ repository, boardAssignments,
     if (!registry.canLinkBoardAssignment) throw new DirectorAssignmentError("Исходное поручение недоступно.", 404);
     requirePermission(hasProfileCapability(profile, "business.view_board_assignments"));
     const source = lock ? await boardAssignments?.readByIdForUpdate(id) : await boardAssignments?.readById(id);
-    if (!source || (hasProfileCapability(profile, "business.execute_board_assignments") && !isBoardAssignmentActiveOn(source, today()))) throw new DirectorAssignmentError("Исходное поручение недоступно.", 404);
+    if (!source || (isBoardAssignmentExecutorOnly(getBoardAssignmentPermissions(profile)) && !isBoardAssignmentActiveOn(source, today()))) throw new DirectorAssignmentError("Исходное поручение недоступно.", 404);
     return source;
   }
   const recordAudit = (profile: ServerUserProfile, summary: string, targetId: string) => audit.record({
