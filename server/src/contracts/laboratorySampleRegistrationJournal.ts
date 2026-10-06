@@ -7,6 +7,8 @@ import type { LaboratoryChemicalAnalysisValues } from "./laboratoryChemicalAnaly
  * `SampleRegistrationTransmissionPicker`), рядом с независимым вагонным
  * подтягиванием марки и даты формовки из задачи 79 — обе провенансы
  * сосуществуют в одной форме.
+ * Задача 134: пробу можно транслировать и в оба журнала ОЦ; запись ОЦ лишь
+ * ссылается на пробу и показывает её код и химанализ.
  */
 export const laboratorySampleRegistrationTransmissionTargets = [
   {
@@ -20,6 +22,14 @@ export const laboratorySampleRegistrationTransmissionTargets = [
   {
     value: "verification",
     label: "Верификации",
+  },
+  {
+    value: "raw_material_quality",
+    label: "Журнал контроля качества сырья и соблюдения технологии",
+  },
+  {
+    value: "green_product_quality",
+    label: "Журнал контроля качества сырцовой продукции",
   },
 ] as const;
 
@@ -147,6 +157,15 @@ export type LaboratorySampleRegistrationTransmissionOption = {
   samplingLocation: string;
   registrationDate: string;
   /** Последний связанный химанализ; заполняется в списке строк-ожиданий. */
+  chemicalAnalysis?: LaboratoryChemicalAnalysisValues;
+};
+
+/**
+ * Задача 134: журналы ОЦ не хранят код пробы, поэтому запись, созданная из
+ * трансляции, показывает код и последний химанализ связанной регистрации.
+ */
+export type LaboratoryLinkedSampleResults = {
+  sampleCode?: string;
   chemicalAnalysis?: LaboratoryChemicalAnalysisValues;
 };
 

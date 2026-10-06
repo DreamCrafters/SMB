@@ -59,6 +59,7 @@ const migrationsAfterRefractoryWagonLifecycle = [
   "096_collegium_reference_settings",
   "097_collegium_effect_groups",
   "098_assignments_tab_for_registry_tabs",
+  "099_refractory_quality_sample_registration_link",
 ] as const;
 
 test("laboratory migration creates results storage and the system position", async () => {
@@ -3031,6 +3032,62 @@ test("formed product sample wagon fields migration drops the sample code and tra
     /transmit_to_journal in \( 'unshaped_product_sample', 'verification' \)/u,
   );
   assert.equal(statements[4], "insert into schema_migrations (id) values (?)");
+});
+
+test("refractory quality sample registration link migration links both refractory journals", async () => {
+  const statements: string[] = [];
+  const connection = {
+    async beginTransaction() {},
+    async commit() {},
+    async rollback() {},
+    release() {},
+    async query(sql: string) {
+      statements.push(normalizeSql(sql));
+      return [[], []];
+    },
+  };
+  const pool = {
+    async query(sql: string, parameters?: unknown[]) {
+      if (sql.includes("select id from schema_migrations")) {
+        const id = String(parameters?.[0]);
+        return [
+          id === "099_refractory_quality_sample_registration_link" ? [] : [{ id }],
+          [],
+        ];
+      }
+      return [[], []];
+    },
+    async getConnection() {
+      return connection;
+    },
+  } as unknown as DatabasePool;
+
+  await runMigrations(pool);
+
+  assert.equal(statements.length, 9);
+  for (const [index, table, constraint] of [
+    [0, "laboratory_raw_material_quality_journal", "fk_laboratory_raw_material_quality_source"],
+    [3, "laboratory_green_product_quality_journal", "fk_laboratory_green_product_quality_source"],
+  ] as const) {
+    assert.match(
+      statements[index] ?? "",
+      new RegExp(`alter table ${table} add column if not exists source_sample_registration_id char\\(36\\) null`, "u"),
+    );
+    assert.match(statements[index + 1] ?? "", new RegExp(`drop foreign key if exists ${constraint}`, "u"));
+    assert.match(
+      statements[index + 2] ?? "",
+      new RegExp(`add constraint ${constraint} foreign key \\(source_sample_registration_id\\) references laboratory_sample_registration_journal \\(id\\) on delete set null`, "u"),
+    );
+  }
+  assert.match(
+    statements[6] ?? "",
+    /drop constraint if exists chk_laboratory_sample_registration_transmit_target/u,
+  );
+  assert.match(
+    statements[7] ?? "",
+    /transmit_to_journal in \( 'unshaped_product_sample', 'formed_product_sample', 'verification', 'raw_material_quality', 'green_product_quality' \)/u,
+  );
+  assert.equal(statements[8], "insert into schema_migrations (id) values (?)");
 });
 
 test("formed product sample registration link migration restores the sample code and transmission target", async () => {

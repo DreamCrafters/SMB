@@ -1,3 +1,5 @@
+import type { LaboratoryLinkedSampleResults } from "./laboratorySampleRegistrationJournal.js";
+
 export const laboratoryRawMaterialQualityShiftValues = [
   "day",
   "night",
@@ -102,10 +104,12 @@ export type LaboratoryRawMaterialQualitySubmission = {
   elutriationCoefficient: string | null;
   recommendationRecipient: LaboratoryRawMaterialQualityRecommendationRecipient | null;
   recommendationText: string | null;
+  /** Задача 134: проба из `Регистрации проб`; задаётся только при создании. */
+  sourceSampleRegistrationId?: string;
 };
 
 export type LaboratoryRawMaterialQualityRecord =
-  LaboratoryRawMaterialQualitySubmission & {
+  LaboratoryRawMaterialQualitySubmission & LaboratoryLinkedSampleResults & {
     id: string;
     createdAt: string;
   };

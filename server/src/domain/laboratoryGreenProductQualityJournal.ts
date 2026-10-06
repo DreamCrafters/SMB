@@ -79,6 +79,18 @@ export function validateLaboratoryGreenProductQualitySubmission(
     normalized.pressOperatorRecommendations = recommendations;
   }
 
+  if (!isMissingOptionalText(input.sourceSampleRegistrationId)) {
+    const sourceSampleRegistrationId = readText(
+      input.sourceSampleRegistrationId,
+      maxShortTextLength,
+    );
+    if (sourceSampleRegistrationId === undefined) {
+      errors.push("Проверьте выбранную пробу для трансляции.");
+    } else {
+      normalized.sourceSampleRegistrationId = sourceSampleRegistrationId;
+    }
+  }
+
   return errors.length === 0
     ? {
         ok: true,
@@ -174,6 +186,11 @@ function readText(value: unknown, maxLength: number) {
   return normalized.length > 0 && normalized.length <= maxLength
     ? normalized
     : undefined;
+}
+
+function isMissingOptionalText(value: unknown) {
+  return value === undefined || value === null ||
+    (typeof value === "string" && value.trim() === "");
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

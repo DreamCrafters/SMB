@@ -5579,24 +5579,30 @@ async function handleLaboratoryRequest({
       return;
     }
 
-    const saved = await runAuditedMutation({
-      transaction: databaseTransaction,
-      audit,
-      mutate: () => laboratoryRawMaterialQualityJournal.create({
-        record: validation.value,
-        submittedByUserId: access.profile.userId,
-        submittedByAccountId: access.profile.activeAccess.accountId,
-      }),
-      buildEvent: (record) => ({
-        actor: buildAuditActor(access.profile),
-        category: "form_submission",
-        action: "laboratory_raw_material_quality.submit",
-        summary: "Добавлена запись журнала качества сырья",
-        details: buildLaboratoryRawMaterialQualityAuditDetails(record),
-        targetType: "laboratory_raw_material_quality",
-        targetId: record.id,
-      }),
-    });
+    let saved;
+    try {
+      saved = await runAuditedMutation({
+        transaction: databaseTransaction,
+        audit,
+        mutate: () => laboratoryRawMaterialQualityJournal.create({
+          record: validation.value,
+          submittedByUserId: access.profile.userId,
+          submittedByAccountId: access.profile.activeAccess.accountId,
+        }),
+        buildEvent: (record) => ({
+          actor: buildAuditActor(access.profile),
+          category: "form_submission",
+          action: "laboratory_raw_material_quality.submit",
+          summary: "Добавлена запись журнала качества сырья",
+          details: buildLaboratoryRawMaterialQualityAuditDetails(record),
+          targetType: "laboratory_raw_material_quality",
+          targetId: record.id,
+        }),
+      });
+    } catch (error) {
+      if (sendSampleRegistrationTransmissionError(res, error)) return;
+      throw error;
+    }
 
     sendJson(res, 201, { record: saved });
     return;
@@ -5860,6 +5866,7 @@ async function handleLaboratoryRequest({
       sendJson(res, 201, { record: saved });
     } catch (error) {
       if (sendLaboratoryGreenProductQualityWagonError(res, error)) return;
+      if (sendSampleRegistrationTransmissionError(res, error)) return;
       throw error;
     }
     return;
@@ -16123,6 +16130,23 @@ function formatLaboratoryGreenProductQualityAuditValue(
   }
   const value = record[field];
   return value === null ? "—" : String(value);
+}
+
+function sendSampleRegistrationTransmissionError(
+  res: ServerResponse,
+  error: unknown,
+) {
+  if (!(error instanceof LaboratorySampleRegistrationTransmissionUnavailableError)) {
+    return false;
+  }
+  sendJson(res, 409, {
+    error: {
+      code: "invalid_response",
+      message:
+        "Выбранная проба уже использована для трансляции. Обновите список и выберите другую.",
+    },
+  });
+  return true;
 }
 
 function sendLaboratoryGreenProductQualityWagonError(

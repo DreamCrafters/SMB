@@ -8,10 +8,12 @@ import {
   type LaboratoryGreenProductQualityOptions,
   type LaboratoryGreenProductQualityRecord,
   type LaboratoryGreenProductQualitySubmission,
+  type LaboratorySampleRegistrationTransmissionOption,
 } from "./contracts";
 import { LaboratoryGreenProductQualityTable } from "./LaboratoryJournalTables";
 import { LoadingIndicator } from "./LoadingIndicator";
 import { ProductBrandPicker } from "./ProductBrandPicker";
+import { SampleRegistrationTransmissionPicker } from "./SampleRegistrationTransmissionPicker";
 import {
   correctLaboratoryGreenProductQualityRecord,
   requestLaboratoryGreenProductQualityDraft,
@@ -21,6 +23,7 @@ import {
 } from "./services/laboratoryGreenProductQualityJournal";
 import { readShortUserMessage } from "./services/userFacingMessages";
 import type { ShowToast } from "./services/toastStack";
+import { usePendingSampleRegistrationTransmissions } from "./usePendingSampleRegistrationTransmissions";
 import { useProductionBrands } from "./useProductionBrands";
 
 type GeneralFormState = {
@@ -105,6 +108,17 @@ export function LaboratoryGreenProductQualityJournal({
   const [refreshVersion, setRefreshVersion] = useState(0);
   const { labels: productBrands, loadState: productBrandsLoadState } =
     useProductionBrands();
+  const [sourceSampleRegistrationId, setSourceSampleRegistrationId] =
+    useState<string>();
+  const pendingTransmissions = usePendingSampleRegistrationTransmissions(
+    "green_product_quality",
+    {
+      ...(dateFrom === "" ? {} : { dateFrom }),
+      ...(dateTo === "" ? {} : { dateTo }),
+      ...(query.trim() === "" ? {} : { query: query.trim() }),
+    },
+    refreshVersion,
+  );
 
   useEffect(() => {
     if (editingRecordId !== undefined) return;
@@ -273,9 +287,44 @@ export function LaboratoryGreenProductQualityJournal({
     setFormMessage("");
   }
 
+  /**
+   * Задача 134: проба из `Регистрации проб` дополняет только пустые поля;
+   * вагоны и замеры по-прежнему выбирает и вводит лаборант.
+   */
+  function selectTransmission(
+    option: LaboratorySampleRegistrationTransmissionOption | undefined,
+  ) {
+    setSourceSampleRegistrationId(option?.id);
+    if (option === undefined) return;
+    setGeneral((current) => ({
+      ...current,
+      recordDate: current.recordDate === ""
+        ? option.samplingDate
+        : current.recordDate,
+      productBrand: current.productBrand === ""
+        ? option.sampleName
+        : current.productBrand,
+    }));
+    setFormMessage("");
+  }
+
+  function fillPendingTransmission(
+    option: LaboratorySampleRegistrationTransmissionOption,
+  ) {
+    resetForm();
+    selectTransmission(option);
+  }
+
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const submission = buildSubmission({ general, measurementRows, recommendations });
+    const submission = buildSubmission({
+      general,
+      measurementRows,
+      recommendations,
+      sourceSampleRegistrationId: editingRecordId === undefined
+        ? sourceSampleRegistrationId
+        : undefined,
+    });
     if (submission === undefined) {
       setFormMessage(
         "Заполните общие сведения, выберите хотя бы один вагон и заполните " +
@@ -344,6 +393,7 @@ export function LaboratoryGreenProductQualityJournal({
 
   function resetForm() {
     setEditingRecordId(undefined);
+    setSourceSampleRegistrationId(undefined);
     setGeneral(createEmptyGeneralForm());
     setMeasurementRows([createEmptyMeasurementRow()]);
     setRecommendations("");
@@ -360,6 +410,17 @@ export function LaboratoryGreenProductQualityJournal({
             ? null
             : <p>{`Редактирование записи от ${general.recordDate}`}</p>}
         </div>
+
+        {editingRecordId === undefined
+          ? (
+              <SampleRegistrationTransmissionPicker
+                refreshKey={refreshVersion}
+                target="green_product_quality"
+                value={sourceSampleRegistrationId}
+                onSelect={selectTransmission}
+              />
+            )
+          : null}
 
         <section className="sample-registration-journal-section">
           <h3>Общие сведения</h3>
@@ -659,9 +720,18 @@ export function LaboratoryGreenProductQualityJournal({
           : history.status === "error"
             ? <p className="form-message is-error" role="alert">{history.message}</p>
             : null}
+        {pendingTransmissions.status === "error"
+          ? (
+              <p className="form-message is-error" role="alert">
+                {pendingTransmissions.message}
+              </p>
+            )
+          : null}
         <LaboratoryGreenProductQualityTable
+          pendingTransmissions={pendingTransmissions.options}
           records={history.records}
           onEditRecord={editRecord}
+          onFillPendingTransmission={fillPendingTransmission}
         />
       </section>
 
@@ -765,10 +835,12 @@ function buildSubmission({
   general,
   measurementRows,
   recommendations,
+  sourceSampleRegistrationId,
 }: {
   general: GeneralFormState;
   measurementRows: MeasurementRowState[];
   recommendations: string;
+  sourceSampleRegistrationId: string | undefined;
 }): LaboratoryGreenProductQualitySubmission | undefined {
   const recordDate = general.recordDate.trim();
   const pressNumber = general.pressNumber.trim();
@@ -828,6 +900,9 @@ function buildSubmission({
     wagonIds,
     measurements,
     pressOperatorRecommendations,
+    ...(sourceSampleRegistrationId === undefined
+      ? {}
+      : { sourceSampleRegistrationId }),
   };
 }
 

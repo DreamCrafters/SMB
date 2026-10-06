@@ -1,3 +1,5 @@
+import type { LaboratoryLinkedSampleResults } from "./laboratorySampleRegistrationJournal.js";
+
 export const laboratoryGreenProductQualityPressNumberValues = [
   "1",
   "2",
@@ -52,10 +54,12 @@ export type LaboratoryGreenProductQualitySubmission = {
   wagonIds: string[];
   measurements: LaboratoryGreenProductQualityMeasurement[];
   pressOperatorRecommendations: string;
+  /** Задача 134: проба из `Регистрации проб`; задаётся только при создании. */
+  sourceSampleRegistrationId?: string;
 };
 
 export type LaboratoryGreenProductQualityRecord =
-  LaboratoryGreenProductQualitySubmission & {
+  LaboratoryGreenProductQualitySubmission & LaboratoryLinkedSampleResults & {
     id: string;
     wagons: LaboratoryGreenProductQualityWagonOption[];
     createdAt: string;

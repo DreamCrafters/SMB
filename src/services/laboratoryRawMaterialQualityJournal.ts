@@ -14,6 +14,7 @@ import {
   type LaboratoryTemperMeasurementRow,
 } from "../contracts/laboratoryRawMaterialQualityJournal.js";
 import { buildDevAccessHeaders } from "./devAccessSessionStorage.js";
+import { isOptionalLaboratoryChemicalAnalysisValues } from "./laboratoryChemicalAnalysisJournal.js";
 import {
   describeRemoteNetworkFailure,
   resolveApiEndpoint,
@@ -199,8 +200,14 @@ function isJournalRecord(value: unknown): value is LaboratoryRawMaterialQualityR
       value.recommendationRecipient,
       laboratoryRawMaterialQualityRecommendationRecipientValues,
     ) &&
-    isNullableString(value.recommendationText)
+    isNullableString(value.recommendationText) &&
+    isOptionalLinkedSampleResults(value)
   );
+}
+
+function isOptionalLinkedSampleResults(value: Record<string, unknown>) {
+  return (value.sampleCode === undefined || typeof value.sampleCode === "string") &&
+    isOptionalLaboratoryChemicalAnalysisValues(value.chemicalAnalysis);
 }
 
 function isMeasurementArray<Row>(

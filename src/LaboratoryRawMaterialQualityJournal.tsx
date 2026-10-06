@@ -23,11 +23,13 @@ import {
   type LaboratoryRawMaterialQualityShift,
   type LaboratoryRawMaterialQualitySubmission,
   type LaboratoryRunnerMeasurementRow,
+  type LaboratorySampleRegistrationTransmissionOption,
   type LaboratorySlipMeasurementRow,
   type LaboratoryTemperMeasurementRow,
 } from "./contracts";
 import { LaboratoryRawMaterialQualityTable } from "./LaboratoryJournalTables";
 import { LoadingIndicator } from "./LoadingIndicator";
+import { SampleRegistrationTransmissionPicker } from "./SampleRegistrationTransmissionPicker";
 import {
   correctLaboratoryRawMaterialQualityRecord,
   requestLaboratoryRawMaterialQualityDraft,
@@ -37,6 +39,7 @@ import {
 } from "./services/laboratoryRawMaterialQualityJournal";
 import { readShortUserMessage } from "./services/userFacingMessages";
 import type { ShowToast } from "./services/toastStack";
+import { usePendingSampleRegistrationTransmissions } from "./usePendingSampleRegistrationTransmissions";
 
 type GeneralFormState = {
   recordDate: string;
@@ -147,6 +150,17 @@ export function LaboratoryRawMaterialQualityJournal({
   const [formMessage, setFormMessage] = useState("");
   const [editingRecordId, setEditingRecordId] = useState<string>();
   const [refreshVersion, setRefreshVersion] = useState(0);
+  const [sourceSampleRegistrationId, setSourceSampleRegistrationId] =
+    useState<string>();
+  const pendingTransmissions = usePendingSampleRegistrationTransmissions(
+    "raw_material_quality",
+    {
+      ...(dateFrom === "" ? {} : { dateFrom }),
+      ...(dateTo === "" ? {} : { dateTo }),
+      ...(query.trim() === "" ? {} : { query: query.trim() }),
+    },
+    refreshVersion,
+  );
 
   useEffect(() => {
     if (editingRecordId !== undefined) return;
@@ -305,10 +319,41 @@ export function LaboratoryRawMaterialQualityJournal({
     setRunnerRows((current) => current.filter((_, rowIndex) => rowIndex !== index));
   }
 
+  /**
+   * Задача 134: проба из `Регистрации проб` дополняет только пустые поля;
+   * замеры журнала по-прежнему вводит лаборант.
+   */
+  function selectTransmission(
+    option: LaboratorySampleRegistrationTransmissionOption | undefined,
+  ) {
+    setSourceSampleRegistrationId(option?.id);
+    if (option === undefined) return;
+    setGeneral((current) => ({
+      ...current,
+      recordDate: current.recordDate === ""
+        ? option.samplingDate
+        : current.recordDate,
+      laboratoryAssistant: current.laboratoryAssistant === ""
+        ? option.samplingLaboratoryAssistant
+        : current.laboratoryAssistant,
+    }));
+    setFormMessage("");
+  }
+
+  function fillPendingTransmission(
+    option: LaboratorySampleRegistrationTransmissionOption,
+  ) {
+    resetForm();
+    selectTransmission(option);
+  }
+
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const submission = buildSubmission({
       general, clayRows, temperRows, slipRows, runnerRows, summary,
+      sourceSampleRegistrationId: editingRecordId === undefined
+        ? sourceSampleRegistrationId
+        : undefined,
     });
     if (submission === undefined) {
       setFormMessage("Заполните дату, лаборанта, мастера смены и смену.");
@@ -390,6 +435,7 @@ export function LaboratoryRawMaterialQualityJournal({
 
   function resetForm() {
     setEditingRecordId(undefined);
+    setSourceSampleRegistrationId(undefined);
     setGeneral(createEmptyGeneralForm());
     setClayRows([]);
     setTemperRows([]);
@@ -423,6 +469,17 @@ export function LaboratoryRawMaterialQualityJournal({
             ? null
             : <p>{`Редактирование записи от ${general.recordDate}`}</p>}
         </div>
+
+        {editingRecordId === undefined
+          ? (
+              <SampleRegistrationTransmissionPicker
+                refreshKey={refreshVersion}
+                target="raw_material_quality"
+                value={sourceSampleRegistrationId}
+                onSelect={selectTransmission}
+              />
+            )
+          : null}
 
         <section className="sample-registration-journal-section">
           <h3>Общие сведения</h3>
@@ -661,9 +718,18 @@ export function LaboratoryRawMaterialQualityJournal({
           : history.status === "error"
             ? <p className="form-message is-error" role="alert">{history.message}</p>
             : null}
+        {pendingTransmissions.status === "error"
+          ? (
+              <p className="form-message is-error" role="alert">
+                {pendingTransmissions.message}
+              </p>
+            )
+          : null}
         <LaboratoryRawMaterialQualityTable
+          pendingTransmissions={pendingTransmissions.options}
           records={history.records}
           onEditRecord={editRecord}
+          onFillPendingTransmission={fillPendingTransmission}
         />
       </section>
 
@@ -852,6 +918,7 @@ function buildSubmission({
   slipRows,
   runnerRows,
   summary,
+  sourceSampleRegistrationId,
 }: {
   general: GeneralFormState;
   clayRows: ClayRowState[];
@@ -859,6 +926,7 @@ function buildSubmission({
   slipRows: SlipRowState[];
   runnerRows: RunnerRowState[];
   summary: SummaryFormState;
+  sourceSampleRegistrationId: string | undefined;
 }): LaboratoryRawMaterialQualitySubmission | undefined {
   const recordDate = general.recordDate.trim();
   const laboratoryAssistant = general.laboratoryAssistant.trim();
@@ -927,6 +995,9 @@ function buildSubmission({
       readNullable(summary.recommendationRecipient) as
         LaboratoryRawMaterialQualityRecommendationRecipient | null,
     recommendationText: readNullable(summary.recommendationText),
+    ...(sourceSampleRegistrationId === undefined
+      ? {}
+      : { sourceSampleRegistrationId }),
   };
 }
 

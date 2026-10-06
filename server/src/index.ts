@@ -167,11 +167,15 @@ const server = createApiServer({
       claimSampleRegistrationTransmission,
     }),
   laboratoryRawMaterialQualityJournal:
-    createLaboratoryRawMaterialQualityJournalRepository(pool),
+    createLaboratoryRawMaterialQualityJournalRepository(pool, {
+      claimSampleRegistrationTransmission,
+    }),
   laboratoryRawMaterialWarehouse:
     createLaboratoryRawMaterialWarehouseRepository(pool),
   laboratoryGreenProductQualityJournal:
-    createLaboratoryGreenProductQualityJournalRepository(pool),
+    createLaboratoryGreenProductQualityJournalRepository(pool, {
+      claimSampleRegistrationTransmission,
+    }),
   directorAssignments: createDirectorAssignmentsService({ repository: directorAssignmentsRepository, boardAssignments: createBoardAssignmentsRepository(pool), transaction: database.transaction, audit: createAuditRepository(pool) }),
   collegiumAssignments: createDirectorAssignmentsService({ repository: collegiumAssignmentsRepository, initiativeLinks: collegiumInitiatives.assignmentLinks, transaction: database.transaction, audit: createAuditRepository(pool) }),
   collegiumInitiatives,

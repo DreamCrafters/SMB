@@ -558,13 +558,15 @@ export function LaboratoryVerificationTable({
 export function LaboratoryRawMaterialQualityTable({
   records,
   onEditRecord,
+  pendingTransmissions = [],
+  onFillPendingTransmission,
 }: {
   records: LaboratoryRawMaterialQualityRecord[];
   onEditRecord?: (record: LaboratoryRawMaterialQualityRecord) => void;
-}) {
+} & PendingTransmissionRowsProps) {
   const [expandedRecordId, setExpandedRecordId] = useState<string>();
 
-  if (records.length === 0) {
+  if (records.length === 0 && pendingTransmissions.length === 0) {
     return <p className="laboratory-empty-note">По выбранным фильтрам записей нет.</p>;
   }
 
@@ -577,10 +579,38 @@ export function LaboratoryRawMaterialQualityTable({
             <TableHeader>Лаборант</TableHeader>
             <TableHeader>Мастер смены</TableHeader>
             <TableHeader>Смена</TableHeader>
+            <TableHeader>Код пробы</TableHeader>
+            <SampleChemicalAnalysisHeaders />
             <TableHeader>Замеры</TableHeader>
           </tr>
         </thead>
         <tbody>
+          {pendingTransmissions.map((option) => (
+            <tr
+              className="laboratory-pending-transmission-row"
+              key={`pending:${option.id}`}
+            >
+              <TableCell>
+                {formatPendingTransmissionValue(option.samplingDate, "date")}
+              </TableCell>
+              <TableCell>
+                {formatPendingTransmissionValue(
+                  option.samplingLaboratoryAssistant,
+                  "text",
+                )}
+              </TableCell>
+              <TableCell>—</TableCell>
+              <TableCell>—</TableCell>
+              <TableCell>
+                <PendingTransmissionCode
+                  option={option}
+                  onFill={onFillPendingTransmission}
+                />
+              </TableCell>
+              <SampleChemicalAnalysisCells values={option.chemicalAnalysis} />
+              <TableCell>—</TableCell>
+            </tr>
+          ))}
           {records.map((record) => {
             const isExpanded = expandedRecordId === record.id;
             return (
@@ -600,6 +630,8 @@ export function LaboratoryRawMaterialQualityTable({
                   <TableCell>{record.laboratoryAssistant}</TableCell>
                   <TableCell>{record.shiftSupervisor}</TableCell>
                   <TableCell>{laboratoryRawMaterialQualityShiftLabels[record.shift]}</TableCell>
+                  <TableCell>{record.sampleCode ?? "—"}</TableCell>
+                  <SampleChemicalAnalysisCells values={record.chemicalAnalysis} />
                   <TableCell>
                     <button
                       aria-expanded={isExpanded}
@@ -613,7 +645,7 @@ export function LaboratoryRawMaterialQualityTable({
                 </tr>
                 {isExpanded ? (
                   <tr className="raw-material-quality-expanded-row">
-                    <TableCell colSpan={5}>
+                    <TableCell colSpan={6 + laboratoryChemicalAnalysisFields.length}>
                       <div className="raw-material-quality-expanded">
                         <LaboratoryMeasurementTableSection
                           title="Контроль качества глины"
@@ -721,13 +753,15 @@ function formatLaboratoryMeasurementValue(kind: string, value: unknown) {
 export function LaboratoryGreenProductQualityTable({
   records,
   onEditRecord,
+  pendingTransmissions = [],
+  onFillPendingTransmission,
 }: {
   records: LaboratoryGreenProductQualityRecord[];
   onEditRecord?: (record: LaboratoryGreenProductQualityRecord) => void;
-}) {
+} & PendingTransmissionRowsProps) {
   const [expandedRecordId, setExpandedRecordId] = useState<string>();
 
-  if (records.length === 0) {
+  if (records.length === 0 && pendingTransmissions.length === 0) {
     return <p className="laboratory-empty-note">По выбранным фильтрам записей нет.</p>;
   }
 
@@ -739,10 +773,44 @@ export function LaboratoryGreenProductQualityTable({
             {laboratoryGreenProductQualityGeneralFields.map((field) => (
               <TableHeader key={field.id}>{field.label}</TableHeader>
             ))}
+            <TableHeader>Код пробы</TableHeader>
+            <SampleChemicalAnalysisHeaders />
             <TableHeader>Замеры</TableHeader>
           </tr>
         </thead>
         <tbody>
+          {pendingTransmissions.map((option) => {
+            const values: Partial<Record<
+              (typeof laboratoryGreenProductQualityGeneralFields)[number]["id"],
+              string
+            >> = {
+              recordDate: option.samplingDate,
+              productBrand: option.sampleName,
+            };
+            return (
+              <tr
+                className="laboratory-pending-transmission-row"
+                key={`pending:${option.id}`}
+              >
+                {laboratoryGreenProductQualityGeneralFields.map((field) => (
+                  <TableCell key={field.id}>
+                    {formatPendingTransmissionValue(
+                      values[field.id],
+                      field.kind,
+                    )}
+                  </TableCell>
+                ))}
+                <TableCell>
+                  <PendingTransmissionCode
+                    option={option}
+                    onFill={onFillPendingTransmission}
+                  />
+                </TableCell>
+                <SampleChemicalAnalysisCells values={option.chemicalAnalysis} />
+                <TableCell>—</TableCell>
+              </tr>
+            );
+          })}
           {records.map((record) => {
             const isExpanded = expandedRecordId === record.id;
             return (
@@ -775,6 +843,8 @@ export function LaboratoryGreenProductQualityTable({
                       </TableCell>
                     );
                   })}
+                  <TableCell>{record.sampleCode ?? "—"}</TableCell>
+                  <SampleChemicalAnalysisCells values={record.chemicalAnalysis} />
                   <TableCell>
                     <button
                       aria-expanded={isExpanded}
@@ -788,7 +858,13 @@ export function LaboratoryGreenProductQualityTable({
                 </tr>
                 {isExpanded ? (
                   <tr className="raw-material-quality-expanded-row">
-                    <TableCell colSpan={laboratoryGreenProductQualityGeneralFields.length + 1}>
+                    <TableCell
+                      colSpan={
+                        laboratoryGreenProductQualityGeneralFields.length +
+                        laboratoryChemicalAnalysisFields.length +
+                        2
+                      }
+                    >
                       <div className="raw-material-quality-expanded">
                         <LaboratoryMeasurementTableSection
                           title="Линейные размеры и показатели качества"

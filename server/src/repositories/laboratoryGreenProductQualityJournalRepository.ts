@@ -15,6 +15,11 @@ import {
 } from "../contracts/refractoryWagons.js";
 import type { DatabasePool } from "../db/pool.js";
 import { escapeLikePattern } from "./laboratoryResultsRepository.js";
+import {
+  LaboratorySampleRegistrationTransmissionUnavailableError,
+  listLinkedSampleRegistrationResults,
+  type ClaimSampleRegistrationTransmission,
+} from "./laboratorySampleRegistrationJournalRepository.js";
 
 export class LaboratoryGreenProductQualityWagonUnavailableError extends Error {
   constructor() {
@@ -83,6 +88,7 @@ type JournalRow = RowDataPacket & {
   piece_count: number | string | null;
   measurements: unknown;
   press_operator_recommendations: string;
+  source_sample_registration_id: string | null;
   created_at: Date | string;
 };
 
@@ -125,6 +131,7 @@ type LoadingStageRow = {
 type RepositoryOptions = {
   createId?: () => string;
   now?: () => Date;
+  claimSampleRegistrationTransmission?: ClaimSampleRegistrationTransmission;
 };
 
 const defaultListLimit = 200;
@@ -135,6 +142,7 @@ export function createLaboratoryGreenProductQualityJournalRepository(
   {
     createId = randomUUID,
     now = () => new Date(),
+    claimSampleRegistrationTransmission,
   }: RepositoryOptions = {},
 ): LaboratoryGreenProductQualityJournalRepository {
   return {
@@ -145,6 +153,17 @@ export function createLaboratoryGreenProductQualityJournalRepository(
       const wagons = await resolveWagons(pool, record.wagonIds, {
         requireLoadingStage: true,
       });
+
+      if (record.sourceSampleRegistrationId !== undefined) {
+        const claim = await claimSampleRegistrationTransmission?.({
+          sampleRegistrationId: record.sourceSampleRegistrationId,
+          target: "green_product_quality",
+          targetRecordId: id,
+        });
+        if (claim === undefined || !claim.ok) {
+          throw new LaboratorySampleRegistrationTransmissionUnavailableError();
+        }
+      }
 
       await pool.query(
         `insert into laboratory_green_product_quality_journal (
@@ -159,10 +178,11 @@ export function createLaboratoryGreenProductQualityJournalRepository(
           piece_count,
           measurements,
           press_operator_recommendations,
+          source_sample_registration_id,
           submitted_by_user_id,
           submitted_by_account_id,
           created_at
-        ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           id,
           record.recordDate,
@@ -175,6 +195,7 @@ export function createLaboratoryGreenProductQualityJournalRepository(
           record.pieceCount,
           JSON.stringify(record.measurements),
           record.pressOperatorRecommendations,
+          record.sourceSampleRegistrationId ?? null,
           input.submittedByUserId,
           input.submittedByAccountId,
           createdAt,
@@ -241,6 +262,7 @@ export function createLaboratoryGreenProductQualityJournalRepository(
           piece_count,
           measurements,
           press_operator_recommendations,
+          source_sample_registration_id,
           created_at
         from laboratory_green_product_quality_journal
         ${where}
@@ -255,10 +277,16 @@ export function createLaboratoryGreenProductQualityJournalRepository(
         rows.map((row) => row.id),
       );
       const wagonsByRecordId = groupWagonsByRecordId(wagonLinks);
-      return rows.map((row) => mapJournalRow(
-        row,
-        wagonsByRecordId.get(row.id) ?? [],
-      ));
+      const linkedSamples = await listLinkedSampleRegistrationResults(
+        pool,
+        rows.flatMap((row) => row.source_sample_registration_id ?? []),
+      );
+      return rows.map((row) => ({
+        ...mapJournalRow(row, wagonsByRecordId.get(row.id) ?? []),
+        ...(row.source_sample_registration_id === null
+          ? {}
+          : linkedSamples.get(row.source_sample_registration_id)),
+      }));
     },
 
     async listOptions() {
@@ -320,7 +348,10 @@ export function createLaboratoryGreenProductQualityJournalRepository(
     },
 
     async update(input) {
-      const correctedWagons = await resolveWagons(pool, input.record.wagonIds);
+      // The sample link is set only on creation; a correction keeps it.
+      const { sourceSampleRegistrationId: _ignoredSource, ...correction } =
+        input.record;
+      const correctedWagons = await resolveWagons(pool, correction.wagonIds);
       const [rows] = await pool.query<JournalRow[]>(
         `select
           id,
@@ -334,6 +365,7 @@ export function createLaboratoryGreenProductQualityJournalRepository(
           piece_count,
           measurements,
           press_operator_recommendations,
+          source_sample_registration_id,
           created_at
         from laboratory_green_product_quality_journal
         where id = ?
@@ -349,7 +381,7 @@ export function createLaboratoryGreenProductQualityJournalRepository(
       const previousRecord = mapJournalRow(row, previousWagons);
       const before = toSnapshot(previousRecord);
       const after: LaboratoryGreenProductQualitySnapshot = {
-        ...input.record,
+        ...correction,
         wagons: correctedWagons,
       };
 
@@ -422,7 +454,13 @@ export function createLaboratoryGreenProductQualityJournalRepository(
         before,
         record: {
           id: input.id,
-          ...input.record,
+          ...correction,
+          ...(previousRecord.sourceSampleRegistrationId === undefined
+            ? {}
+            : {
+                sourceSampleRegistrationId:
+                  previousRecord.sourceSampleRegistrationId,
+              }),
           wagons: correctedWagons,
           createdAt: previousRecord.createdAt,
         },
@@ -498,6 +536,9 @@ function mapJournalRow(
     measurements: readJson(row.measurements) as
       LaboratoryGreenProductQualityRecord["measurements"],
     pressOperatorRecommendations: row.press_operator_recommendations,
+    ...(row.source_sample_registration_id === null
+      ? {}
+      : { sourceSampleRegistrationId: row.source_sample_registration_id }),
     createdAt: row.created_at instanceof Date
       ? row.created_at.toISOString()
       : String(row.created_at),

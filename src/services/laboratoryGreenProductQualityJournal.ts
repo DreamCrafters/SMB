@@ -10,6 +10,7 @@ import {
   type LaboratoryGreenProductQualityWagonOption,
 } from "../contracts/laboratoryGreenProductQualityJournal.js";
 import { buildDevAccessHeaders } from "./devAccessSessionStorage.js";
+import { isOptionalLaboratoryChemicalAnalysisValues } from "./laboratoryChemicalAnalysisJournal.js";
 import {
   describeRemoteNetworkFailure,
   resolveApiEndpoint,
@@ -184,7 +185,9 @@ function isJournalRecord(value: unknown): value is LaboratoryGreenProductQuality
     !Array.isArray(value.wagons) ||
     !value.wagons.every(isWagonOption) ||
     !Array.isArray(value.measurements) ||
-    !value.measurements.every(isMeasurementRow)
+    !value.measurements.every(isMeasurementRow) ||
+    !(value.sampleCode === undefined || typeof value.sampleCode === "string") ||
+    !isOptionalLaboratoryChemicalAnalysisValues(value.chemicalAnalysis)
   ) {
     return false;
   }

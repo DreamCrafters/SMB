@@ -810,6 +810,30 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
           (submission) =>
             submission.sourceSampleRegistrationId === "sample-registration-1690",
         );
+        if (url.searchParams.get("target") === "raw_material_quality") {
+          const isRawClaimed = rawMaterialQualitySubmissions.some(
+            (submission) =>
+              submission.sourceSampleRegistrationId === "sample-registration-1701",
+          );
+          return jsonResponse({
+            options: isRawClaimed
+              ? []
+              : [{
+                  id: "sample-registration-1701",
+                  laboratorySampleCode: "26.1701",
+                  sampleNumber: "1701",
+                  sampleName: "Глина ДН-2",
+                  samplingDate: "2026-08-04",
+                  samplingLaboratoryAssistant: "Петрова П.П.",
+                  samplingLocation: "склад сырья",
+                  registrationDate: "2026-08-04",
+                  chemicalAnalysis: {
+                    laboratoryAnalysisNumber: "ХА-1701",
+                    al2o3: "33,1",
+                  },
+                }],
+          });
+        }
         return jsonResponse({
           options:
             url.searchParams.get("target") === "unshaped_product_sample" &&
@@ -2689,7 +2713,10 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
       rootElement.querySelectorAll(".raw-material-quality-table th"),
     ).map((heading) => heading.textContent);
     assert.deepEqual(rawQualityHeadings, [
-      "Дата", "Лаборант", "Мастер смены", "Смена", "Замеры",
+      "Дата", "Лаборант", "Мастер смены", "Смена", "Код пробы",
+      "№ Хим анализа", "Дата хим. анализа", "Лаборант", "Номер партии",
+      "Al2O3", "Fe2O3", "SiO2", "CaO2", "P2O5", "ппп", "Влажность",
+      "Примечания", "Замеры",
     ]);
     assert.equal(
       findControlByLabel(rawQualityForm, "Дата").value,
@@ -2703,6 +2730,29 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
       Array.from(laboratoryAssistantInput.list.options, (option) => option.value),
       ["Иванова А.А."],
     );
+
+    // Задача 134: проба, транслированная в журнал ОЦ, ждёт заполнения в истории.
+    await waitFor(React, () =>
+      rootElement.querySelector(
+        ".raw-material-quality-table .laboratory-pending-transmission-row",
+      ) !== null
+    );
+    const rawPendingRow = rootElement.querySelector(
+      ".raw-material-quality-table .laboratory-pending-transmission-row",
+    );
+    assert.match(rawPendingRow.textContent, /26\.1701/u);
+    assert.match(rawPendingRow.textContent, /Ожидает заполнения/u);
+    assert.match(rawPendingRow.textContent, /ХА-1701/u);
+    const rawTransmissionPicker = rawQualityForm.querySelector(
+      ".sample-registration-transmission-picker select",
+    );
+    await waitFor(React, () => !rawTransmissionPicker.disabled);
+    await React.act(async () => {
+      setNativeInputValue(rawTransmissionPicker, "sample-registration-1701");
+      rawTransmissionPicker.dispatchEvent(
+        new dom.window.Event("change", { bubbles: true }),
+      );
+    });
 
     const claySection = findJournalSection(rawQualityForm, "Контроль качества глины");
     const temperSection = findJournalSection(rawQualityForm, "Отощитель");
@@ -2763,6 +2813,15 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
     });
     await waitFor(React, () => rawMaterialQualitySubmissions.length === 1);
     const rawQualitySubmission = rawMaterialQualitySubmissions[0];
+    assert.equal(
+      rawQualitySubmission.sourceSampleRegistrationId,
+      "sample-registration-1701",
+    );
+    await waitFor(React, () =>
+      rootElement.querySelector(
+        ".raw-material-quality-table .laboratory-pending-transmission-row",
+      ) === null
+    );
     assert.equal(rawQualitySubmission.recordDate, "2026-08-05");
     assert.equal(rawQualitySubmission.laboratoryAssistant, "Новая Н.Н.");
     assert.equal(rawQualitySubmission.recommendationRecipient, "batch_operator");
@@ -2968,6 +3027,8 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
       rootElement.querySelectorAll(".green-product-quality-table th"),
     ).map((heading) => heading.textContent);
     assert.ok(greenQualityHeadings.includes("Замеры"));
+    assert.ok(greenQualityHeadings.includes("Код пробы"));
+    assert.ok(greenQualityHeadings.includes("№ Хим анализа"));
     assert.match(
       rootElement.querySelector(".green-product-quality-table").textContent,
       /В-02; В-03/u,

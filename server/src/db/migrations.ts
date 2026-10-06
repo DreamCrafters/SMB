@@ -4795,6 +4795,67 @@ const migrations: Migration[] = [
       addAccessJsonValueFromPositions("navigation_items", "business.assignments"),
     ],
   },
+  {
+    /**
+     * Задача 134: пробу из `Регистрации проб` можно транслировать в оба журнала
+     * ОЦ. Запись ОЦ получает необязательную ссылку на пробу, по которой
+     * показываются её код и химанализ; обязательность полей не меняется.
+     */
+    id: "099_refractory_quality_sample_registration_link",
+    statements: [
+      `
+      alter table laboratory_raw_material_quality_journal
+        add column if not exists source_sample_registration_id char(36) null
+          after recommendation_text;
+      `,
+      `
+      alter table laboratory_raw_material_quality_journal
+        drop foreign key if exists fk_laboratory_raw_material_quality_source;
+      `,
+      `
+      alter table laboratory_raw_material_quality_journal
+        add constraint fk_laboratory_raw_material_quality_source
+          foreign key (source_sample_registration_id)
+          references laboratory_sample_registration_journal (id)
+          on delete set null;
+      `,
+      `
+      alter table laboratory_green_product_quality_journal
+        add column if not exists source_sample_registration_id char(36) null
+          after press_operator_recommendations;
+      `,
+      `
+      alter table laboratory_green_product_quality_journal
+        drop foreign key if exists fk_laboratory_green_product_quality_source;
+      `,
+      `
+      alter table laboratory_green_product_quality_journal
+        add constraint fk_laboratory_green_product_quality_source
+          foreign key (source_sample_registration_id)
+          references laboratory_sample_registration_journal (id)
+          on delete set null;
+      `,
+      `
+      alter table laboratory_sample_registration_journal
+        drop constraint if exists
+          chk_laboratory_sample_registration_transmit_target;
+      `,
+      `
+      alter table laboratory_sample_registration_journal
+        add constraint chk_laboratory_sample_registration_transmit_target
+          check (
+            transmit_to_journal is null
+            or transmit_to_journal in (
+              'unshaped_product_sample',
+              'formed_product_sample',
+              'verification',
+              'raw_material_quality',
+              'green_product_quality'
+            )
+          );
+      `,
+    ],
+  },
 ];
 
 function removePositionJsonValue(

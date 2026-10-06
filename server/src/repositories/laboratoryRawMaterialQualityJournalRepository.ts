@@ -10,6 +10,11 @@ import type {
 } from "../contracts/laboratoryRawMaterialQualityJournal.js";
 import type { DatabasePool } from "../db/pool.js";
 import { escapeLikePattern } from "./laboratoryResultsRepository.js";
+import {
+  LaboratorySampleRegistrationTransmissionUnavailableError,
+  listLinkedSampleRegistrationResults,
+  type ClaimSampleRegistrationTransmission,
+} from "./laboratorySampleRegistrationJournalRepository.js";
 
 type RepositoryFilters = LaboratoryRawMaterialQualityFilters & {
   limit?: number;
@@ -52,6 +57,7 @@ type JournalRow = RowDataPacket & {
   elutriation_coefficient: string | null;
   recommendation_recipient: LaboratoryRawMaterialQualityRecommendationRecipient | null;
   recommendation_text: string | null;
+  source_sample_registration_id: string | null;
   created_at: Date | string;
 };
 
@@ -68,6 +74,7 @@ type OptionRow = RowDataPacket & {
 type RepositoryOptions = {
   createId?: () => string;
   now?: () => Date;
+  claimSampleRegistrationTransmission?: ClaimSampleRegistrationTransmission;
 };
 
 const defaultListLimit = 200;
@@ -86,6 +93,7 @@ const journalColumns = `
   elutriation_coefficient,
   recommendation_recipient,
   recommendation_text,
+  source_sample_registration_id,
   created_at
 `;
 
@@ -94,6 +102,7 @@ export function createLaboratoryRawMaterialQualityJournalRepository(
   {
     createId = randomUUID,
     now = () => new Date(),
+    claimSampleRegistrationTransmission,
   }: RepositoryOptions = {},
 ): LaboratoryRawMaterialQualityJournalRepository {
   return {
@@ -101,6 +110,17 @@ export function createLaboratoryRawMaterialQualityJournalRepository(
       const id = createId();
       const createdAt = now().toISOString();
       const record = input.record;
+
+      if (record.sourceSampleRegistrationId !== undefined) {
+        const claim = await claimSampleRegistrationTransmission?.({
+          sampleRegistrationId: record.sourceSampleRegistrationId,
+          target: "raw_material_quality",
+          targetRecordId: id,
+        });
+        if (claim === undefined || !claim.ok) {
+          throw new LaboratorySampleRegistrationTransmissionUnavailableError();
+        }
+      }
 
       await pool.query(
         `insert into laboratory_raw_material_quality_journal (
@@ -116,13 +136,15 @@ export function createLaboratoryRawMaterialQualityJournalRepository(
           elutriation_coefficient,
           recommendation_recipient,
           recommendation_text,
+          source_sample_registration_id,
           submitted_by_user_id,
           submitted_by_account_id,
           created_at
-        ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           id,
           ...readSubmissionValues(record),
+          record.sourceSampleRegistrationId ?? null,
           input.submittedByUserId,
           input.submittedByAccountId,
           createdAt,
@@ -193,8 +215,17 @@ export function createLaboratoryRawMaterialQualityJournalRepository(
         limit ?`,
         [...parameters, limit],
       );
+      const linkedSamples = await listLinkedSampleRegistrationResults(
+        pool,
+        rows.flatMap((row) => row.source_sample_registration_id ?? []),
+      );
 
-      return rows.map(mapRecord);
+      return rows.map((row) => ({
+        ...mapRecord(row),
+        ...(row.source_sample_registration_id === null
+          ? {}
+          : linkedSamples.get(row.source_sample_registration_id)),
+      }));
     },
 
     async listOptions() {
@@ -246,7 +277,9 @@ export function createLaboratoryRawMaterialQualityJournalRepository(
 
       const before = mapSubmission(current);
       const correctedAt = now().toISOString();
-      const record = input.record;
+      // The sample link is set only on creation; a correction keeps it.
+      const { sourceSampleRegistrationId: _ignoredSource, ...record } =
+        input.record;
       await pool.query(
         `update laboratory_raw_material_quality_journal
         set
@@ -292,6 +325,7 @@ export function createLaboratoryRawMaterialQualityJournalRepository(
         record: {
           id: input.id,
           ...record,
+          ...readSourceSampleRegistration(current),
           createdAt: new Date(current.created_at).toISOString(),
         },
       };
@@ -330,8 +364,15 @@ function mapRecord(row: JournalRow): LaboratoryRawMaterialQualityRecord {
   return {
     id: row.id,
     ...mapSubmission(row),
+    ...readSourceSampleRegistration(row),
     createdAt: new Date(row.created_at).toISOString(),
   };
+}
+
+function readSourceSampleRegistration(row: JournalRow) {
+  return row.source_sample_registration_id === null
+    ? {}
+    : { sourceSampleRegistrationId: row.source_sample_registration_id };
 }
 
 function mapSubmission(

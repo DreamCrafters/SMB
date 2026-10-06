@@ -91,3 +91,25 @@ test("green product quality submission rejects unknown presses, duplicate wagons
     "Проверьте таблицу линейных размеров и показателей качества.",
   ]);
 });
+
+test("green product quality submission keeps an optional source sample registration", () => {
+  const linked = validateLaboratoryGreenProductQualitySubmission({
+    ...validSubmission,
+    sourceSampleRegistrationId: " registration-1 ",
+  });
+  assert.equal(linked.ok && linked.value.sourceSampleRegistrationId, "registration-1");
+
+  const missing = validateLaboratoryGreenProductQualitySubmission({
+    ...validSubmission,
+    sourceSampleRegistrationId: null,
+  });
+  assert.equal(missing.ok && "sourceSampleRegistrationId" in missing.value, false);
+
+  assert.deepEqual(
+    validateLaboratoryGreenProductQualitySubmission({
+      ...validSubmission,
+      sourceSampleRegistrationId: ["registration-1"],
+    }),
+    { ok: false, errors: ["Проверьте выбранную пробу для трансляции."] },
+  );
+});

@@ -90,6 +90,13 @@ export function validateLaboratoryRawMaterialQualitySubmission(
   if (recommendationText === undefined) {
     errors.push("Проверьте поле «Текст рекомендации».");
   }
+  const sourceSampleRegistrationId = readNullableText(
+    input.sourceSampleRegistrationId,
+    maxShortTextLength,
+  );
+  if (sourceSampleRegistrationId === undefined) {
+    errors.push("Проверьте выбранную пробу для трансляции.");
+  }
 
   if (errors.length > 0) return { ok: false, errors };
 
@@ -107,6 +114,9 @@ export function validateLaboratoryRawMaterialQualitySubmission(
       elutriationCoefficient: elutriationCoefficient!,
       recommendationRecipient: recommendationRecipient!,
       recommendationText: recommendationText!,
+      ...(sourceSampleRegistrationId === null
+        ? {}
+        : { sourceSampleRegistrationId: sourceSampleRegistrationId! }),
     },
   };
 }

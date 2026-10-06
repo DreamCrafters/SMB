@@ -247,3 +247,26 @@ test("raw material quality submission rejects an invalid recommendation recipien
     { ok: false, errors: ["Проверьте поле «Адрес рекомендации»."] },
   );
 });
+
+test("raw material quality submission keeps an optional source sample registration", () => {
+  const linked = validateLaboratoryRawMaterialQualitySubmission({
+    ...generalFields,
+    sourceSampleRegistrationId: " registration-1 ",
+  });
+  assert.equal(linked.ok && linked.value.sourceSampleRegistrationId, "registration-1");
+
+  const empty = validateLaboratoryRawMaterialQualitySubmission({
+    ...generalFields,
+    sourceSampleRegistrationId: "",
+  });
+  assert.equal(empty.ok, true);
+  assert.equal(empty.ok && "sourceSampleRegistrationId" in empty.value, false);
+
+  assert.deepEqual(
+    validateLaboratoryRawMaterialQualitySubmission({
+      ...generalFields,
+      sourceSampleRegistrationId: 42,
+    }),
+    { ok: false, errors: ["Проверьте выбранную пробу для трансляции."] },
+  );
+});

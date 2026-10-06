@@ -20,8 +20,10 @@ import { createLaboratoryFormedProductSampleJournalRepository as formed }
   from './server/src/repositories/laboratoryFormedProductSampleJournalRepository.ts';
 import { createLaboratoryVerificationJournalRepository as verification }
   from './server/src/repositories/laboratoryVerificationJournalRepository.ts';
-import { createLaboratorySampleRegistrationJournalRepository as registration }
-  from './server/src/repositories/laboratorySampleRegistrationJournalRepository.ts';
+import {
+  createLaboratorySampleRegistrationJournalRepository as registration,
+  listLinkedSampleRegistrationResults as linkedSamples,
+} from './server/src/repositories/laboratorySampleRegistrationJournalRepository.ts';
 const queries = [];
 const pool = { query: async (sql, parameters) => {
   queries.push({ sql, parameters });
@@ -31,6 +33,7 @@ await unshaped(pool).list({ limit: 50 });
 await formed(pool, {}).list({ limit: 50 });
 await verification(pool).list({ limit: 50 });
 await registration(pool).listPendingTransmissions('unshaped_product_sample');
+await linkedSamples(pool, ['r1', 'r2', 'r3', 'missing']);
 process.stdout.write(JSON.stringify(queries));
 """
 CHEMICAL_COLUMNS = [
@@ -195,6 +198,21 @@ class SampleChemicalAnalysisProjectionTests(unittest.TestCase):
         self.assertEqual(rows["r1"]["linked_analysis_id"], "current")
         self.assertEqual(rows["r1"]["linked_al2o3"], "45,6")
         self.assertIsNone(rows["r1"]["linked_notes"])
+        self.assertIsNone(rows["r2"]["linked_analysis_id"])
+        self.assertEqual(rows["r2"]["linked_al2o3"], "60")
+        self.assertEqual(rows["r3"]["linked_analysis_id"], "empty")
+        self.assertIsNone(rows["r3"]["linked_al2o3"])
+
+    def test_refractory_journals_read_the_linked_registration_analysis(self):
+        query = self.queries[4]
+        rows = {
+            row["registration_id"]: dict(row)
+            for row in self.db.execute(query["sql"], query["parameters"])
+        }
+        self.assertEqual(sorted(rows), ["r1", "r2", "r3"])
+        self.assertEqual(rows["r1"]["laboratory_sample_code"], "same-code")
+        self.assertEqual(rows["r1"]["linked_analysis_id"], "current")
+        self.assertEqual(rows["r1"]["linked_al2o3"], "45,6")
         self.assertIsNone(rows["r2"]["linked_analysis_id"])
         self.assertEqual(rows["r2"]["linked_al2o3"], "60")
         self.assertEqual(rows["r3"]["linked_analysis_id"], "empty")

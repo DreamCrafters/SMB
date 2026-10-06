@@ -698,6 +698,11 @@ function VerificationHistory({ query }: { query: ReviewQuery }) {
 }
 
 function RawMaterialQualityHistory({ query }: { query: ReviewQuery }) {
+  const pendingTransmissions = usePendingSampleRegistrationTransmissions(
+    "raw_material_quality",
+    buildPendingTransmissionFilters(query),
+    0,
+  );
   const [state, setState] = useState<
     RecordsState<LaboratoryRawMaterialQualityRecord>
   >({ status: "loading", records: [] });
@@ -730,12 +735,21 @@ function RawMaterialQualityHistory({ query }: { query: ReviewQuery }) {
   return (
     <>
       <HistoryStatus state={state} loadingLabel="Загружаем записи…" />
-      <LaboratoryRawMaterialQualityTable records={state.records} />
+      <PendingTransmissionsStatus state={pendingTransmissions} />
+      <LaboratoryRawMaterialQualityTable
+        pendingTransmissions={pendingTransmissions.options}
+        records={state.records}
+      />
     </>
   );
 }
 
 function GreenProductQualityHistory({ query }: { query: ReviewQuery }) {
+  const pendingTransmissions = usePendingSampleRegistrationTransmissions(
+    "green_product_quality",
+    buildPendingTransmissionFilters(query),
+    0,
+  );
   const [state, setState] = useState<
     RecordsState<LaboratoryGreenProductQualityRecord>
   >({ status: "loading", records: [] });
@@ -768,7 +782,11 @@ function GreenProductQualityHistory({ query }: { query: ReviewQuery }) {
   return (
     <>
       <HistoryStatus state={state} loadingLabel="Загружаем записи…" />
-      <LaboratoryGreenProductQualityTable records={state.records} />
+      <PendingTransmissionsStatus state={pendingTransmissions} />
+      <LaboratoryGreenProductQualityTable
+        pendingTransmissions={pendingTransmissions.options}
+        records={state.records}
+      />
     </>
   );
 }

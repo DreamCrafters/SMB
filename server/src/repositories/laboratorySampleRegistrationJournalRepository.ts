@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { RowDataPacket } from "mysql2/promise";
 import type {
+  LaboratoryLinkedSampleResults,
   LaboratorySampleRegistrationJournalFilters,
   LaboratorySampleRegistrationJournalRecord,
   LaboratorySampleRegistrationCorrection,
@@ -614,6 +615,47 @@ export function createLaboratorySampleRegistrationJournalRepository(
       return { ok: true };
     },
   };
+}
+
+type LinkedSampleResultsRow = RowDataPacket & {
+  registration_id: string;
+  laboratory_sample_code: string;
+};
+
+/**
+ * Задача 134: записи журналов ОЦ ссылаются на пробу из `Регистрации проб`, но
+ * не хранят её код. Код и последний химанализ читаются отдельным запросом по
+ * стабильным ID, чтобы не переписывать выборки самих журналов.
+ */
+export async function listLinkedSampleRegistrationResults(
+  pool: DatabasePool,
+  sampleRegistrationIds: readonly string[],
+): Promise<Map<string, LaboratoryLinkedSampleResults>> {
+  const ids = [...new Set(sampleRegistrationIds)];
+  if (ids.length === 0) return new Map();
+
+  const chemicalAnalysis = buildSampleChemicalAnalysisSql(
+    "sample_registration",
+    "sample.id",
+  );
+  const [rows] = await pool.query<LinkedSampleResultsRow[]>(
+    `select
+      sample.id as registration_id,
+      sample.laboratory_sample_code,
+      ${chemicalAnalysis.columns}
+    from laboratory_sample_registration_journal sample
+    ${chemicalAnalysis.joins}
+    where sample.id in (${ids.map(() => "?").join(", ")})`,
+    ids,
+  );
+
+  return new Map(rows.map((row) => [
+    row.registration_id,
+    {
+      sampleCode: row.laboratory_sample_code,
+      ...mapSampleChemicalAnalysis(row),
+    },
+  ]));
 }
 
 function mapEditableRecord(

@@ -7,6 +7,9 @@ import {
   LaboratoryGreenProductQualityWagonLoadingIncompleteError,
   LaboratoryGreenProductQualityWagonUnavailableError,
 } from "./laboratoryGreenProductQualityJournalRepository.js";
+import {
+  LaboratorySampleRegistrationTransmissionUnavailableError,
+} from "./laboratorySampleRegistrationJournalRepository.js";
 
 /** Садка вагона заполнена: без неё контроль сырца задачей 91 закрыт. */
 const loadedWagonStage = {
@@ -308,6 +311,102 @@ test("green product quality repository filters and returns wagon numbers in sele
   assert.deepEqual(queries[1]?.parameters, ["green-quality-1"]);
 });
 
+test("green product quality repository claims a pending sample transmission after checking wagons", async () => {
+  const queries: Array<{ sql: string; parameters?: unknown[] }> = [];
+  const claims: unknown[] = [];
+  const pool = {
+    async query(sql: string, parameters?: unknown[]) {
+      queries.push({ sql, parameters });
+      if (/from refractory_wagons/u.test(sql)) {
+        return [[
+          { id: "wagon-1", wagon_number: "В-01", product_brand: "ШКУ-32", ...loadedWagonStage },
+          { id: "wagon-2", wagon_number: "В-02", product_brand: "ШКУ-32", ...loadedWagonStage },
+        ], []];
+      }
+      return [[], []];
+    },
+  } as unknown as DatabasePool;
+  const repository = createLaboratoryGreenProductQualityJournalRepository(pool, {
+    createId: () => "green-quality-1",
+    async claimSampleRegistrationTransmission(input) {
+      claims.push(input);
+      return { ok: true };
+    },
+  });
+
+  const saved = await repository.create({
+    record: { ...record, sourceSampleRegistrationId: "registration-1" },
+    submittedByUserId: "laboratory-user",
+    submittedByAccountId: "laboratory-account",
+  });
+
+  assert.equal(saved.sourceSampleRegistrationId, "registration-1");
+  assert.deepEqual(claims, [{
+    sampleRegistrationId: "registration-1",
+    target: "green_product_quality",
+    targetRecordId: "green-quality-1",
+  }]);
+  assert.equal(queries[1]?.parameters?.[11], "registration-1");
+});
+
+test("green product quality repository rejects create when the transmission is unavailable", async () => {
+  const queries: string[] = [];
+  const pool = {
+    async query(sql: string) {
+      queries.push(sql);
+      if (/from refractory_wagons/u.test(sql)) {
+        return [[
+          { id: "wagon-1", wagon_number: "В-01", product_brand: "ШКУ-32", ...loadedWagonStage },
+          { id: "wagon-2", wagon_number: "В-02", product_brand: "ШКУ-32", ...loadedWagonStage },
+        ], []];
+      }
+      return [[], []];
+    },
+  } as unknown as DatabasePool;
+  const repository = createLaboratoryGreenProductQualityJournalRepository(pool, {
+    async claimSampleRegistrationTransmission() {
+      return { ok: false, reason: "wrong_target" };
+    },
+  });
+
+  await assert.rejects(
+    repository.create({
+      record: { ...record, sourceSampleRegistrationId: "registration-1" },
+      submittedByUserId: "laboratory-user",
+      submittedByAccountId: "laboratory-account",
+    }),
+    LaboratorySampleRegistrationTransmissionUnavailableError,
+  );
+  assert.ok(!queries.some((sql) => /insert into/u.test(sql)));
+});
+
+test("green product quality repository shows the linked sample code and chemical analysis", async () => {
+  const pool = {
+    async query(sql: string) {
+      if (/from laboratory_sample_registration_journal sample/u.test(sql)) {
+        return [[{
+          registration_id: "registration-1",
+          laboratory_sample_code: "26.1700",
+          linked_analysis_id: "analysis-1",
+          linked_fe2o3: "1,1",
+        }], []];
+      }
+      if (/select\s+link\.green_product_quality_id/u.test(sql)) return [[], []];
+      return [[{
+        ...buildJournalRow(),
+        source_sample_registration_id: "registration-1",
+      }], []];
+    },
+  } as unknown as DatabasePool;
+  const repository = createLaboratoryGreenProductQualityJournalRepository(pool);
+
+  const [listed] = await repository.list();
+
+  assert.equal(listed?.sourceSampleRegistrationId, "registration-1");
+  assert.equal(listed?.sampleCode, "26.1700");
+  assert.deepEqual(listed?.chemicalAnalysis, { fe2o3: "1,1" });
+});
+
 test("green product quality repository lists people from history and wagons from the registry", async () => {
   const queries: string[] = [];
   const pool = {
@@ -522,6 +621,7 @@ function buildJournalRow() {
     piece_count: record.pieceCount,
     measurements: record.measurements,
     press_operator_recommendations: record.pressOperatorRecommendations,
+    source_sample_registration_id: null as string | null,
     created_at: "2026-08-05T08:30:00.000Z",
   };
 }

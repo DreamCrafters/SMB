@@ -4,6 +4,9 @@ import type { DatabasePool } from "../db/pool.js";
 import {
   createLaboratoryRawMaterialQualityJournalRepository,
 } from "./laboratoryRawMaterialQualityJournalRepository.js";
+import {
+  LaboratorySampleRegistrationTransmissionUnavailableError,
+} from "./laboratorySampleRegistrationJournalRepository.js";
 
 const record = {
   recordDate: "2026-08-05",
@@ -90,10 +93,106 @@ test("raw material quality repository stores every section with the session auth
     record.elutriationCoefficient,
     record.recommendationRecipient,
     record.recommendationText,
+    null,
     "laboratory-user",
     "laboratory-account",
     "2026-08-05T08:30:00.000Z",
   ]);
+});
+
+test("raw material quality repository claims a pending sample transmission on create", async () => {
+  const queries: Array<{ sql: string; parameters?: unknown[] }> = [];
+  const claims: unknown[] = [];
+  const pool = {
+    async query(sql: string, parameters?: unknown[]) {
+      queries.push({ sql, parameters });
+      return [[], []];
+    },
+  } as unknown as DatabasePool;
+  const repository = createLaboratoryRawMaterialQualityJournalRepository(pool, {
+    createId: () => "raw-material-quality-1",
+    now: () => new Date("2026-08-05T08:30:00.000Z"),
+    async claimSampleRegistrationTransmission(input) {
+      claims.push(input);
+      return { ok: true };
+    },
+  });
+
+  const saved = await repository.create({
+    record: { ...record, sourceSampleRegistrationId: "registration-1" },
+    submittedByUserId: "laboratory-user",
+    submittedByAccountId: "laboratory-account",
+  });
+
+  assert.equal(saved.sourceSampleRegistrationId, "registration-1");
+  assert.deepEqual(claims, [{
+    sampleRegistrationId: "registration-1",
+    target: "raw_material_quality",
+    targetRecordId: "raw-material-quality-1",
+  }]);
+  assert.equal(queries[0]?.parameters?.[12], "registration-1");
+});
+
+test("raw material quality repository rejects create when the transmission is unavailable", async () => {
+  const queries: string[] = [];
+  const pool = {
+    async query(sql: string) {
+      queries.push(sql);
+      return [[], []];
+    },
+  } as unknown as DatabasePool;
+  const repository = createLaboratoryRawMaterialQualityJournalRepository(pool, {
+    async claimSampleRegistrationTransmission() {
+      return { ok: false, reason: "already_claimed" };
+    },
+  });
+
+  await assert.rejects(
+    repository.create({
+      record: { ...record, sourceSampleRegistrationId: "registration-1" },
+      submittedByUserId: "laboratory-user",
+      submittedByAccountId: "laboratory-account",
+    }),
+    LaboratorySampleRegistrationTransmissionUnavailableError,
+  );
+  assert.deepEqual(queries, []);
+});
+
+test("raw material quality repository shows the linked sample code and chemical analysis", async () => {
+  const queries: Array<{ sql: string; parameters?: unknown[] }> = [];
+  const pool = {
+    async query(sql: string, parameters?: unknown[]) {
+      queries.push({ sql, parameters });
+      if (/from laboratory_sample_registration_journal sample/u.test(sql)) {
+        return [[{
+          registration_id: "registration-1",
+          laboratory_sample_code: "26.1690",
+          linked_analysis_id: "analysis-1",
+          linked_laboratory_analysis_number: "77",
+          linked_al2o3: "38,2",
+        }], []];
+      }
+      return [[
+        { ...buildJournalRow(), source_sample_registration_id: "registration-1" },
+        { ...buildJournalRow(), id: "raw-material-quality-2" },
+      ], []];
+    },
+  } as unknown as DatabasePool;
+  const repository = createLaboratoryRawMaterialQualityJournalRepository(pool);
+
+  const records = await repository.list();
+
+  assert.deepEqual(records[0], {
+    id: "raw-material-quality-1",
+    ...record,
+    sourceSampleRegistrationId: "registration-1",
+    sampleCode: "26.1690",
+    chemicalAnalysis: { laboratoryAnalysisNumber: "77", al2o3: "38,2" },
+    createdAt: "2026-08-05T08:30:00.000Z",
+  });
+  assert.equal(records[1]?.sampleCode, undefined);
+  assert.equal(records[1]?.chemicalAnalysis, undefined);
+  assert.deepEqual(queries[1]?.parameters, ["registration-1"]);
 });
 
 test("raw material quality repository filters and maps the complete journal", async () => {
@@ -252,6 +351,39 @@ test("raw material quality repository corrects a stable row and stores a revisio
   ]);
 });
 
+test("raw material quality correction keeps the sample link set on creation", async () => {
+  const queries: Array<{ sql: string; parameters?: unknown[] }> = [];
+  const pool = {
+    async query(sql: string, parameters?: unknown[]) {
+      queries.push({ sql, parameters });
+      if (/select[\s\S]+for update/u.test(sql)) {
+        return [[{
+          ...buildJournalRow(),
+          source_sample_registration_id: "registration-1",
+        }], []];
+      }
+      return [[], []];
+    },
+  } as unknown as DatabasePool;
+  const repository = createLaboratoryRawMaterialQualityJournalRepository(pool, {
+    createId: () => "raw-material-quality-revision-1",
+  });
+
+  const result = await repository.update({
+    id: "raw-material-quality-1",
+    record: { ...record, sourceSampleRegistrationId: "registration-2" },
+    correctedByUserId: "laboratory-user",
+    correctedByAccountId: "laboratory-account",
+    correctedByDisplayName: "Иванова Анна",
+  });
+
+  assert.equal(result?.record.sourceSampleRegistrationId, "registration-1");
+  assert.ok(!queries.some(({ parameters }) =>
+    parameters?.includes("registration-2")
+  ));
+  assert.equal(queries[2]?.parameters?.[3], JSON.stringify(record));
+});
+
 function buildJournalRow() {
   return {
     id: "raw-material-quality-1",
@@ -266,6 +398,7 @@ function buildJournalRow() {
     elutriation_coefficient: record.elutriationCoefficient,
     recommendation_recipient: record.recommendationRecipient,
     recommendation_text: record.recommendationText,
+    source_sample_registration_id: null as string | null,
     created_at: "2026-08-05T08:30:00.000Z",
   };
 }
