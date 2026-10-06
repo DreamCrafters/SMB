@@ -126,14 +126,19 @@ const chemicalAnalysisValueColumns = [
   ["notes", "notes"],
 ] as const satisfies readonly (readonly [keyof LaboratoryChemicalAnalysisValues, string])[];
 
-/** Read-time projection for OTK journals; the caller names its base table `sample`. */
+/**
+ * Read-time projection for OTK journals; the caller names its base table `sample`.
+ * `registrationIdColumn` points at the sample's source registration; pending
+ * `Регистрация проб` rows pass `sample.id`, because they are the registration.
+ */
 export function buildSampleChemicalAnalysisSql(
   sampleSource: LaboratoryChemicalAnalysisSampleSource,
+  registrationIdColumn = "sample.source_sample_registration_id",
 ) {
   const registrationAnalysis = `(
     select max(latest.sequence_id)
     from laboratory_chemical_analysis_journal latest
-    where latest.sample_registration_id = sample.source_sample_registration_id
+    where latest.sample_registration_id = ${registrationIdColumn}
   )`;
   const latestAnalysis = sampleSource === "unshaped_product"
     ? `coalesce((
@@ -155,7 +160,7 @@ export function buildSampleChemicalAnalysisSql(
       ),
     ].join(",\n          "),
     joins: `left join laboratory_sample_registration_journal registration
-        on registration.id = sample.source_sample_registration_id
+        on registration.id = ${registrationIdColumn}
       left join laboratory_chemical_analysis_journal analysis
         on analysis.sequence_id = ${latestAnalysis}`,
   };

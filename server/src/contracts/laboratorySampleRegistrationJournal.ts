@@ -146,6 +146,8 @@ export type LaboratorySampleRegistrationTransmissionOption = {
   samplingLaboratoryAssistant: string;
   samplingLocation: string;
   registrationDate: string;
+  /** Последний связанный химанализ; заполняется в списке строк-ожиданий. */
+  chemicalAnalysis?: LaboratoryChemicalAnalysisValues;
 };
 
 /**

@@ -823,6 +823,10 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
                   samplingLaboratoryAssistant: "Петрова П.П.",
                   samplingLocation: "склад готовой продукции",
                   registrationDate: "2026-08-03",
+                  chemicalAnalysis: {
+                    laboratoryAnalysisNumber: "ХА-1690",
+                    al2o3: "47,3",
+                  },
                 }]
               : [],
         });
@@ -2588,6 +2592,9 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
     );
     assert.ok(pendingLink, "The marked sample must be visible in the journal.");
     assert.equal(pendingLink.textContent, "26.1690");
+    const pendingRowText = pendingLink.closest("tr").textContent;
+    assert.match(pendingRowText, /ХА-1690/u);
+    assert.match(pendingRowText, /47,3/u);
     await React.act(async () => pendingLink.click());
     assert.equal(unshapedSampleNumber.value, "1690");
     assert.equal(unshapedSampleCode.value, "26.1690");

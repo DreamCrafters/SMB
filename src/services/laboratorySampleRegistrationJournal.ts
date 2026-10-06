@@ -13,6 +13,7 @@ import {
   laboratoryChemicalAnalysisFields,
 } from "../contracts/laboratoryChemicalAnalysisJournal.js";
 import { buildDevAccessHeaders } from "./devAccessSessionStorage.js";
+import { isOptionalLaboratoryChemicalAnalysisValues } from "./laboratoryChemicalAnalysisJournal.js";
 import {
   describeRemoteNetworkFailure,
   resolveApiEndpoint,
@@ -304,7 +305,8 @@ function isTransmissionOption(
     typeof value.samplingDate === "string" &&
     typeof value.samplingLaboratoryAssistant === "string" &&
     typeof value.samplingLocation === "string" &&
-    typeof value.registrationDate === "string";
+    typeof value.registrationDate === "string" &&
+    isOptionalLaboratoryChemicalAnalysisValues(value.chemicalAnalysis);
 }
 
 function readRemoteError(payload: unknown, fallback: string): ErrorResult {

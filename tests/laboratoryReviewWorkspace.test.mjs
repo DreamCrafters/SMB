@@ -310,6 +310,10 @@ test("laboratory review filters every journal by date and nomenclature", async (
                 samplingLaboratoryAssistant: "Иванова А.А.",
                 samplingLocation: "Склад готовой продукции",
                 registrationDate: "2026-07-25",
+                chemicalAnalysis: {
+                  laboratoryAnalysisNumber: "ХА-1690",
+                  al2o3: "47,3",
+                },
               }]
             : [],
         });
@@ -545,6 +549,9 @@ test("laboratory review filters every journal by date and nomenclature", async (
         "26.1690Ожидает заполнения",
       ],
     );
+    // The waiting row already shows the chemical analysis of the registration.
+    assert.match(pendingRows[0].textContent, /ХА-1690/u);
+    assert.match(pendingRows[0].textContent, /47,3/u);
     assert.equal(
       container.querySelectorAll(".laboratory-pending-transmission-row").length,
       1,

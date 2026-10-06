@@ -326,7 +326,7 @@ export function LaboratoryUnshapedProductSampleTable({
                         )}
                   </TableCell>
                 ))}
-                <SampleChemicalAnalysisCells />
+                <SampleChemicalAnalysisCells values={option.chemicalAnalysis} />
               </tr>
             );
           })}
@@ -427,7 +427,7 @@ export function LaboratoryFormedProductSampleTable({
                         )}
                   </TableCell>
                 ))}
-                <SampleChemicalAnalysisCells />
+                <SampleChemicalAnalysisCells values={option.chemicalAnalysis} />
               </tr>
             );
           })}
@@ -523,7 +523,7 @@ export function LaboratoryVerificationTable({
                         )}
                   </TableCell>
                 ))}
-                <SampleChemicalAnalysisCells />
+                <SampleChemicalAnalysisCells values={option.chemicalAnalysis} />
               </tr>
             );
           })}

@@ -484,6 +484,11 @@ test("sample registration repository lists pending transmissions for a target jo
         sampling_laboratory_assistant: "Иванова А.А.",
         sampling_location: "Склад сырья",
         registration_date: "2026-07-30",
+        linked_analysis_id: "analysis-1",
+        linked_laboratory_analysis_number: "1690",
+        linked_chemical_analysis_date: "2026-07-31",
+        linked_al2o3: "45,6",
+        linked_notes: null,
       }], []];
     },
   } as unknown as DatabasePool;
@@ -499,11 +504,20 @@ test("sample registration repository lists pending transmissions for a target jo
       samplingLaboratoryAssistant: "Иванова А.А.",
       samplingLocation: "Склад сырья",
       registrationDate: "2026-07-30",
+      chemicalAnalysis: {
+        laboratoryAnalysisNumber: "1690",
+        chemicalAnalysisDate: "2026-07-31",
+        al2o3: "45,6",
+      },
     },
   ]);
   assert.match(
     queries[0]?.sql ?? "",
-    /where transmit_to_journal = \? and transmitted_record_id is null/u,
+    /where sample\.transmit_to_journal = \? and sample\.transmitted_record_id is null/u,
+  );
+  assert.match(
+    queries[0]?.sql ?? "",
+    /latest\.sample_registration_id = sample\.id/u,
   );
   assert.deepEqual(queries[0]?.parameters, ["verification", 500]);
 });
@@ -528,10 +542,10 @@ test("sample registration repository filters pending transmissions like the targ
   const sql = queries[0]?.sql ?? "";
   assert.match(
     sql,
-    /where transmit_to_journal = \? and transmitted_record_id is null and sampling_date >= \? and sampling_date <= \? and instr\(/u,
+    /where sample\.transmit_to_journal = \? and sample\.transmitted_record_id is null and sample\.sampling_date >= \? and sample\.sampling_date <= \? and instr\(/u,
   );
-  assert.match(sql, /and sample_name like \?/u);
-  assert.match(sql, /order by sampling_date desc/u);
+  assert.match(sql, /and sample\.sample_name like \?/u);
+  assert.match(sql, /order by sample\.sampling_date desc/u);
   assert.deepEqual(queries[0]?.parameters, [
     "unshaped_product_sample",
     "2026-10-01",

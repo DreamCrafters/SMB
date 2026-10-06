@@ -11,6 +11,10 @@ import type {
 } from "../contracts/laboratorySampleRegistrationJournal.js";
 import type { LaboratorySampleRegistrationOption } from "../contracts/laboratoryChemicalAnalysisJournal.js";
 import type { DatabasePool } from "../db/pool.js";
+import {
+  buildSampleChemicalAnalysisSql,
+  mapSampleChemicalAnalysis,
+} from "./laboratoryChemicalAnalysisJournalRepository.js";
 import { escapeLikePattern } from "./laboratoryResultsRepository.js";
 
 export class LaboratorySampleRegistrationTransmissionUnavailableError
@@ -516,35 +520,40 @@ export function createLaboratorySampleRegistrationJournalRepository(
     },
 
     async listPendingTransmissions(target, filters = {}) {
+      // Задача 132: строка-ожидание показывает уже проведённый химанализ пробы.
+      const chemicalAnalysis = buildSampleChemicalAnalysisSql(
+        "sample_registration",
+        "sample.id",
+      );
       const clauses = [
-        "transmit_to_journal = ?",
-        "transmitted_record_id is null",
+        "sample.transmit_to_journal = ?",
+        "sample.transmitted_record_id is null",
       ];
       const parameters: unknown[] = [target];
 
       if (filters.dateFrom !== undefined) {
-        clauses.push("sampling_date >= ?");
+        clauses.push("sample.sampling_date >= ?");
         parameters.push(filters.dateFrom);
       }
       if (filters.dateTo !== undefined) {
-        clauses.push("sampling_date <= ?");
+        clauses.push("sample.sampling_date <= ?");
         parameters.push(filters.dateTo);
       }
       if (filters.query !== undefined) {
         clauses.push(`instr(
           concat_ws(
             ' ',
-            sample_number,
-            laboratory_sample_code,
-            sample_name,
-            sampling_location
+            sample.sample_number,
+            sample.laboratory_sample_code,
+            sample.sample_name,
+            sample.sampling_location
           ),
           ?
         ) > 0`);
         parameters.push(filters.query);
       }
       if (filters.nameQuery !== undefined) {
-        clauses.push("sample_name like ?");
+        clauses.push("sample.sample_name like ?");
         parameters.push(`%${escapeLikePattern(filters.nameQuery)}%`);
       }
 
@@ -552,22 +561,27 @@ export function createLaboratorySampleRegistrationJournalRepository(
         LaboratorySampleRegistrationTransmissionOptionRow[]
       >(
         `select
-          id,
-          laboratory_sample_code,
-          sample_number,
-          sample_name,
-          sampling_date,
-          sampling_laboratory_assistant,
-          sampling_location,
-          registration_date
-        from laboratory_sample_registration_journal
+          sample.id,
+          sample.laboratory_sample_code,
+          sample.sample_number,
+          sample.sample_name,
+          sample.sampling_date,
+          sample.sampling_laboratory_assistant,
+          sample.sampling_location,
+          sample.registration_date,
+          ${chemicalAnalysis.columns}
+        from laboratory_sample_registration_journal sample
+        ${chemicalAnalysis.joins}
         where ${clauses.join(" and ")}
-        order by sampling_date desc, created_at desc, id desc
+        order by sample.sampling_date desc, sample.created_at desc, sample.id desc
         limit ?`,
         [...parameters, maxListLimit],
       );
 
-      return rows.map(mapTransmissionOption);
+      return rows.map((row) => ({
+        ...mapTransmissionOption(row),
+        ...mapSampleChemicalAnalysis(row),
+      }));
     },
 
     async claimTransmission(input) {

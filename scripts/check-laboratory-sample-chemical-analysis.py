@@ -20,6 +20,8 @@ import { createLaboratoryFormedProductSampleJournalRepository as formed }
   from './server/src/repositories/laboratoryFormedProductSampleJournalRepository.ts';
 import { createLaboratoryVerificationJournalRepository as verification }
   from './server/src/repositories/laboratoryVerificationJournalRepository.ts';
+import { createLaboratorySampleRegistrationJournalRepository as registration }
+  from './server/src/repositories/laboratorySampleRegistrationJournalRepository.ts';
 const queries = [];
 const pool = { query: async (sql, parameters) => {
   queries.push({ sql, parameters });
@@ -28,6 +30,7 @@ const pool = { query: async (sql, parameters) => {
 await unshaped(pool).list({ limit: 50 });
 await formed(pool, {}).list({ limit: 50 });
 await verification(pool).list({ limit: 50 });
+await registration(pool).listPendingTransmissions('unshaped_product_sample');
 process.stdout.write(JSON.stringify(queries));
 """
 CHEMICAL_COLUMNS = [
@@ -41,6 +44,11 @@ SAMPLE_COLUMNS = [
     "chemical_analysis_number", "moisture", "grain_composition", "fire_resistance",
     "suitability", "notes", "created_at", "sorting_date", "wagon_number",
     "molding_date", "verification_date", "sampling_location",
+]
+REGISTRATION_COLUMNS = [
+    "sample_number", "sample_name", "sampling_date", "sampling_laboratory_assistant",
+    "sampling_location", "registration_date", "created_at", "transmit_to_journal",
+    "transmitted_record_id",
 ]
 SAMPLE_TABLES = [
     "laboratory_unshaped_product_sample_journal",
@@ -77,7 +85,10 @@ class SampleChemicalAnalysisProjectionTests(unittest.TestCase):
         self.db.execute(
             "create table laboratory_sample_registration_journal "
             "(id text primary key, laboratory_sample_code text, "
-            + ",".join(column + " text" for column in CHEMICAL_COLUMNS[1:]) + ")"
+            + ",".join(
+                column + " text"
+                for column in CHEMICAL_COLUMNS[1:] + REGISTRATION_COLUMNS
+            ) + ")"
         )
         self.db.execute(
             "create table laboratory_chemical_analysis_journal "
@@ -90,10 +101,16 @@ class SampleChemicalAnalysisProjectionTests(unittest.TestCase):
                 "create table " + table + " (sequence_id integer primary key, id text, "
                 + ",".join(column + " text" for column in SAMPLE_COLUMNS) + ")"
             )
-        for identifier, alumina in [("r1", "99"), ("r2", "60"), ("r3", "77")]:
+        for identifier, alumina, claimed in [
+            ("r1", "99", None), ("r2", "60", None), ("r3", "77", None),
+            ("r4", "88", "u-claimed"),
+        ]:
             self.insert(
                 "laboratory_sample_registration_journal", id=identifier,
                 laboratory_sample_code="same-code", al2o3=alumina, notes="legacy",
+                sampling_date="2026-09-04", registration_date="2026-09-04",
+                transmit_to_journal="unshaped_product_sample",
+                transmitted_record_id=claimed,
             )
         for sequence, identifier, registration, unshaped, alumina in [
             (1, "old", "r1", None, "1"),
@@ -171,6 +188,17 @@ class SampleChemicalAnalysisProjectionTests(unittest.TestCase):
         rows = self.read(0)
         self.assertEqual(rows["u1"]["linked_al2o3"], "46")
         self.assertEqual(rows["u5"]["linked_al2o3"], "10")
+
+    def test_pending_transmissions_show_the_registration_analysis(self):
+        rows = self.read(3)
+        self.assertEqual(sorted(rows), ["r1", "r2", "r3"])
+        self.assertEqual(rows["r1"]["linked_analysis_id"], "current")
+        self.assertEqual(rows["r1"]["linked_al2o3"], "45,6")
+        self.assertIsNone(rows["r1"]["linked_notes"])
+        self.assertIsNone(rows["r2"]["linked_analysis_id"])
+        self.assertEqual(rows["r2"]["linked_al2o3"], "60")
+        self.assertEqual(rows["r3"]["linked_analysis_id"], "empty")
+        self.assertIsNone(rows["r3"]["linked_al2o3"])
 
 
 if __name__ == "__main__":
