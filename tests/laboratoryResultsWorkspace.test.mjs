@@ -1125,7 +1125,8 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
     const rootTabLabels = Array.from(rootElement.querySelectorAll(
       '.laboratory-section-tabs[aria-label="Разделы лаборатории"] > button',
     )).map((button) => button.textContent?.trim());
-    // Доработка задачи 95: `Марки` спрятаны под кнопку `Номенклатура`.
+    // Доработка задачи 95: `Марки` спрятаны под кнопку `Номенклатура`;
+    // задача 133 добавила раздел `Вагоны` огнеупорного цеха.
     assert.deepEqual(rootTabLabels, [
       "Номенклатура",
       "Банки",
@@ -1133,6 +1134,7 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
       "ЦЗЛ",
       "ОТК",
       "ОЦ",
+      "Вагоны",
     ]);
     const rawMaterialWarehouseTab = Array.from(
       rootElement.querySelectorAll("button"),

@@ -1314,6 +1314,98 @@ test("refractory correction can be cancelled without saving draft changes", asyn
   }
 });
 
+test("laboratory wagons variant opens only the wagon journals without banks", async () => {
+  const dom = new JSDOM(
+    '<!doctype html><html><body><div id="root"></div></body></html>',
+    { url: "http://127.0.0.1:5173/" },
+  );
+  const previousGlobals = captureDomGlobals();
+  const previousFetch = globalThis.fetch;
+  installDomGlobals(dom.window);
+  const React = await import("react");
+  const { createRoot } = await import("react-dom/client");
+  const vite = await loadViteServer("production");
+
+  try {
+    const { RefractoryShopWorkspace } = await vite.ssrLoadModule(
+      "/src/RefractoryReports.tsx",
+    );
+    const requestedPaths = [];
+    globalThis.fetch = async (input) => {
+      const url = new URL(String(input), "http://127.0.0.1:5173/");
+      requestedPaths.push(url.pathname);
+      const body = url.pathname.endsWith("/production-brands")
+        ? { labels: ["ША-22"] }
+        : url.pathname.endsWith("/refractory-wagons")
+          ? { wagons: [] }
+          : url.pathname.endsWith("/refractory-reports")
+            ? { reports: [] }
+            : undefined;
+      if (body === undefined) {
+        return new Response(JSON.stringify({ error: { message: "unexpected" } }), {
+          status: 404,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      return new Response(JSON.stringify(body), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    };
+    const profile = buildOperatorProfile();
+    profile.activeAccess.capabilities = ["business.manage_laboratory_results"];
+    profile.activeAccess.navigationItems = ["business.laboratory_results"];
+    const rootElement = dom.window.document.getElementById("root");
+    const root = createRoot(rootElement);
+
+    await React.act(async () => {
+      root.render(
+        React.createElement(RefractoryShopWorkspace, {
+          profile,
+          onShowToast() {},
+          variant: "wagons",
+        }),
+      );
+    });
+    await waitFor(React, () =>
+      rootElement.textContent.includes("Каталог вагонов") &&
+      requestedPaths.includes("/api/refractory-wagons"));
+
+    assert.equal(rootElement.querySelector("h2")?.textContent, "Вагоны");
+    assert.equal(
+      rootElement.querySelector('[aria-label="Выбор таблицы"]'),
+      null,
+    );
+    const journalButtons = Array.from(
+      rootElement.querySelectorAll('[aria-label="Журналы вагонов"] button'),
+    );
+    assert.deepEqual(
+      journalButtons.map((button) =>
+        button.querySelector(".refractory-report-label")?.textContent),
+      ["Каталог вагонов", "Оборот вагонов", "Обжиг/Сортировка", "Осмотр вагонов"],
+    );
+    assert.equal(journalButtons[0].classList.contains("is-active"), true);
+
+    await React.act(async () => {
+      journalButtons[2].dispatchEvent(
+        new dom.window.MouseEvent("click", { bubbles: true }),
+      );
+    });
+    await waitFor(React, () =>
+      rootElement.querySelector(".refractory-report-form") !== null);
+    assert.equal(
+      requestedPaths.some((path) => path.endsWith("/refractory-reports/banks")),
+      false,
+    );
+
+    await React.act(async () => root.unmount());
+  } finally {
+    globalThis.fetch = previousFetch;
+    dom.window.close();
+    restoreDomGlobals(previousGlobals);
+  }
+});
+
 test("refractory navigation shows the number of reports returned for correction", async () => {
   const dom = new JSDOM(
     '<!doctype html><html><body><div id="root"></div></body></html>',

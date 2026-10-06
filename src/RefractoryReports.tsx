@@ -76,22 +76,36 @@ type RefractoryBanksState =
   | ({ status: "ready" } & RefractoryBanksResponse)
   | { status: "error"; message: string };
 
+/**
+ * `wagons` — тот же раздел `Вагоны` для лаборанта (задача 133): без таблиц
+ * ЦОШ и сводки оборудования и без банок, сразу с журналами вагонов. Сервер
+ * отдельно ограничивает такой доступ отчётом `Обжиг/Сортировка`.
+ */
+export type RefractoryShopWorkspaceVariant = "shop" | "wagons";
+
 export function RefractoryShopWorkspace({
   profile,
   onShowToast,
   decisionRefreshVersion = 0,
+  variant = "shop",
 }: {
   profile: ServerUserProfile;
   onShowToast: ShowToast;
   decisionRefreshVersion?: number;
+  variant?: RefractoryShopWorkspaceVariant;
 }) {
+  const isWagonsOnly = variant === "wagons";
   const initialShift = readRefractoryShiftContext();
   const [reportDate, setReportDate] = useState(initialShift.reportDate);
   const [shiftNumber, setShiftNumber] = useState<RefractoryShiftNumber>(
     initialShift.shiftNumber,
   );
-  const [activeType, setActiveType] = useState<RefractoryReportType>("cosh");
-  const [wagonJournal, setWagonJournal] = useState<WagonJournalId>();
+  const [activeType, setActiveType] = useState<RefractoryReportType>(
+    isWagonsOnly ? "firing" : "cosh",
+  );
+  const [wagonJournal, setWagonJournal] = useState<WagonJournalId | undefined>(
+    isWagonsOnly ? wagonJournals[0].id : undefined,
+  );
   const [reports, setReports] = useState<RefractoryReportRevision[]>([]);
   const [loadState, setLoadState] = useState<"loading" | "ready" | "error">(
     "loading",
@@ -108,6 +122,8 @@ export function RefractoryShopWorkspace({
     useProductionBrands();
 
   useEffect(() => {
+    // Банки нужны только таблице ЦОШ, которой нет в разделе вагонов.
+    if (isWagonsOnly) return;
     const controller = new AbortController();
     setBanksState({ status: "loading" });
     requestRefractoryBanks(reportDate, shiftNumber, {
@@ -122,7 +138,7 @@ export function RefractoryShopWorkspace({
           });
     });
     return () => controller.abort();
-  }, [refreshVersion, reportDate, shiftNumber]);
+  }, [isWagonsOnly, refreshVersion, reportDate, shiftNumber]);
 
   useEffect(() => {
     setIsCorrectionMode(false);
@@ -299,11 +315,16 @@ export function RefractoryShopWorkspace({
   }
 
   return (
-    <section className="refractory-workspace" aria-label="Огнеупорный цех">
+    <section
+      className="refractory-workspace"
+      aria-label={isWagonsOnly ? "Вагоны" : "Огнеупорный цех"}
+    >
       <header className="refractory-header">
         <div>
-          <p className="eyebrow">сменные отчёты</p>
-          <h2>Огнеупорный цех</h2>
+          <p className="eyebrow">
+            {isWagonsOnly ? "журналы огнеупорного цеха" : "сменные отчёты"}
+          </p>
+          <h2>{isWagonsOnly ? "Вагоны" : "Огнеупорный цех"}</h2>
         </div>
         <div className="refractory-shift-fields">
           <label>
@@ -343,6 +364,7 @@ export function RefractoryShopWorkspace({
         </p>
       ) : null}
 
+      {isWagonsOnly ? null : (
       <div className="refractory-report-menu" aria-label="Выбор таблицы">
         {renderRefractoryReportTypeButton("cosh")}
         {renderRefractoryReportTypeButton("equipment")}
@@ -363,6 +385,7 @@ export function RefractoryShopWorkspace({
           <small>Журналы</small>
         </button>
       </div>
+      )}
 
       {wagonJournal === undefined ? null : (
         <div

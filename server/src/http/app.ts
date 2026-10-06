@@ -7377,16 +7377,11 @@ async function handleRefractoryWagonsRequest({
   });
   if (access === undefined) return;
 
-  if (
-    !hasProfileCapability(
-      access.profile,
-      "business.submit_refractory_reports",
-    )
-  ) {
+  if (!canOperateRefractoryWagons(access.profile)) {
     sendJson(res, 403, {
       error: {
         code: "access_denied",
-        message: "Журналы вагонов доступны сотруднику огнеупорного цеха.",
+        message: "Журналы вагонов доступны сотрудникам огнеупорного цеха и лаборатории.",
       },
     });
     return;
@@ -7541,6 +7536,17 @@ async function handleRefractoryWagonsRequest({
   }
 }
 
+/**
+ * Задача 133: всеми действиями с вагонами, как начальник ОЦ, оперирует и
+ * лаборант — его раздел `Вагоны` открывает те же журналы.
+ */
+function canOperateRefractoryWagons(profile: ServerUserProfile) {
+  return (
+    hasProfileCapability(profile, "business.submit_refractory_reports") ||
+    hasProfileCapability(profile, "business.manage_laboratory_results")
+  );
+}
+
 function buildRefractoryWagonAuditDetails(
   record: RefractoryWagonRecord,
   before?: RefractoryWagonRecord,
@@ -7601,16 +7607,11 @@ async function handleRefractoryWagonInspectionsRequest({
   });
   if (access === undefined) return;
 
-  if (
-    !hasProfileCapability(
-      access.profile,
-      "business.submit_refractory_reports",
-    )
-  ) {
+  if (!canOperateRefractoryWagons(access.profile)) {
     sendJson(res, 403, {
       error: {
         code: "access_denied",
-        message: "Журнал осмотра вагонов доступен сотруднику огнеупорного цеха.",
+        message: "Журнал осмотра вагонов доступен сотрудникам огнеупорного цеха и лаборатории.",
       },
     });
     return;
@@ -7788,7 +7789,13 @@ async function handleRefractoryReportsRequest({
     access.profile,
     "business.review_refractory_reports",
   );
-  if (!canSubmit && !canReview) {
+  // Задача 133: из раздела `Вагоны` лаборант ведёт только `Обжиг/Сортировка`;
+  // остальные таблицы смены и банки ему по-прежнему закрыты.
+  const canSubmitFiringAsLaboratory = hasProfileCapability(
+    access.profile,
+    "business.manage_laboratory_results",
+  );
+  if (!canSubmit && !canReview && !canSubmitFiringAsLaboratory) {
     sendJson(res, 403, {
       error: {
         code: "access_denied",
@@ -7797,6 +7804,7 @@ async function handleRefractoryReportsRequest({
     });
     return;
   }
+  const isFiringOnlyAccess = !canSubmit && !canReview;
   if (refractoryReports === undefined) {
     sendJson(res, 503, {
       error: {
@@ -7808,6 +7816,12 @@ async function handleRefractoryReportsRequest({
   }
 
   if (url.pathname === "/api/refractory-reports/banks") {
+    if (isFiringOnlyAccess) {
+      sendJson(res, 403, {
+        error: { code: "access_denied", message: "Данные банок недоступны." },
+      });
+      return;
+    }
     if (req.method !== "GET") {
       sendJson(res, 405, {
         error: { code: "access_denied", message: "Для данных банок используется GET." },
@@ -7887,7 +7901,7 @@ async function handleRefractoryReportsRequest({
   }
 
   if (url.pathname === "/api/refractory-reports/own") {
-    if (req.method !== "GET" || !canSubmit) {
+    if (req.method !== "GET" || (!canSubmit && !canSubmitFiringAsLaboratory)) {
       sendJson(res, req.method === "GET" ? 403 : 405, {
         error: {
           code: "access_denied",
@@ -7904,7 +7918,9 @@ async function handleRefractoryReportsRequest({
         await refractoryReports.listRecentForSubmitter({
           submittedByAccountId: access.profile.activeAccess.accountId,
         })
-      ).map(toPublicRefractoryReportRevision),
+      )
+        .filter((report) => canSubmit || report.reportType === "firing")
+        .map(toPublicRefractoryReportRevision),
     });
     return;
   }
@@ -8077,12 +8093,15 @@ async function handleRefractoryReportsRequest({
       reports: (await refractoryReports.listLatestForShift({
         reportDate,
         shiftNumber: shiftNumber as RefractoryShiftNumber,
-      })).map(toPublicRefractoryReportRevision),
+      }))
+        .filter((report) =>
+          !isFiringOnlyAccess || report.reportType === "firing")
+        .map(toPublicRefractoryReportRevision),
     });
     return;
   }
 
-  if (req.method !== "POST" || !canSubmit) {
+  if (req.method !== "POST" || (!canSubmit && !canSubmitFiringAsLaboratory)) {
     sendJson(res, req.method === "POST" ? 403 : 405, {
       error: {
         code: "access_denied",
@@ -8093,7 +8112,20 @@ async function handleRefractoryReportsRequest({
     });
     return;
   }
-  const validation = validateRefractoryReportSubmission(await readJsonBody(req));
+  const reportBody = await readJsonBody(req);
+  if (
+    !canSubmit &&
+    !(isRecord(reportBody) && reportBody.reportType === "firing")
+  ) {
+    sendJson(res, 403, {
+      error: {
+        code: "access_denied",
+        message: "Лаборатории доступна только таблица «Обжиг/Сортировка».",
+      },
+    });
+    return;
+  }
+  const validation = validateRefractoryReportSubmission(reportBody);
   if (!validation.ok) {
     sendJson(res, 400, {
       error: {

@@ -1191,12 +1191,18 @@ export default function App() {
     hasLoadedOwnRefractoryRef.current = false;
     setReturnedRefractoryCounts(emptyReturnedRefractoryReportCounts);
     setReturnedRefractoryShifts([]);
+    // Задача 133: лаборант тоже отправляет `Обжиг/Сортировка` из раздела
+    // `Вагоны` и должен узнавать о подтверждении или возврате таблицы.
     if (
       effectiveRequestProfile === undefined ||
-      !hasCapability(
+      (!hasCapability(
         effectiveRequestProfile,
         "business.submit_refractory_reports",
-      )
+      ) &&
+        !hasCapability(
+          effectiveRequestProfile,
+          "business.manage_laboratory_results",
+        ))
     ) {
       return;
     }
@@ -3213,6 +3219,7 @@ function RoleWorkspace({
       <LaboratoryResultsWorkspace
         profile={profile}
         onShowToast={onShowToast}
+        refractoryDecisionRefreshVersion={refractoryDecisionVersion}
       />
     );
   }

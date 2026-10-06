@@ -21,6 +21,7 @@ import { LaboratoryFormedProductSampleJournal } from "./LaboratoryFormedProductS
 import { LaboratoryVerificationJournal } from "./LaboratoryVerificationJournal";
 import { LaboratoryRawMaterialQualityJournal } from "./LaboratoryRawMaterialQualityJournal";
 import { LaboratoryGreenProductQualityJournal } from "./LaboratoryGreenProductQualityJournal";
+import { RefractoryShopWorkspace } from "./RefractoryReports";
 import {
   qualityControlTabLabel,
 } from "./LaboratoryJournalTables";
@@ -49,7 +50,8 @@ type LaboratoryWorkspacePanel =
   | "raw-material-warehouse"
   | "central-lab"
   | "quality-control"
-  | "refractory-shop";
+  | "refractory-shop"
+  | "wagons";
 type CentralLabJournalId =
   | "kiln-journal"
   | "chemical-analysis";
@@ -163,9 +165,11 @@ let nextSampleKey = 1;
 export function LaboratoryResultsWorkspace({
   profile,
   onShowToast,
+  refractoryDecisionRefreshVersion = 0,
 }: {
   profile: ServerUserProfile;
   onShowToast: ShowToast;
+  refractoryDecisionRefreshVersion?: number;
 }) {
   const isRawMaterialWarehouseReviewOnly =
     profile.activeAccess.capabilities.includes(
@@ -554,6 +558,18 @@ export function LaboratoryResultsWorkspace({
         >
           ОЦ
         </button>
+        <button
+          aria-selected={activePanel === "wagons"}
+          className={activePanel === "wagons" ? "is-active" : ""}
+          role="tab"
+          type="button"
+          onClick={() => {
+            setActivePanel("wagons");
+            setFormMessage("");
+          }}
+        >
+          Вагоны
+        </button>
         </>)}
       </div>
 
@@ -704,6 +720,14 @@ export function LaboratoryResultsWorkspace({
             onShowToast={onShowToast}
           />
         )
+      ) : activePanel === "wagons" ? (
+        // Задача 133: лаборант работает с вагонами так же, как начальник ОЦ.
+        <RefractoryShopWorkspace
+          profile={profile}
+          onShowToast={onShowToast}
+          decisionRefreshVersion={refractoryDecisionRefreshVersion}
+          variant="wagons"
+        />
       ) : (
         <>
       {referenceState.status === "loading" ? (

@@ -3059,6 +3059,339 @@ test("wagon inspection endpoint writes the verdict with an audit event", async (
   );
 });
 
+test("laboratory assistant operates refractory wagons and only the firing shift report", async () => {
+  const profile = buildProductionProfile("worker");
+  profile.activeAccess.position = "laboratory_assistant";
+  profile.activeAccess.navigationItems = ["business.laboratory_results"];
+  profile.activeAccess.capabilities = ["business.manage_laboratory_results"];
+  const shiftReport = (
+    id: string,
+    reportType: RefractoryReportRevision["reportType"],
+  ): RefractoryReportRevision => ({
+    id,
+    reportType,
+    reportDate: "2026-07-20",
+    shiftNumber: 1,
+    payload: {},
+    totals: {},
+    revisionNumber: 1,
+    status: "approved",
+    submittedByUserId: "operator-user",
+    submittedByAccountId: "operator-access",
+    masterDisplayName: "Мастер ОЦ",
+    submittedAt: "2026-07-20T08:00:00.000Z",
+  } as RefractoryReportRevision);
+  const submittedReportTypes: string[] = [];
+  const reports: RefractoryReportsRepository = {
+    ...emptyRefractoryReports,
+    async listLatestForShift() {
+      return [shiftReport("cosh-1", "cosh"), shiftReport("firing-1", "firing")];
+    },
+    async listRecentForSubmitter() {
+      return [shiftReport("cosh-1", "cosh"), shiftReport("firing-1", "firing")];
+    },
+    async submit(input) {
+      submittedReportTypes.push(input.report.reportType);
+      return {
+        ...shiftReport("firing-2", input.report.reportType),
+        ...input.report,
+        status: "pending",
+      } as RefractoryReportRevision;
+    },
+  };
+  const createdWagonNumbers: string[] = [];
+  const refractoryWagons: RefractoryWagonsRepository = {
+    async create(input) {
+      createdWagonNumbers.push(input.wagon.number);
+      return {
+        id: "wagon-20",
+        number: input.wagon.number,
+        loadingDate: null,
+        productBrand: null,
+        pressDate: null,
+        pieceCount: null,
+        setter: null,
+        pressOperator: null,
+        rawControlDate: null,
+        firingOperator: null,
+        firingDates: [],
+        sorter: null,
+        sortingDate: null,
+        postFiringCondition: null,
+        serviceApprovalDate: null,
+        createdAt: "2026-07-20T08:00:00.000Z",
+      };
+    },
+    async list() {
+      return [];
+    },
+    async findByIds(ids) {
+      return ids.includes("wagon-17")
+        ? [{ id: "wagon-17", number: "В-17", productBrand: "ША" }]
+        : [];
+    },
+    async findBySortingDate() {
+      return undefined;
+    },
+    async replaceReportLifecycle() {},
+    async update() {
+      return undefined;
+    },
+  };
+  const refractoryWagonInspections: RefractoryWagonInspectionsRepository = {
+    async list() {
+      return [];
+    },
+    async create() {
+      return undefined;
+    },
+  };
+  const headers = {
+    "Content-Type": "application/json",
+    Cookie: "smb_session=prod-session",
+  };
+  const postReport = (baseUrl: string, body: unknown) =>
+    fetch(`${baseUrl}/api/refractory-reports`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(body),
+    });
+
+  await withApiServer(
+    async (baseUrl) => {
+      const wagonsResponse = await fetch(`${baseUrl}/api/refractory-wagons`, {
+        headers,
+      });
+      const createWagonResponse = await fetch(
+        `${baseUrl}/api/refractory-wagons`,
+        {
+          method: "POST",
+          headers,
+          body: JSON.stringify({
+            number: "В-20",
+            loadingDate: null,
+            productBrand: null,
+            pressDate: null,
+            pieceCount: null,
+            setter: null,
+            pressOperator: null,
+          }),
+        },
+      );
+      const inspectResponse = await fetch(
+        `${baseUrl}/api/refractory-wagon-inspections`,
+        {
+          method: "POST",
+          headers,
+          body: JSON.stringify({
+            wagonId: "missing-wagon",
+            condition: "Можно эксплуатировать",
+            approvalDate: "2026-07-20",
+          }),
+        },
+      );
+      const pendingResponse = await fetch(
+        `${baseUrl}/api/refractory-reports/pending`,
+        { headers },
+      );
+      const decisionResponse = await fetch(
+        `${baseUrl}/api/refractory-reports/firing-1/decision`,
+        {
+          method: "POST",
+          headers,
+          body: JSON.stringify({ decision: "approve" }),
+        },
+      );
+      const inspectionsResponse = await fetch(
+        `${baseUrl}/api/refractory-wagon-inspections`,
+        { headers },
+      );
+      const banksResponse = await fetch(
+        `${baseUrl}/api/refractory-reports/banks?date=2026-07-20&shift=1`,
+        { headers },
+      );
+      const ownResponse = await fetch(`${baseUrl}/api/refractory-reports/own`, {
+        headers,
+      });
+      const shiftResponse = await fetch(
+        `${baseUrl}/api/refractory-reports?date=2026-07-20&shift=1`,
+        { headers },
+      );
+      const coshResponse = await postReport(baseUrl, {
+        reportType: "cosh",
+        reportDate: "2026-07-20",
+        shiftNumber: 1,
+        payload: {},
+      });
+      const firingResponse = await postReport(baseUrl, {
+        reportType: "firing",
+        reportDate: "2026-07-20",
+        shiftNumber: 1,
+        payload: {
+          rows: [{ sortingWagons: [{ id: "wagon-17" }], quantityPieces: 10 }],
+        },
+      });
+
+      assert.equal(wagonsResponse.status, 200);
+      assert.equal(createWagonResponse.status, 201);
+      assert.deepEqual(createdWagonNumbers, ["В-20"]);
+      assert.equal(inspectionsResponse.status, 200);
+      // Проверка прав пройдена: репозиторий не нашёл вагон.
+      assert.equal(inspectResponse.status, 404);
+      assert.equal(banksResponse.status, 403);
+      assert.equal(pendingResponse.status, 403);
+      assert.equal(decisionResponse.status, 403);
+      assert.equal(ownResponse.status, 200);
+      const ownPayload = await ownResponse.json() as {
+        reports: Array<{ id: string }>;
+      };
+      assert.deepEqual(
+        ownPayload.reports.map((report) => report.id),
+        ["firing-1"],
+      );
+      assert.equal(shiftResponse.status, 200);
+      const shiftPayload = await shiftResponse.json() as {
+        reports: Array<{ id: string }>;
+      };
+      assert.deepEqual(
+        shiftPayload.reports.map((report) => report.id),
+        ["firing-1"],
+      );
+      assert.equal(coshResponse.status, 403);
+      assert.equal(firingResponse.status, 201);
+      assert.deepEqual(submittedReportTypes, ["firing"]);
+    },
+    dispatcherSubmissions,
+    emptyReferenceDataSource,
+    undefined,
+    undefined,
+    adminDatabase,
+    productionConfig,
+    buildAuthService({ profile }),
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    passthroughProductionBrands,
+    undefined,
+    reports,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    refractoryWagons,
+    refractoryWagonInspections,
+  );
+
+  // Лаборант-диспетчер видит всю смену и тоже отправляет `Обжиг/Сортировка`.
+  const reviewerProfile = buildProductionProfile("worker");
+  reviewerProfile.activeAccess.capabilities = [
+    "business.manage_laboratory_results",
+    "business.review_refractory_reports",
+  ];
+  submittedReportTypes.length = 0;
+  await withApiServer(
+    async (baseUrl) => {
+      const shiftResponse = await fetch(
+        `${baseUrl}/api/refractory-reports?date=2026-07-20&shift=1`,
+        { headers },
+      );
+      const coshResponse = await postReport(baseUrl, {
+        reportType: "cosh",
+        reportDate: "2026-07-20",
+        shiftNumber: 1,
+        payload: {},
+      });
+      const firingResponse = await postReport(baseUrl, {
+        reportType: "firing",
+        reportDate: "2026-07-20",
+        shiftNumber: 1,
+        payload: {
+          rows: [{ sortingWagons: [{ id: "wagon-17" }], quantityPieces: 10 }],
+        },
+      });
+
+      const shiftPayload = await shiftResponse.json() as {
+        reports: Array<{ id: string }>;
+      };
+      assert.deepEqual(
+        shiftPayload.reports.map((report) => report.id),
+        ["cosh-1", "firing-1"],
+      );
+      assert.equal(coshResponse.status, 403);
+      assert.equal(firingResponse.status, 201);
+      assert.deepEqual(submittedReportTypes, ["firing"]);
+    },
+    dispatcherSubmissions,
+    emptyReferenceDataSource,
+    undefined,
+    undefined,
+    adminDatabase,
+    productionConfig,
+    buildAuthService({ profile: reviewerProfile }),
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    passthroughProductionBrands,
+    undefined,
+    reports,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    refractoryWagons,
+    refractoryWagonInspections,
+  );
+});
+
+test("refractory wagon journals stay closed without shop or laboratory capability", async () => {
+  for (const capability of [
+    "business.view_laboratory_results",
+    "business.review_raw_material_warehouse",
+  ] as const) {
+    const profile = buildProductionProfile("worker");
+    profile.activeAccess.capabilities = [capability];
+
+    await withApiServer(
+      async (baseUrl) => {
+        for (const path of [
+          "/api/refractory-wagons",
+          "/api/refractory-wagon-inspections",
+          "/api/refractory-reports?date=2026-07-20&shift=1",
+          "/api/refractory-reports/own",
+        ]) {
+          const response = await fetch(`${baseUrl}${path}`, {
+            headers: { Cookie: "smb_session=prod-session" },
+          });
+          assert.equal(response.status, 403, `${capability} ${path}`);
+        }
+      },
+      dispatcherSubmissions,
+      emptyReferenceDataSource,
+      undefined,
+      undefined,
+      adminDatabase,
+      productionConfig,
+      buildAuthService({ profile }),
+    );
+  }
+});
+
 test("chemical analysis journal links available samples from both source journals", async () => {
   const profile: ServerUserProfile = {
     ...buildProductionProfile("business_owner"),
