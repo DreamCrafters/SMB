@@ -14,7 +14,11 @@ function initiative(
   return {
     id: `i-${sequence}`, number: `И-2026-${String(sequence).padStart(4, "0")}`, status, revision: 1,
     createdByUserId: "author", createdAt: "", updatedAt: "", workflow,
-    card: { title: `Идея ${sequence}`, directionCode: "", directionLabel: "", expectedEffectAmount: "", risks: [], ...card } as CollegiumInitiative["card"],
+    card: {
+      title: `Идея ${sequence}`, directionCode: "", directionLabel: "", expectedEffectAmount: "",
+      expectedEffectPeriod: "year", oneTimeCostAmount: "", recurringCostAmount: "", recurringCostPeriod: "",
+      capexAmount: "", risks: [], ...card,
+    } as CollegiumInitiative["card"],
   };
 }
 

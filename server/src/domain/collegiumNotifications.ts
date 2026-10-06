@@ -176,14 +176,38 @@ export function buildAssignmentCreatedNotification(
   };
 }
 
+/** Подтверждают эффект две подписи: контролёр эффекта и финансовый верификатор. */
 export function buildResultConfirmationNotification(initiative: CollegiumInitiative, actorUserId: string): CollegiumNotification {
   return {
     subject: `${initiative.number}: требуется подтвердить результат`,
-    lines: [head(initiative), "Работы завершены, требуется подтвердить эффект."],
-    userIds: userIds(initiative.card.effectControllerId),
-    audienceCapability: "business.approve_collegium_initiatives",
+    lines: [head(initiative), "Работы завершены, требуется проверить факты и подписать эффект."],
+    userIds: userIds(initiative.card.effectControllerId, initiative.workflow.verifiers?.financialId ?? ""),
     actorUserId,
   };
+}
+
+/** Назначение контролёра эффекта и верификаторов (ТЗ 12.1). */
+export function buildControlRoleNotifications(
+  initiative: CollegiumInitiative,
+  assigned: { controller: string; technical: string; financial: string },
+  actorUserId: string,
+): CollegiumNotification[] {
+  const labels: Array<[string, string]> = [
+    [assigned.controller, "контролёр эффекта"],
+    [assigned.technical, "технический верификатор"],
+    [assigned.financial, "финансовый верификатор"],
+  ];
+  const rolesByUser = new Map<string, string[]>();
+  for (const [accountId, label] of labels) {
+    const userId = userIdOf(accountId);
+    if (userId !== "") rolesByUser.set(userId, [...(rolesByUser.get(userId) ?? []), label]);
+  }
+  return [...rolesByUser].map(([userId, roles]) => ({
+    subject: `${initiative.number}: вы назначены проверять эффект`,
+    lines: [head(initiative), `Вам назначена роль: ${roles.join(", ")}.`],
+    userIds: [userId],
+    actorUserId,
+  }));
 }
 
 export function buildOutcomeNotification(

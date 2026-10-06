@@ -18,7 +18,7 @@ function initiative(id: string, overrides: Partial<CollegiumInitiative> = {}, ca
       title: `Идея ${id}`, initiatorId: "account:author", directionCode: "production", directionLabel: "Производство",
       effectTypeCodes: ["cost_saving"], effectTypeLabels: ["Экономия затрат"], problem: "", baselineValue: "",
       baselinePeriod: "", baselineSource: "", solution: "", changeScope: "", expectedEffectAmount: "",
-      expectedEffectPeriod: "", expectedEffectKind: "", effectMethod: "", oneTimeCostAmount: "", oneTimeCostVat: "",
+      expectedEffectPeriod: "year", expectedEffectKind: "", effectMethod: "", oneTimeCostAmount: "", oneTimeCostVat: "",
       oneTimeCostSource: "", recurringCostAmount: "", recurringCostPeriod: "", internalResources: "", ownerId: "",
       executorId: "", executionControllerId: "", effectControllerId: "", plannedStart: "", plannedResult: "",
       kpiCriterion: "", kpiSource: "", risks: [], requestedDecision: "", capexAmount: "",
@@ -50,7 +50,8 @@ test("registry filters cover period, people, money, stage, meeting, overdue and 
     initiative("1", { createdAt: "2026-09-01T09:00:00.000Z" }, { ownerId: "account:owner", expectedEffectAmount: "500000.00", oneTimeCostAmount: "0.00" }),
     initiative("2", { status: "in_progress" }, { executorId: "account:exec", expectedEffectAmount: "2000000.00", risks: [{ text: "Срыв поставок сырья", levelCode: "high", levelLabel: "Высокий" }] }),
     initiative("3", { status: "board_referral" }, { effectControllerId: "account:ctrl", directionCode: "quality" }),
-    initiative("4", { status: "closed", workflow: { result: { description: "", actualEffectAmount: "900.00", source: "", conclusion: "", recordedAt: "", recordedByDisplayName: "" } } }, { solution: "Новая печь" }),
+    // Confirmed before slice 10: the legacy result amount is the confirmed effect.
+    initiative("4", { status: "closed", workflow: { effectConfirmation: { confirmedByDisplayName: "", confirmedAt: "", result: { description: "", actualEffectAmount: "900.00", source: "", conclusion: "", recordedAt: "", recordedByDisplayName: "" } } } }, { solution: "Новая печь" }),
   ];
   assert.deepEqual(ids({ createdFrom: "2026-10-01" }, list), ["2", "3", "4"]);
   assert.deepEqual(ids({ createdTo: "2026-09-30" }, list), ["1"]);

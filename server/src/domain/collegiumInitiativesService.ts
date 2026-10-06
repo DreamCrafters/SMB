@@ -10,6 +10,13 @@ import {
   type CollegiumAttachment,
   type CollegiumAttentionItem,
   type CollegiumDashboard,
+  type CollegiumInitiativeRevision,
+  type CollegiumEffectControl,
+  type CollegiumEffectFact,
+  type CollegiumVerifierRole,
+  collegiumSignerRoleLabels,
+  collegiumVerifierRoleLabels,
+  collegiumVerifierRoles,
   type CollegiumSettingsInput,
   type CollegiumCommentKind,
   type CollegiumInitiative,
@@ -43,6 +50,13 @@ import { recordCollegiumInitiativeEvent } from "./collegiumInitiativeEvents.js";
 import { filterCollegiumInitiatives } from "./collegiumRegistry.js";
 import { buildCollegiumDashboard } from "./collegiumDashboard.js";
 import {
+  buildCollegiumConfirmedEffects,
+  buildCollegiumEffectControlRows,
+  listCollegiumVerdictGaps,
+  readCollegiumSignerRole,
+  snapshotCollegiumEffectControl,
+} from "./collegiumEffectControl.js";
+import {
   calculateCollegiumEconomics,
   listCollegiumPassportGaps,
   listCollegiumPassportReasons,
@@ -50,10 +64,14 @@ import {
 } from "./collegiumEconomics.js";
 import {
   canEditCollegiumPassport,
+  collegiumMainEffectId,
   findCollegiumEffectDuplicates,
+  listCollegiumPlannedEffects,
   readCollegiumPassportInput,
+  readCollegiumSignedAmount,
 } from "./collegiumPassport.js";
 import {
+  buildControlRoleNotifications,
   buildAssignmentCreatedNotification,
   buildHiddenRoleNotifications,
   buildOutcomeNotification,
@@ -98,6 +116,34 @@ const assignableStatuses: readonly CollegiumInitiative["status"][] = [
   "approved_implementation",
   "in_progress",
 ];
+
+/** Роли контроля эффекта назначаются от решения Коллегии до проверки результата. */
+const controlRoleStatuses: readonly CollegiumInitiative["status"][] = [
+  "approved_pilot",
+  "approved_implementation",
+  "board_referral",
+  "in_progress",
+  "result_confirmation",
+];
+
+const conclusionStatuses: readonly CollegiumInitiative["status"][] = [
+  ...controlRoleStatuses,
+  "done_confirmed",
+  "done_unconfirmed",
+];
+
+const maxFactTextLength = 4000;
+
+function readControlBody(body: unknown, keys: readonly string[]) {
+  if (typeof body !== "object" || body === null || Array.isArray(body)) {
+    throw new CollegiumInitiativeError("Передайте данные.");
+  }
+  const record = body as Record<string, unknown>;
+  if (Object.keys(record).some((key) => !["revision", ...keys].includes(key))) {
+    throw new CollegiumInitiativeError("Запрос содержит неизвестные поля.");
+  }
+  return record;
+}
 
 /** Уведомления о смене статуса (ТЗ 12.1); отправляет их HTTP-слой после ответа. */
 function buildActionNotifications(
@@ -170,6 +216,80 @@ export function createCollegiumInitiativesService({
     const others = (await repository.list()).filter((other) =>
       canViewCollegiumInitiative(other, profile, permissions));
     return findCollegiumEffectDuplicates(initiative, others);
+  }
+
+  function buildEffectControl(
+    initiative: CollegiumInitiative,
+    profile: ServerUserProfile,
+    permissions: CollegiumInitiativePermissions,
+  ): CollegiumEffectControl {
+    const accountId = collegiumAccountId(profile.userId);
+    const signerRole = initiative.status === "result_confirmation" && permissions.canView
+      ? readCollegiumSignerRole(initiative, accountId)
+      : undefined;
+    const verifierRole = collegiumVerifierRoles.find((role) =>
+      initiative.workflow.verifiers?.[role === "technical" ? "technicalId" : "financialId"] === accountId);
+    return {
+      rows: buildCollegiumEffectControlRows(initiative),
+      canRecordFacts: canRecordResult(initiative, profile, permissions),
+      ...(signerRole === undefined ? {} : { signerRole }),
+      canAssignRoles: permissions.canManage && controlRoleStatuses.includes(initiative.status),
+      ...(verifierRole === undefined || !conclusionStatuses.includes(initiative.status) ? {} : { verifierRole }),
+    };
+  }
+
+  /** Изменение контроля эффекта: ревизия со снимком (ТЗ 16) и аудит в одной транзакции. */
+  async function saveControlChange({
+    profile,
+    initiative,
+    card = initiative.card,
+    workflow,
+    changedFields = [],
+    reason,
+    comment = "",
+    summary,
+  }: {
+    profile: ServerUserProfile;
+    initiative: CollegiumInitiative;
+    card?: CollegiumInitiative["card"];
+    workflow: CollegiumInitiative["workflow"];
+    changedFields?: CollegiumInitiativeRevision["changedFields"];
+    reason: string;
+    comment?: string;
+    summary: string;
+  }) {
+    const at = now();
+    const updated: CollegiumInitiative = {
+      ...initiative,
+      card,
+      workflow,
+      revision: initiative.revision + 1,
+      updatedAt: at.toISOString(),
+    };
+    await repository.update(updated, initiative.revision);
+    const effectSnapshot = snapshotCollegiumEffectControl(workflow);
+    await repository.insertRevision(initiative.id, {
+      id: randomUUID(),
+      revision: updated.revision,
+      createdAt: at,
+      authorDisplayName: profile.displayName,
+      status: initiative.status,
+      changedFields,
+      reason,
+      comment,
+      card,
+      ...(effectSnapshot === undefined ? {} : { effectSnapshot }),
+    });
+    await recordAudit(profile, "collegium_initiative.update", updated, `${summary}: инициатива ${updated.number}`);
+    return updated;
+  }
+
+  async function lockForControl(profile: ServerUserProfile, id: string, revision: unknown) {
+    const found = await requireInitiative(profile, id, true);
+    if (found.initiative.revision !== revision) {
+      throw new CollegiumInitiativeError("Инициатива уже изменена. Обновите карточку.", 409);
+    }
+    return found;
   }
 
   function requirePassport(gaps: readonly string[]) {
@@ -312,7 +432,10 @@ export function createCollegiumInitiativesService({
    * исполнителем или владельцем: исполнитель не подтверждает свой эффект.
    */
   async function assertIndependentConfirmer(initiative: CollegiumInitiative, userId: string) {
-    const accountId = collegiumAccountId(userId);
+    return assertIndependentAccount(initiative, collegiumAccountId(userId));
+  }
+
+  async function assertIndependentAccount(initiative: CollegiumInitiative, accountId: string) {
     const revisions = await repository.listRevisions(initiative.id);
     const admittedAt = Math.min(
       ...revisions.filter((revision) => revision.event?.action === "admit").map((revision) => revision.revision),
@@ -425,6 +548,7 @@ export function createCollegiumInitiativesService({
       passportGaps: passport.gaps,
       canEditPassport: canEditCollegiumPassport(initiative, profile, permissions),
       effectDuplicates: await findVisibleDuplicates(profile, permissions, initiative),
+      effectControl: buildEffectControl(initiative, profile, permissions),
     };
   }
 
@@ -536,10 +660,22 @@ export function createCollegiumInitiativesService({
         } else if (initiative.status === "result_confirmation" && actions.includes("confirm_effect")) {
           try {
             await assertIndependentConfirmer(initiative, profile.userId);
-            add("Подтвердите фактический эффект");
+            const role = readCollegiumSignerRole(initiative, accountId)!;
+            const unsigned = buildCollegiumEffectControlRows(initiative).some((row) =>
+              row.fact !== undefined &&
+              row.fact.recordedByUserId !== profile.userId &&
+              (row.fact.verdicts[role]?.factVersion !== row.fact.version || row.fact.verdicts[role]?.byAccountId !== accountId));
+            if (unsigned) add("Подпишите факты по эффекту");
+            else if (listCollegiumVerdictGaps(initiative).length === 0) add("Примите решение по эффекту");
           } catch (error) {
             if (!(error instanceof CollegiumInitiativeError)) throw error;
           }
+        } else if (
+          permissions.canManage &&
+          (initiative.status === "in_progress" || initiative.status === "result_confirmation") &&
+          (initiative.workflow.verifiers?.financialId ?? "") === ""
+        ) {
+          add("Назначьте финансового верификатора");
         } else if (
           initiative.status === "in_progress" &&
           overdue.has(initiative.id) &&
@@ -695,6 +831,214 @@ export function createCollegiumInitiativesService({
       });
     },
 
+    /**
+     * Роли контроля эффекта (секретарь): контролёр эффекта, технический и
+     * финансовый верификаторы. Подписывают разные люди, не владелец и не
+     * исполнитель после допуска; смена роли снимает её подписи и заключение.
+     */
+    async assignControlRoles(profile: ServerUserProfile, id: string, body: unknown, outbox?: CollegiumOutbox) {
+      const record = readControlBody(body, ["effectControllerId", "technicalId", "financialId", "reason"]);
+      const reason = readCollegiumOptionalText(record.reason, maxReasonLength, "Причина изменения");
+      const ids = Object.fromEntries((["effectControllerId", "technicalId", "financialId"] as const).map((key) => {
+        const value = readCollegiumOptionalText(record[key], 120, "Роль");
+        if (value !== "" && !/^account:[A-Za-z0-9_-]{1,100}$/u.test(value)) {
+          throw new CollegiumInitiativeError("Выберите действующую учётную запись.");
+        }
+        return [key, value];
+      })) as Record<"effectControllerId" | "technicalId" | "financialId", string>;
+      if (ids.effectControllerId === "" || ids.financialId === "") {
+        throw new CollegiumInitiativeError("Назначьте контролёра эффекта и финансового верификатора.");
+      }
+      if (ids.effectControllerId === ids.financialId) {
+        throw new CollegiumInitiativeError("Контролёр эффекта и финансовый верификатор должны быть разными людьми.");
+      }
+      return transaction.run(async () => {
+        const { initiative, permissions } = await lockForControl(profile, id, record.revision);
+        if (!permissions.canManage) throw new CollegiumInitiativeError("Роли контроля назначает секретарь Коллегии.", 403);
+        if (!controlRoleStatuses.includes(initiative.status)) {
+          throw new CollegiumInitiativeError("Роли контроля назначаются после решения Коллегии.", 409);
+        }
+        const previous = initiative.workflow.verifiers;
+        const changed = {
+          controller: ids.effectControllerId !== initiative.card.effectControllerId,
+          technical: ids.technicalId !== (previous?.technicalId ?? ""),
+          financial: ids.financialId !== (previous?.financialId ?? ""),
+        };
+        if (!changed.controller && !changed.technical && !changed.financial) return initiative;
+        if (reason === "") throw new CollegiumInitiativeError("Укажите причину изменения.");
+        for (const accountId of [ids.effectControllerId, ids.technicalId, ids.financialId]) {
+          if (accountId === "") continue;
+          const person = await repository.readPerson(accountId, true);
+          if (person === undefined || !person.hasInitiativesTab) {
+            throw new CollegiumInitiativeError("Роли контроля — действующие аккаунты с вкладкой инициатив.");
+          }
+        }
+        for (const accountId of [ids.effectControllerId, ids.financialId]) {
+          if (accountId === initiative.card.ownerId || accountId === initiative.card.executorId) {
+            throw new CollegiumInitiativeError("Владелец или исполнитель не проверяет собственный эффект.");
+          }
+          await assertIndependentAccount(initiative, accountId);
+        }
+        const workflow = { ...initiative.workflow };
+        workflow.verifiers = {
+          technicalId: ids.technicalId,
+          financialId: ids.financialId,
+          assignedByDisplayName: profile.displayName,
+          assignedAt: now().toISOString(),
+        };
+        if (workflow.verification !== undefined) {
+          const verification = { ...workflow.verification };
+          if (changed.technical) delete verification.technical;
+          if (changed.financial) delete verification.financial;
+          workflow.verification = verification;
+        }
+        if (workflow.effectFacts !== undefined && (changed.controller || changed.financial)) {
+          workflow.effectFacts = Object.fromEntries(Object.entries(workflow.effectFacts).map(([effectId, fact]) => {
+            const verdicts = { ...fact.verdicts };
+            if (changed.controller) delete verdicts.controller;
+            if (changed.financial) delete verdicts.financial;
+            return [effectId, { ...fact, verdicts }];
+          }));
+        }
+        const card = { ...initiative.card, effectControllerId: ids.effectControllerId };
+        const updated = await saveControlChange({
+          profile,
+          initiative,
+          card,
+          workflow,
+          changedFields: changed.controller ? ["effectControllerId"] : [],
+          reason,
+          summary: "Назначены роли контроля эффекта",
+        });
+        outbox?.push(...buildControlRoleNotifications(updated, {
+          controller: changed.controller ? ids.effectControllerId : "",
+          technical: changed.technical ? ids.technicalId : "",
+          financial: changed.financial ? ids.financialId : "",
+        }, profile.userId));
+        return updated;
+      });
+    },
+
+    /** Заключение технического или финансового верификатора — только назначенного. */
+    async recordConclusion(profile: ServerUserProfile, id: string, body: unknown) {
+      const record = readControlBody(body, ["role", "text"]);
+      if (!(collegiumVerifierRoles as readonly unknown[]).includes(record.role)) {
+        throw new CollegiumInitiativeError("Выберите роль верификатора.");
+      }
+      const role = record.role as CollegiumVerifierRole;
+      const text = readCollegiumOptionalText(record.text, maxFactTextLength, "Заключение");
+      if (text === "") throw new CollegiumInitiativeError("Напишите заключение.");
+      return transaction.run(async () => {
+        const { initiative } = await lockForControl(profile, id, record.revision);
+        const assigned = initiative.workflow.verifiers?.[role === "technical" ? "technicalId" : "financialId"] ?? "";
+        if (assigned === "" || assigned !== collegiumAccountId(profile.userId)) {
+          throw new CollegiumInitiativeError("Заключение вносит назначенный верификатор.", 403);
+        }
+        if (!conclusionStatuses.includes(initiative.status)) {
+          throw new CollegiumInitiativeError("Заключение сейчас внести нельзя.", 409);
+        }
+        const signature = { byAccountId: assigned, byDisplayName: profile.displayName, at: now().toISOString() };
+        return saveControlChange({
+          profile,
+          initiative,
+          workflow: {
+            ...initiative.workflow,
+            verification: { ...initiative.workflow.verification, [role]: { ...signature, text } },
+          },
+          reason: `Заключение: ${collegiumVerifierRoleLabels[role].toLocaleLowerCase("ru-RU")}`,
+          comment: text,
+          summary: "Внесено заключение верификатора",
+        });
+      });
+    },
+
+    /** Факт по эффекту (ТЗ 11.1); новая версия снимает подписи. */
+    async recordEffectFact(profile: ServerUserProfile, id: string, effectId: string, body: unknown) {
+      const record = readControlBody(body, ["actualAmount", "period", "sources", "calculation"]);
+      const actualAmount = readCollegiumSignedAmount(record.actualAmount, "Фактический эффект в год");
+      const period = readCollegiumOptionalText(record.period, 250, "Период");
+      const sources = readCollegiumOptionalText(record.sources, 1000, "Источники");
+      const calculation = readCollegiumOptionalText(record.calculation, maxFactTextLength, "Расчёт");
+      if (actualAmount === "" || period === "" || sources === "") {
+        throw new CollegiumInitiativeError("Укажите фактический эффект в год, период и источники.");
+      }
+      return transaction.run(async () => {
+        const { initiative, permissions } = await lockForControl(profile, id, record.revision);
+        if (!canRecordResult(initiative, profile, permissions)) {
+          throw new CollegiumInitiativeError("Факт вносят владелец, исполнитель или секретарь в ходе реализации.", 403);
+        }
+        const effect = listCollegiumPlannedEffects(initiative).find((item) => item.id === effectId);
+        if (effect === undefined) throw new CollegiumInitiativeError("Плановый эффект не найден.", 404);
+        const previous = initiative.workflow.effectFacts?.[effectId];
+        const fact: CollegiumEffectFact = {
+          actualAmount,
+          period,
+          sources,
+          calculation,
+          version: (previous?.version ?? 0) + 1,
+          recordedByUserId: profile.userId,
+          recordedByDisplayName: profile.displayName,
+          recordedAt: now().toISOString(),
+          verdicts: {},
+        };
+        return saveControlChange({
+          profile,
+          initiative,
+          workflow: { ...initiative.workflow, effectFacts: { ...initiative.workflow.effectFacts, [effectId]: fact } },
+          reason: `Факт по эффекту: ${effect.label}`,
+          summary: "Внесён факт по эффекту",
+        });
+      });
+    },
+
+    /** Подпись контролёра эффекта или финансового верификатора под версией факта. */
+    async recordEffectVerdict(profile: ServerUserProfile, id: string, effectId: string, body: unknown) {
+      const record = readControlBody(body, ["factVersion", "verdict", "comment"]);
+      if (record.verdict !== "confirmed" && record.verdict !== "not_confirmed") {
+        throw new CollegiumInitiativeError("Выберите: подтверждаю или не подтверждаю.");
+      }
+      const verdict = record.verdict;
+      const comment = readCollegiumOptionalText(record.comment, maxCommentLength, "Комментарий");
+      if (verdict === "not_confirmed" && comment === "") {
+        throw new CollegiumInitiativeError("Поясните, почему эффект не подтверждён.");
+      }
+      return transaction.run(async () => {
+        const { initiative, permissions } = await lockForControl(profile, id, record.revision);
+        if (initiative.status !== "result_confirmation") {
+          throw new CollegiumInitiativeError("Подписи ставятся на этапе подтверждения результата.", 409);
+        }
+        const accountId = collegiumAccountId(profile.userId);
+        const role = permissions.canView ? readCollegiumSignerRole(initiative, accountId) : undefined;
+        if (role === undefined) {
+          throw new CollegiumInitiativeError("Подписывают контролёр эффекта и финансовый верификатор.", 403);
+        }
+        await assertIndependentConfirmer(initiative, profile.userId);
+        const fact = initiative.workflow.effectFacts?.[effectId];
+        if (fact === undefined) throw new CollegiumInitiativeError("По эффекту ещё нет факта.", 409);
+        if (fact.version !== record.factVersion) {
+          throw new CollegiumInitiativeError("Факт изменён. Обновите карточку и проверьте новую версию.", 409);
+        }
+        if (fact.recordedByUserId === profile.userId) {
+          throw new CollegiumInitiativeError("Автор факта не подписывает его.", 403);
+        }
+        const signed: CollegiumEffectFact = {
+          ...fact,
+          verdicts: {
+            ...fact.verdicts,
+            [role]: { byAccountId: accountId, byDisplayName: profile.displayName, at: now().toISOString(), verdict, comment, factVersion: fact.version },
+          },
+        };
+        return saveControlChange({
+          profile,
+          initiative,
+          workflow: { ...initiative.workflow, effectFacts: { ...initiative.workflow.effectFacts, [effectId]: signed } },
+          reason: `${collegiumSignerRoleLabels[role]}: ${verdict === "confirmed" ? "подтверждаю" : "не подтверждаю"}`,
+          comment,
+          summary: "Подпись под эффектом",
+        });
+      });
+    },
+
     /** Полный паспорт (ТЗ 6.3): отдельная ревизия карточки с причиной и аудитом. */
     async savePassport(profile: ServerUserProfile, id: string, body: unknown) {
       const request = readSaveRequest(body, "passport");
@@ -714,6 +1058,17 @@ export function createCollegiumInitiativesService({
           reference,
           previous: initiative.card.passport,
         });
+        // Facts belong to planned effects: a measured effect cannot vanish or hide behind a new one.
+        const facts = initiative.workflow.effectFacts ?? {};
+        const removed = (initiative.card.passport?.effects ?? [])
+          .filter((effect) => facts[effect.id] !== undefined && !passport.effects.some((item) => item.id === effect.id));
+        if (removed.length > 0) {
+          throw new CollegiumInitiativeError("По удаляемому эффекту уже внесён факт.", 409);
+        }
+        if ((initiative.card.passport?.effects.length ?? 0) === 0 && passport.effects.length > 0 &&
+          facts[collegiumMainEffectId] !== undefined) {
+          throw new CollegiumInitiativeError("По эффекту экспресс-карты уже внесён факт: описывать эффекты поздно.", 409);
+        }
         // A possible double count is saved only with an explanation (ТЗ 11.2).
         const unexplained = (await findVisibleDuplicates(profile, permissions, { ...initiative, card: { ...initiative.card, passport } }))
           .filter((duplicate) =>
@@ -792,16 +1147,41 @@ export function createCollegiumInitiativesService({
         }
         if (request.action === "confirm_effect" || request.action === "reject_effect") {
           await assertIndependentConfirmer(initiative, profile.userId);
+          const gaps = listCollegiumVerdictGaps(initiative);
+          if (gaps.length > 0) {
+            throw new CollegiumInitiativeError(`Решение по эффекту пока нельзя принять: ${gaps.join("; ")}.`, 409);
+          }
+          const confirmed = buildCollegiumConfirmedEffects(initiative);
+          const anyConfirmed = confirmed.some((effect) => effect.status === "confirmed");
+          if (request.action === "confirm_effect" && !anyConfirmed) {
+            throw new CollegiumInitiativeError("Ни один эффект не подтверждён подписями: признайте эффект неподтверждённым.", 409);
+          }
+          if (request.action === "reject_effect" && anyConfirmed) {
+            throw new CollegiumInitiativeError("Есть подтверждённые подписями эффекты: подтвердите эффект инициативы.", 409);
+          }
+          await assertReadyForClosure(initiative);
+          workflow.effectOutcome = request.action === "confirm_effect" ? "confirmed" : "unconfirmed";
+          if (request.action === "confirm_effect") {
+            workflow.effectConfirmation = {
+              confirmedByDisplayName: profile.displayName,
+              confirmedAt: changedAt.toISOString(),
+              result: initiative.workflow.result!,
+              effects: confirmed,
+            };
+          }
         }
-        if (request.action === "confirm_effect" || (request.action === "close" && initiative.status === "done_confirmed")) {
+        if (request.action === "close" && initiative.status === "done_confirmed") {
           await assertReadyForClosure(initiative);
         }
-        if (request.action === "confirm_effect") {
-          workflow.effectConfirmation = {
-            confirmedByDisplayName: profile.displayName,
-            confirmedAt: changedAt.toISOString(),
-            result: initiative.workflow.result!,
-          };
+        if (request.action === "reopen_effect") {
+          // The previous decision stays in the revision snapshot; signatures start over.
+          delete workflow.effectConfirmation;
+          delete workflow.effectOutcome;
+          delete workflow.verification;
+          if (workflow.effectFacts !== undefined) {
+            workflow.effectFacts = Object.fromEntries(Object.entries(workflow.effectFacts)
+              .map(([effectId, fact]) => [effectId, { ...fact, verdicts: {} }]));
+          }
         }
         if (request.action === "resume") delete workflow.suspendedFrom;
         if (request.rework !== undefined) {

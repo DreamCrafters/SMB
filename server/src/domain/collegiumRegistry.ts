@@ -8,7 +8,8 @@ import {
   type CollegiumInitiativeStage,
   type CollegiumInitiativeStatus,
 } from "../contracts/collegiumInitiatives.js";
-import { calculateCollegiumEconomics } from "./collegiumEconomics.js";
+import { calculateCollegiumEconomics, fromKopecks } from "./collegiumEconomics.js";
+import { readCollegiumConfirmedKopecks, readCollegiumPlannedKopecks } from "./collegiumEffectControl.js";
 import { CollegiumInitiativeError, readCollegiumAmount } from "./collegiumInitiative.js";
 
 const maxTextFilterLength = 120;
@@ -127,12 +128,11 @@ export function filterCollegiumInitiatives(
     ) return false;
     if (filters.effectTypeCode !== undefined && !card.effectTypeCodes.includes(filters.effectTypeCode)) return false;
     if (!inRange(card.oneTimeCostAmount, filters.costMin, filters.costMax)) return false;
-    if (!inRange(card.expectedEffectAmount, filters.plannedEffectMin, filters.plannedEffectMax)) return false;
-    if (!inRange(
-      initiative.workflow.result?.actualEffectAmount ?? "",
-      filters.actualEffectMin,
-      filters.actualEffectMax,
-    )) return false;
+    // Planned is the annual sum of effects with shares; actual is the confirmed snapshot.
+    const planned = readCollegiumPlannedKopecks(initiative);
+    if (!inRange(planned === undefined ? "" : fromKopecks(planned), filters.plannedEffectMin, filters.plannedEffectMax)) return false;
+    const confirmed = readCollegiumConfirmedKopecks(initiative);
+    if (!inRange(confirmed === undefined ? "" : fromKopecks(confirmed), filters.actualEffectMin, filters.actualEffectMax)) return false;
     if (
       filters.meetingId !== undefined &&
       !(context.meetingInitiativeIds.get(filters.meetingId)?.has(initiative.id) ?? false)

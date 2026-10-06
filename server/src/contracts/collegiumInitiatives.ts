@@ -497,6 +497,8 @@ export type CollegiumInitiativeRevision = {
   card: CollegiumInitiativeCard;
   /** Смена статуса; правка карточки события не имеет. */
   event?: CollegiumInitiativeEvent;
+  /** Контроль эффекта на момент ревизии; в ревизиях до среза 10 отсутствует. */
+  effectSnapshot?: CollegiumEffectSnapshot;
 };
 
 export type CollegiumInitiativePermissions = {
@@ -585,6 +587,7 @@ export type CollegiumInitiativeDetailResponse = {
   canEditPassport: boolean;
   /** Похожие эффекты видимых инициатив. */
   effectDuplicates: CollegiumEffectDuplicate[];
+  effectControl: CollegiumEffectControl;
 };
 
 export type CollegiumInitiativeSaveRequest = {
@@ -653,6 +656,7 @@ export const collegiumInitiativeActions = [
   "confirm_effect",
   "reject_effect",
   "close",
+  "reopen_effect",
 ] as const;
 
 export type CollegiumInitiativeAction =
@@ -675,6 +679,7 @@ export const collegiumInitiativeActionLabels: Record<
   confirm_effect: "Подтвердить эффект",
   reject_effect: "Эффект не подтверждён",
   close: "Закрыть инициативу",
+  reopen_effect: "Корректировка эффекта",
 };
 
 /** Действия, для которых комментарий обязателен (ТЗ 5.2). */
@@ -685,6 +690,7 @@ export const collegiumActionsRequiringComment: readonly CollegiumInitiativeActio
   "board_suspend",
   "board_reject",
   "reject_effect",
+  "reopen_effect",
 ];
 
 export type CollegiumReworkRequest = {
@@ -715,7 +721,17 @@ export type CollegiumInitiativeWorkflow = {
     confirmedByDisplayName: string;
     confirmedAt: string;
     result: CollegiumInitiativeResult;
+    /** Срез 10: подтверждённые эффекты; без него — прежняя сумма `result`. */
+    effects?: CollegiumConfirmedEffect[];
   };
+  /** Итог проверки эффекта; остаётся после закрытия для корректировки. */
+  effectOutcome?: "confirmed" | "unconfirmed";
+  /** Технический и финансовый верификаторы (`account:<userId>`). */
+  verifiers?: CollegiumVerifiers;
+  /** Заключения верификаторов. */
+  verification?: Partial<Record<CollegiumVerifierRole, CollegiumSignature & { text: string }>>;
+  /** Факты по ID планового эффекта. */
+  effectFacts?: Record<string, CollegiumEffectFact>;
   /** Текущий вопрос повестки, пока инициатива `on_agenda`/`in_discussion`. */
   agenda?: { meetingId: string; meetingNumber: string; itemId: string };
   lastDecision?: CollegiumInitiativeLastDecision;
@@ -724,6 +740,105 @@ export type CollegiumInitiativeWorkflow = {
     requestedAt: string;
   };
 };
+
+export const collegiumVerifierRoles = ["technical", "financial"] as const;
+export type CollegiumVerifierRole = (typeof collegiumVerifierRoles)[number];
+export const collegiumVerifierRoleLabels: Record<CollegiumVerifierRole, string> = {
+  technical: "Технический верификатор",
+  financial: "Финансовый верификатор",
+};
+
+export type CollegiumVerifiers = {
+  technicalId: string;
+  financialId: string;
+  assignedByDisplayName: string;
+  assignedAt: string;
+};
+
+export type CollegiumSignature = {
+  byAccountId: string;
+  byDisplayName: string;
+  at: string;
+};
+
+/** Подписи эффекта: контролёр эффекта и финансовый верификатор. */
+export const collegiumSignerRoles = ["controller", "financial"] as const;
+export type CollegiumSignerRole = (typeof collegiumSignerRoles)[number];
+export const collegiumSignerRoleLabels: Record<CollegiumSignerRole, string> = {
+  controller: "Контролёр эффекта",
+  financial: "Финансовый верификатор",
+};
+
+export type CollegiumVerdict = CollegiumSignature & {
+  verdict: "confirmed" | "not_confirmed";
+  comment: string;
+  /** Версия факта, которую видел подписавший. */
+  factVersion: number;
+};
+
+export type CollegiumEffectFactInput = {
+  /** Фактический эффект, ₽ в год. */
+  actualAmount: string;
+  period: string;
+  sources: string;
+  calculation: string;
+};
+
+export type CollegiumEffectFact = CollegiumEffectFactInput & {
+  version: number;
+  recordedByUserId: string;
+  recordedByDisplayName: string;
+  recordedAt: string;
+  verdicts: Partial<Record<CollegiumSignerRole, CollegiumVerdict>>;
+};
+
+export const collegiumEffectStatuses = ["not_checked", "in_review", "confirmed", "not_confirmed"] as const;
+export type CollegiumEffectStatus = (typeof collegiumEffectStatuses)[number];
+export const collegiumEffectStatusLabels: Record<CollegiumEffectStatus, string> = {
+  not_checked: "Не проверено",
+  in_review: "На проверке",
+  confirmed: "Подтверждено",
+  not_confirmed: "Не подтверждено",
+};
+
+/** Эффект в снимке подтверждения: план и факт ₽ в год, доля в базисных пунктах. */
+export type CollegiumConfirmedEffect = {
+  effectId: string;
+  label: string;
+  plannedAnnual: string;
+  actualAmount: string;
+  status: "confirmed" | "not_confirmed";
+  shareBp: number;
+  verdicts: Partial<Record<CollegiumSignerRole, CollegiumVerdict>>;
+};
+
+/** Строка контроля эффекта в карточке (ТЗ 11.1), считается сервером. */
+export type CollegiumEffectControlRow = {
+  effectId: string;
+  label: string;
+  plannedAnnual: string;
+  fact?: CollegiumEffectFact;
+  status: CollegiumEffectStatus;
+  /** Отклонение факта от плана, ₽ и % (один знак), пусто — нет факта или плана. */
+  deviationAmount: string;
+  deviationPercent: string;
+};
+
+export type CollegiumEffectControl = {
+  rows: CollegiumEffectControlRow[];
+  canRecordFacts: boolean;
+  /** Роль, в которой текущий пользователь может подписать, если может. */
+  signerRole?: CollegiumSignerRole;
+  canAssignRoles: boolean;
+  /** Роль верификатора текущего пользователя для заключения. */
+  verifierRole?: CollegiumVerifierRole;
+};
+
+/** Снимок контроля эффекта в ревизии события (ТЗ 16). */
+export type CollegiumEffectSnapshot = Pick<
+  CollegiumInitiativeWorkflow,
+  "effectFacts" | "verifiers" | "verification" | "effectConfirmation" | "effectOutcome"
+>;
 
 export type CollegiumInitiativeEvent = {
   action: CollegiumInitiativeAction | CollegiumAgendaEvent;

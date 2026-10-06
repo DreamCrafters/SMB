@@ -39,6 +39,7 @@ const detailExtras = {
   passportGaps: ["Затраты: CAPEX, разовые и постоянные OPEX"],
   canEditPassport: false,
   effectDuplicates: [],
+  effectControl: { rows: [], canRecordFacts: false, canAssignRoles: false },
 };
 
 function buildInitiative(card) {
@@ -607,6 +608,59 @@ test("the owner fills the full passport of a pilot from the card", async () => {
     assert.deepEqual(puts[0].passport.overrides, { roiPercent: { value: "25", explanation: "" } });
     await waitFor(React, () => container.querySelector(".collegium-passport") !== null);
     assert.match(container.querySelector(".collegium-passport").textContent, /Две смены/u);
+  } finally {
+    await view.cleanup();
+  }
+});
+
+test("the effect controller signs the latest fact version from the card", async () => {
+  const fact = {
+    actualAmount: "950000.00", period: "2026", sources: "ОТК", calculation: "", version: 3,
+    recordedByUserId: "owner", recordedByDisplayName: "Владелец", recordedAt: "2026-10-05T09:00:00.000Z", verdicts: {},
+  };
+  const stored = {
+    ...buildInitiative({ title: "Эффект на проверке", effectControllerId: "account:author" }),
+    status: "result_confirmation", revision: 9,
+    workflow: { verifiers: { technicalId: "", financialId: "account:owner", assignedAt: "", assignedByDisplayName: "" }, effectFacts: { main: fact } },
+  };
+  const verdicts = [];
+  const view = await renderWorkspace(
+    { canView: true, canParticipate: true, canManage: false, canApprove: false },
+    async (url, init, permissions) => {
+      if (url.pathname === "/api/collegium-initiatives") {
+        return [{ initiatives: [stored], people, reference, permissions, meetings: [], overdueIds: [] }];
+      }
+      if (url.pathname === "/api/collegium-initiatives/initiative-1/effects/main/verdict") {
+        verdicts.push(JSON.parse(init.body));
+        return [{ initiative: stored }];
+      }
+      if (url.pathname === "/api/collegium-initiatives/initiative-1") {
+        return [{
+          initiative: stored, revisions: [], comments: [], attachments: [], canAttach: false, canEdit: false,
+          canComment: false, canResolveComments: false, actions: ["confirm_effect", "reject_effect"], missingAdmissionFields: [],
+          linkedAssignments: [], summaryStatus: "awaiting_confirmation", canCreateAssignments: false, canRecordResult: false,
+          ...detailExtras,
+          effectControl: {
+            rows: [{ effectId: "main", label: "Эффект экспресс-карты", plannedAnnual: "1200000.00", fact, status: "in_review", deviationAmount: "-250000.00", deviationPercent: "-20.8" }],
+            canRecordFacts: false, canAssignRoles: false, signerRole: "controller",
+          },
+        }];
+      }
+      throw new Error(`Unexpected request: ${url.pathname}`);
+    },
+  );
+  const { React, container } = view;
+  try {
+    await waitFor(React, () => container.querySelector(".collegium-initiatives-table") !== null);
+    await React.act(async () => findButtonByText(container, "И-2026-0001").click());
+    await waitFor(React, () => container.querySelector(".collegium-effect-table") !== null);
+    const table = container.querySelector(".collegium-effect-table");
+    assert.match(table.textContent, /−250\s000,00\s₽ \(−20,8 %\)/u);
+    assert.match(table.textContent, /версия 3/u);
+    assert.match(table.textContent, /Контролёр эффекта: нет; Финансовый верификатор: нет/u);
+    await React.act(async () => findButtonByText(container, "Подтверждаю").click());
+    await waitFor(React, () => verdicts.length === 1);
+    assert.deepEqual(verdicts[0], { revision: 9, factVersion: 3, verdict: "confirmed", comment: "" });
   } finally {
     await view.cleanup();
   }

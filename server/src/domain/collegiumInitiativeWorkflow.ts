@@ -23,6 +23,7 @@ import {
   isOwnCollegiumInitiative,
   readCollegiumOptionalText,
 } from "./collegiumInitiative.js";
+import { readCollegiumSignerRole } from "./collegiumEffectControl.js";
 
 const maxActionCommentLength = 2000;
 const maxRemarks = 20;
@@ -183,25 +184,30 @@ const actionRules: Record<CollegiumInitiativeAction, ActionRule> = {
       permissions.canManage || (permissions.canParticipate && isResultReporter(initiative, userId)),
     to: () => "result_confirmation",
   },
-  // Who confirmed earlier as executor or owner is re-checked by the service on history.
+  // Only the two signers decide; independence and signatures are re-checked by the service.
   confirm_effect: {
     from: ["result_confirmation"],
     isAllowed: (initiative, userId, permissions) =>
-      permissions.canApprove ||
-      (permissions.canView && initiative.card.effectControllerId === collegiumAccountId(userId)),
+      permissions.canView && readCollegiumSignerRole(initiative, collegiumAccountId(userId)) !== undefined,
     to: () => "done_confirmed",
   },
   reject_effect: {
     from: ["result_confirmation"],
     isAllowed: (initiative, userId, permissions) =>
-      permissions.canApprove ||
-      (permissions.canView && initiative.card.effectControllerId === collegiumAccountId(userId)),
+      permissions.canView && readCollegiumSignerRole(initiative, collegiumAccountId(userId)) !== undefined,
     to: () => "done_unconfirmed",
   },
   close: {
     from: ["done_confirmed", "done_unconfirmed", "rejected"],
     isAllowed: (_initiative, _userId, permissions) => permissions.canManage,
     to: () => "closed",
+  },
+  // ТЗ 16: a checked effect changes only through a correction with a reason.
+  reopen_effect: {
+    from: ["done_confirmed", "done_unconfirmed", "closed"],
+    isAllowed: (initiative, _userId, permissions) =>
+      permissions.canApprove && initiative.workflow.effectOutcome !== undefined,
+    to: () => "result_confirmation",
   },
 };
 
@@ -370,8 +376,8 @@ export function readCollegiumResultInput(input: unknown, readAmount: (value: str
 
 export function listCollegiumResultGaps(result: CollegiumInitiativeResultInput | undefined) {
   return [
+    // The amount now comes from the effect facts.
     ["Фактический результат", result?.description],
-    ["Фактический финансовый эффект", result?.actualEffectAmount],
     ["Источник подтверждения", result?.source],
     ["Вывод: достигнут / частично / не достигнут", result?.conclusion],
   ].filter(([, value]) => value === undefined || value === "").map(([label]) => label as string);

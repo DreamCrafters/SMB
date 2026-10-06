@@ -80,7 +80,7 @@ function completeCard(title: string) {
 }
 
 function createHarness() {
-  const people: CollegiumPerson[] = ["author", "owner", "secretary", "chair"].map((userId) => ({
+  const people: CollegiumPerson[] = ["author", "owner", "secretary", "chair", "finance"].map((userId) => ({
     id: `account:${userId}`,
     displayName: `ФИО ${userId}`,
     position: "Член Коллегии",
@@ -439,8 +439,9 @@ test("assignments move an approved initiative into implementation and back to th
   );
 });
 
-test("effect confirmation needs an independent controller, a full result and closed assignments", async () => {
+test("two independent signatures confirm the effect facts; the chair corrects with a reason", async () => {
   const { memory, initiatives, approvedInitiative, addAssignment, linkedAssignments } = createHarness();
+  const finance = profile("finance", "view");
   const approved = await approvedInitiative("Подтверждение эффекта");
   const assignment = addAssignment(approved.id, "in_progress");
   await initiatives.assignmentLinks.recordAssignmentCreated(assignmentController, approved.id, assignment);
@@ -448,44 +449,89 @@ test("effect confirmation needs an independent controller, a full result and clo
 
   // Owner and executor report; outsiders cannot.
   await assert.rejects(
-    initiatives.recordResult(profile("chair", "participant"), approved.id, { revision: current.revision, description: "x" }),
+    initiatives.recordEffectFact(profile("chair", "participant"), approved.id, "main", { revision: current.revision, actualAmount: "1", period: "x", sources: "x" }),
     (error) => error instanceof CollegiumInitiativeError && error.status === 403,
   );
   current = await initiatives.recordResult(author, approved.id, {
     revision: current.revision,
     description: "Потери снизились до 1,4 %",
-    actualEffectAmount: "950 000",
-    source: "",
-    conclusion: "partial",
-  });
-  assert.equal(current.workflow.result?.actualEffectAmount, "950000.00");
-  current = await initiatives.act(owner, approved.id, { action: "complete_work", revision: current.revision });
-  assert.equal(current.status, "result_confirmation");
-
-  // The executor never confirms its own effect.
-  await assert.rejects(
-    initiatives.act(author, approved.id, { action: "confirm_effect", revision: current.revision }),
-    (error) => error instanceof CollegiumInitiativeError && error.status === 403,
-  );
-  await assert.rejects(
-    initiatives.act(chair, approved.id, { action: "confirm_effect", revision: current.revision }),
-    /Незавершённые поручения: К-1; Источник подтверждения/u,
-  );
-  linkedAssignments[0] = { ...linkedAssignments[0], status: "completed" } as DirectorAssignment;
-  current = await initiatives.recordResult(author, approved.id, {
-    revision: current.revision,
-    description: "Потери снизились до 1,4 %",
-    actualEffectAmount: "950000",
     source: "Отчёт ОТК за ноябрь",
     conclusion: "partial",
   });
-  current = await initiatives.act(chair, approved.id, { action: "confirm_effect", revision: current.revision });
-  assert.equal(current.status, "done_confirmed");
-  assert.equal(current.workflow.effectConfirmation?.result.source, "Отчёт ОТК за ноябрь");
-  assert.equal((await initiatives.read(secretary, approved.id)).summaryStatus, "effect_confirmed");
+  current = await initiatives.recordEffectFact(author, approved.id, "main", {
+    revision: current.revision, actualAmount: "950 000", period: "ноябрь 2026 × 12", sources: "Отчёт ОТК", calculation: "Снижение потерь × себестоимость",
+  });
+  assert.equal(current.workflow.effectFacts?.main.version, 1);
+  current = await initiatives.act(owner, approved.id, { action: "complete_work", revision: current.revision });
+  assert.equal(current.status, "result_confirmation");
 
+  // The chair here is the assigned effect controller; the financial verifier is still missing.
+  await assert.rejects(
+    initiatives.act(chair, approved.id, { action: "confirm_effect", revision: current.revision }),
+    /Не назначен финансовый верификатор/u,
+  );
+  await assert.rejects(
+    initiatives.assignControlRoles(secretary, approved.id, {
+      revision: current.revision, effectControllerId: "account:chair", technicalId: "", financialId: "account:owner", reason: "Назначение",
+    }),
+    /Владелец или исполнитель/u,
+  );
+  current = await initiatives.assignControlRoles(secretary, approved.id, {
+    revision: current.revision, effectControllerId: "account:chair", technicalId: "account:secretary", financialId: "account:finance", reason: "Назначение",
+  });
+  assert.equal(current.workflow.verifiers?.financialId, "account:finance");
+  assert.ok(memory.revisions.at(-1)?.revision.effectSnapshot?.verifiers);
+
+  await assert.rejects(
+    initiatives.recordEffectVerdict(author, approved.id, "main", { revision: current.revision, factVersion: 1, verdict: "confirmed" }),
+    (error) => error instanceof CollegiumInitiativeError && error.status === 403,
+  );
+  current = await initiatives.recordEffectVerdict(chair, approved.id, "main", { revision: current.revision, factVersion: 1, verdict: "confirmed" });
+  await assert.rejects(
+    initiatives.recordEffectVerdict(finance, approved.id, "main", { revision: current.revision, factVersion: 2, verdict: "confirmed" }),
+    /Факт изменён/u,
+  );
+  await assert.rejects(
+    initiatives.recordEffectVerdict(finance, approved.id, "main", { revision: current.revision, factVersion: 1, verdict: "not_confirmed" }),
+    /Поясните/u,
+  );
+  current = await initiatives.recordEffectVerdict(finance, approved.id, "main", { revision: current.revision, factVersion: 1, verdict: "confirmed" });
+  assert.equal((await initiatives.read(finance, approved.id)).effectControl.rows[0].status, "confirmed");
+  assert.equal((await initiatives.read(finance, approved.id)).effectControl.signerRole, "financial");
+
+  await assert.rejects(
+    initiatives.act(chair, approved.id, { action: "reject_effect", revision: current.revision, comment: "Нет" }),
+    /подтвердите эффект инициативы/u,
+  );
+  await assert.rejects(
+    initiatives.act(chair, approved.id, { action: "confirm_effect", revision: current.revision }),
+    /Незавершённые поручения: К-1/u,
+  );
+  linkedAssignments[0] = { ...linkedAssignments[0], status: "completed" } as DirectorAssignment;
+  current = await initiatives.act(finance, approved.id, { action: "confirm_effect", revision: current.revision });
+  assert.equal(current.status, "done_confirmed");
+  assert.deepEqual(
+    current.workflow.effectConfirmation?.effects?.map(({ effectId, actualAmount, status, shareBp }) => [effectId, actualAmount, status, shareBp]),
+    [["main", "950000.00", "confirmed", 10000]],
+  );
+  assert.equal((await initiatives.read(secretary, approved.id)).summaryStatus, "effect_confirmed");
   current = await initiatives.act(secretary, approved.id, { action: "close", revision: current.revision });
-  assert.equal(current.status, "closed");
+
+  // A correction reopens even a closed initiative; the previous decision stays in history.
+  await assert.rejects(
+    initiatives.act(secretary, approved.id, { action: "reopen_effect", revision: current.revision, comment: "Пересчёт" }),
+    (error) => error instanceof CollegiumInitiativeError && error.status === 403,
+  );
+  await assert.rejects(
+    initiatives.act(chair, approved.id, { action: "reopen_effect", revision: current.revision }),
+    /комментарий/u,
+  );
+  current = await initiatives.act(chair, approved.id, { action: "reopen_effect", revision: current.revision, comment: "Бухгалтерия уточнила затраты" });
+  assert.equal(current.status, "result_confirmation");
+  assert.equal(current.workflow.effectConfirmation, undefined);
+  assert.deepEqual(current.workflow.effectFacts?.main.verdicts, {});
+  const confirmedRevision = memory.revisions.find(({ revision }) => revision.event?.action === "confirm_effect");
+  assert.equal(confirmedRevision?.revision.effectSnapshot?.effectConfirmation?.effects?.[0].actualAmount, "950000.00");
 });
 
 test("the chair records the board decision and a board suspension resumes to referral", async () => {
@@ -545,7 +591,7 @@ test("a protocol draft built before a decision changed cannot be approved", asyn
   assert.equal(memory.initiatives.get(ready.id)!.status, "rejected");
 });
 
-test("a chair who was the executor after admission cannot confirm the effect", async () => {
+test("the executor never signs, even as a chair; a rejected verdict ends unconfirmed", async () => {
   const { memory, initiatives, meetings, createMeeting, addAssignment } = createHarness();
   const draft = await initiatives.create(author, {
     card: { ...completeCard("Свой эффект"), executorId: "account:chair", effectControllerId: "account:secretary" },
@@ -565,14 +611,34 @@ test("a chair who was the executor after admission cannot confirm the effect", a
   initiative = await initiatives.recordResult(chair, ready.id, {
     revision: initiative.revision, description: "Сделано", actualEffectAmount: "100", source: "Отчёт", conclusion: "achieved",
   });
+  initiative = await initiatives.recordEffectFact(chair, ready.id, "main", {
+    revision: initiative.revision, actualAmount: "100", period: "2026", sources: "Отчёт",
+  });
   initiative = await initiatives.act(chair, ready.id, { action: "complete_work", revision: initiative.revision });
-  // The chair passes the role check but was the executor, so independence fails.
+  // The executor can never be a signer, even with the chair level.
+  await assert.rejects(
+    initiatives.assignControlRoles(secretary, ready.id, {
+      revision: initiative.revision, effectControllerId: "account:secretary", technicalId: "", financialId: "account:chair", reason: "x",
+    }),
+    /не проверяет собственный эффект/u,
+  );
   await assert.rejects(
     initiatives.act(chair, ready.id, { action: "confirm_effect", revision: initiative.revision }),
-    /не подтверждает собственный эффект/u,
+    (error) => error instanceof CollegiumInitiativeError && error.status === 403,
   );
-  const confirmed = await initiatives.act(secretary, ready.id, { action: "confirm_effect", revision: initiative.revision });
-  assert.equal(confirmed.status, "done_confirmed");
+  initiative = await initiatives.assignControlRoles(secretary, ready.id, {
+    revision: initiative.revision, effectControllerId: "account:secretary", technicalId: "", financialId: "account:finance", reason: "Назначение",
+  });
+  const finance = profile("finance", "view");
+  initiative = await initiatives.recordEffectVerdict(secretary, ready.id, "main", { revision: initiative.revision, factVersion: 1, verdict: "not_confirmed", comment: "Нет данных" });
+  initiative = await initiatives.recordEffectVerdict(finance, ready.id, "main", { revision: initiative.revision, factVersion: 1, verdict: "confirmed" });
+  await assert.rejects(
+    initiatives.act(secretary, ready.id, { action: "confirm_effect", revision: initiative.revision }),
+    /Ни один эффект не подтверждён/u,
+  );
+  const rejected = await initiatives.act(secretary, ready.id, { action: "reject_effect", revision: initiative.revision, comment: "Эффект не доказан" });
+  assert.equal(rejected.status, "done_unconfirmed");
+  assert.equal(rejected.workflow.effectOutcome, "unconfirmed");
 });
 
 test("the registry filters on the server by meeting and overdue assignments", async () => {
@@ -652,4 +718,44 @@ test("attention lists only actions the server would accept for this user", async
   // A secretary cannot admit, but schedules ready ideas.
   assert.deepEqual(await reasons(secretary), [[ready.id, "Готова: включите в повестку заседания"]]);
   assert.deepEqual(await reasons(profile("viewer", "view")), []);
+});
+
+test("facts tie planned effects: a measured effect is not removed and roles reset their signatures", async () => {
+  const { memory, initiatives, approvedInitiative, addAssignment } = createHarness();
+  const approved = await approvedInitiative("Факты и паспорт");
+  await initiatives.assignmentLinks.recordAssignmentCreated(assignmentController, approved.id, addAssignment(approved.id, "in_progress"));
+  let current = memory.initiatives.get(approved.id)!;
+  current = await initiatives.recordEffectFact(author, approved.id, "main", {
+    revision: current.revision, actualAmount: "100", period: "2026", sources: "ОТК",
+  });
+  const effect = {
+    id: "", effectTypeCode: "cost_saving", directionCode: "", kpiCode: "", siteCode: "", baselineValue: "3 %",
+    baselinePeriod: "2026", targetValue: "", annualAmount: "1000", method: "", measurementStart: "2026-11-01",
+    measurementEnd: "", confirmationPeriod: "", confirmationPeriodNote: "", notDuplicateExplanation: "",
+  };
+  await assert.rejects(
+    initiatives.savePassport(secretary, approved.id, { revision: current.revision, reason: "x", passport: { effects: [effect] } }),
+    /поздно/u,
+  );
+  await assert.rejects(
+    initiatives.recordEffectFact(author, approved.id, "missing", { revision: current.revision, actualAmount: "1", period: "x", sources: "x" }),
+    (error) => error instanceof CollegiumInitiativeError && error.status === 404,
+  );
+  current = await initiatives.act(owner, approved.id, { action: "complete_work", revision: current.revision });
+  current = await initiatives.assignControlRoles(secretary, approved.id, {
+    revision: current.revision, effectControllerId: "account:chair", technicalId: "", financialId: "account:finance", reason: "Назначение",
+  });
+  current = await initiatives.recordEffectVerdict(chair, approved.id, "main", { revision: current.revision, factVersion: 1, verdict: "confirmed" });
+  // Replacing the effect controller drops that role's signature only.
+  current = await initiatives.assignControlRoles(secretary, approved.id, {
+    revision: current.revision, effectControllerId: "account:secretary", technicalId: "", financialId: "account:finance", reason: "Замена",
+  });
+  assert.deepEqual(current.workflow.effectFacts?.main.verdicts, {});
+  assert.equal(current.card.effectControllerId, "account:secretary");
+  assert.deepEqual(memory.revisions.at(-1)?.revision.changedFields, ["effectControllerId"]);
+  // A new fact version clears signatures; the author of a fact never signs it.
+  await assert.rejects(
+    initiatives.recordEffectVerdict(profile("author", "secretary"), approved.id, "main", { revision: current.revision, factVersion: 1, verdict: "confirmed" }),
+    (error) => error instanceof CollegiumInitiativeError && error.status === 403,
+  );
 });

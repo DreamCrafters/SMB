@@ -6,7 +6,8 @@ import {
   type CollegiumMeeting,
   type CollegiumReference,
 } from "../contracts/collegiumInitiatives.js";
-import { fromKopecks, toKopecks as toKopecksValue } from "./collegiumEconomics.js";
+import { fromKopecks } from "./collegiumEconomics.js";
+import { readCollegiumConfirmedKopecks, readCollegiumPlannedKopecks } from "./collegiumEffectControl.js";
 import type { DirectorAssignment } from "../contracts/directorAssignments.js";
 
 /** Одобренные и реализуемые: их ожидаемый эффект — плановый эффект портфеля. */
@@ -35,16 +36,18 @@ const activeStatuses: readonly CollegiumInitiativeStatus[] = [
 
 const topLimit = 10;
 
-function toKopecks(value: string | undefined) {
-  return toKopecksValue(value ?? "");
-}
 
 function ref(initiative: CollegiumInitiative) {
   return { id: initiative.id, number: initiative.number, title: initiative.card.title };
 }
 
+/** Плановый эффект ₽ в год по эффектам с долями (одна функция для всех отчётов). */
+function plannedOf(initiative: CollegiumInitiative) {
+  return readCollegiumPlannedKopecks(initiative);
+}
+
 function compareEffect(left: CollegiumInitiative, right: CollegiumInitiative) {
-  const difference = toKopecks(right.card.expectedEffectAmount) - toKopecks(left.card.expectedEffectAmount);
+  const difference = (plannedOf(right) ?? 0n) - (plannedOf(left) ?? 0n);
   return difference === 0n ? left.number.localeCompare(right.number) : difference > 0n ? 1 : -1;
 }
 
@@ -84,15 +87,14 @@ export function buildCollegiumDashboard({
       confirmed: 0n,
     };
     if (plannedEffectStatuses.includes(initiative.status)) {
-      const value = toKopecks(initiative.card.expectedEffectAmount);
+      const value = plannedOf(initiative) ?? 0n;
       planned += value;
       entry.planned += value;
     }
-    const confirmation = initiative.workflow.effectConfirmation;
-    if (confirmation !== undefined) {
-      const value = toKopecks(confirmation.result.actualEffectAmount);
-      confirmed += value;
-      entry.confirmed += value;
+    const confirmedValue = readCollegiumConfirmedKopecks(initiative);
+    if (confirmedValue !== undefined) {
+      confirmed += confirmedValue;
+      entry.confirmed += confirmedValue;
     }
     if (entry.planned > 0n || entry.confirmed > 0n) byDirection.set(code, entry);
   }
@@ -150,12 +152,12 @@ export function buildCollegiumDashboard({
     unconfirmed: initiatives.filter((initiative) => initiative.status === "done_unconfirmed").map(ref),
     boardDecisions: initiatives.filter((initiative) => initiative.status === "board_referral").map(ref),
     topByEffect: [...active]
-      .filter((initiative) => initiative.card.expectedEffectAmount !== "")
+      .filter((initiative) => plannedOf(initiative) !== undefined)
       .sort(compareEffect)
       .slice(0, topLimit)
       .map((initiative) => ({
         ...ref(initiative),
-        expectedEffect: initiative.card.expectedEffectAmount,
+        expectedEffect: fromKopecks(plannedOf(initiative)!),
         status: initiative.status,
       })),
     // Severity is the position in the risk level list (last is highest); ties go to the larger stake.
@@ -166,7 +168,7 @@ export function buildCollegiumDashboard({
         risk: risk.text,
         levelCode: risk.levelCode,
         levelLabel: reference.risk_level.find(({ code }) => code === risk.levelCode)?.label ?? risk.levelLabel,
-        expectedEffect: initiative.card.expectedEffectAmount,
+        expectedEffect: plannedOf(initiative) === undefined ? "" : fromKopecks(plannedOf(initiative)!),
         severity: reference.risk_level.findIndex(({ code }) => code === risk.levelCode),
       })))
       .sort((left, right) => right.severity - left.severity)

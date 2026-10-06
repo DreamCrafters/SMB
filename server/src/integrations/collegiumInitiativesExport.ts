@@ -4,6 +4,7 @@ import {
   collegiumEconomicsOverrideFields,
   collegiumEconomicsOverrideLabels,
   collegiumEffectPeriodLabels,
+  collegiumEffectStatusLabels,
   collegiumPassportAmountFields,
   collegiumPassportFieldLabels,
   collegiumPassportScenarioFields,
@@ -21,7 +22,8 @@ import {
   type CollegiumYesNo,
 } from "../contracts/collegiumInitiatives.js";
 import type { DirectorAssignment } from "../contracts/directorAssignments.js";
-import { calculateCollegiumEconomics } from "../domain/collegiumEconomics.js";
+import { calculateCollegiumEconomics, fromKopecks } from "../domain/collegiumEconomics.js";
+import { buildCollegiumEffectControlRows, readCollegiumConfirmedKopecks } from "../domain/collegiumEffectControl.js";
 import { renderPdfDocument } from "./pdfRenderer.js";
 import { buildXlsxWorkbook } from "./xlsxWriter.js";
 
@@ -48,6 +50,15 @@ function money(value: string | undefined) {
   return value === undefined || value === ""
     ? ""
     : `${new Intl.NumberFormat("ru-RU", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number(value))} ₽`;
+}
+
+function confirmedRubles(initiative: CollegiumInitiative) {
+  const kopecks = readCollegiumConfirmedKopecks(initiative);
+  return kopecks === undefined ? undefined : fromKopecks(kopecks);
+}
+
+function confirmedAmount(initiative: CollegiumInitiative) {
+  return amount(confirmedRubles(initiative));
 }
 
 /** Период эффекта: подпись из списка или прежний свободный текст. */
@@ -107,7 +118,7 @@ export function buildCollegiumRegistryXlsx(
       { header: "Плановый результат", width: 13 },
       { header: "Критерий успеха", width: 30 },
       { header: "Решение Коллегии", width: 34 },
-      { header: "Фактический эффект, ₽", width: 18 },
+      { header: "Подтверждённый эффект, ₽", width: 18 },
       { header: "Вывод", width: 18 },
       { header: "Просрочка поручений", width: 12 },
       { header: "Изменена", width: 13 },
@@ -142,7 +153,7 @@ export function buildCollegiumRegistryXlsx(
         date(card.plannedResult),
         card.kpiCriterion,
         decision(initiative),
-        amount(result?.actualEffectAmount),
+        confirmedAmount(initiative),
         result?.conclusion ? collegiumResultConclusionLabels[result.conclusion] : "",
         overdueIds.has(initiative.id) ? "да" : "",
         date(initiative.updatedAt),
@@ -271,7 +282,9 @@ export async function renderCollegiumInitiativeCardPdf(
         ["Поручения", detail.linkedAssignments.map((assignment) =>
           `${assignment.number}: ${assignmentStatusLabels[assignment.status as DirectorAssignment["status"]] ?? assignment.status}, срок ${date(assignment.deadline)}`).join("\n")],
         ["Фактический результат", result?.description ?? ""],
-        ["Фактический эффект", money(result?.actualEffectAmount)],
+        ["Подтверждённый эффект", money(confirmedRubles(initiative))],
+        ["Контроль эффекта", buildCollegiumEffectControlRows(initiative).map((row) =>
+          `${row.label}: план ${money(row.plannedAnnual) || "—"}, факт ${money(row.fact?.actualAmount) || "—"}, ${collegiumEffectStatusLabels[row.status].toLocaleLowerCase("ru-RU")}`).join("\n")],
         ["Вывод", result?.conclusion ? collegiumResultConclusionLabels[result.conclusion] : ""],
         ["Подтверждение эффекта", initiative.workflow.effectConfirmation === undefined
           ? ""

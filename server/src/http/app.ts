@@ -1053,10 +1053,20 @@ export function createApiServer({
             });
             return;
           }
-          const match = /^\/api\/collegium-initiatives(?:\/([a-zA-Z0-9-]{1,100})(?:\/(actions|comments|attachments|result|passport)(?:\/([a-zA-Z0-9-]{1,100})(?:\/(resolve))?)?)?)?$/u.exec(url.pathname);
+          const match = /^\/api\/collegium-initiatives(?:\/([a-zA-Z0-9-]{1,100})(?:\/(actions|comments|attachments|result|passport|roles|verification|effects)(?:\/([a-zA-Z0-9-]{1,100})(?:\/(resolve|fact|verdict))?)?)?)?$/u.exec(url.pathname);
           if (!match) throw new CollegiumInitiativeError("Страница не найдена.", 404);
           const [, id, section, itemId, itemAction] = match;
-          if (id && section === "passport" && !itemId && req.method === "PUT") {
+          if (id && section === "roles" && !itemId && req.method === "POST") {
+            const outbox: CollegiumOutbox = [];
+            sendJson(res, 200, { initiative: await collegiumInitiatives.assignControlRoles(access.profile, id, await readJsonBody(req), outbox) });
+            await deliverCollegiumOutbox(outbox);
+          } else if (id && section === "verification" && !itemId && req.method === "POST") {
+            sendJson(res, 200, { initiative: await collegiumInitiatives.recordConclusion(access.profile, id, await readJsonBody(req)) });
+          } else if (id && section === "effects" && itemId && itemAction === "fact" && req.method === "POST") {
+            sendJson(res, 200, { initiative: await collegiumInitiatives.recordEffectFact(access.profile, id, itemId, await readJsonBody(req)) });
+          } else if (id && section === "effects" && itemId && itemAction === "verdict" && req.method === "POST") {
+            sendJson(res, 200, { initiative: await collegiumInitiatives.recordEffectVerdict(access.profile, id, itemId, await readJsonBody(req)) });
+          } else if (id && section === "passport" && !itemId && req.method === "PUT") {
             if (Number(req.headers["content-length"]) > maxCollegiumPassportBodyBytes) {
               req.resume();
               throw new CollegiumInitiativeError("Паспорт слишком большой: сократите тексты.", 413);

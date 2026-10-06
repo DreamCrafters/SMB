@@ -1,3 +1,4 @@
+import { snapshotCollegiumEffectControl } from "./collegiumEffectControl.js";
 import { randomUUID } from "node:crypto";
 import type {
   CollegiumInitiative,
@@ -34,6 +35,7 @@ export async function recordCollegiumInitiativeEvent({
   comment: string;
   at: Date;
 }) {
+  const effectSnapshot = snapshotCollegiumEffectControl(workflow);
   const updated: CollegiumInitiative = {
     ...initiative,
     status: toStatus,
@@ -53,6 +55,7 @@ export async function recordCollegiumInitiativeEvent({
     comment,
     card: initiative.card,
     event: { action, fromStatus: initiative.status, toStatus },
+    ...(effectSnapshot === undefined ? {} : { effectSnapshot }),
   });
   return updated;
 }

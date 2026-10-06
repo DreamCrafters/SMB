@@ -5,6 +5,8 @@ import {
   type CollegiumAttachment,
   type CollegiumAttentionItem,
   type CollegiumDashboard,
+  type CollegiumEffectFactInput,
+  type CollegiumVerifierRole,
   type CollegiumPassportSaveRequest,
   type CollegiumReference,
   type CollegiumReferenceCreateInput,
@@ -177,6 +179,38 @@ export async function saveCollegiumPassport(id: string, body: CollegiumPassportS
     body,
   );
   return result.initiative;
+}
+
+async function postInitiativeChange(id: string, path: string, body: unknown) {
+  const result = await request<{ initiative: CollegiumInitiative }>(
+    `${collegiumInitiativesApiPath}/${encodeURIComponent(id)}/${path}`,
+    "POST",
+    body,
+  );
+  return result.initiative;
+}
+
+export function assignCollegiumControlRoles(
+  id: string,
+  body: { revision: number; effectControllerId: string; technicalId: string; financialId: string; reason: string },
+) {
+  return postInitiativeChange(id, "roles", body);
+}
+
+export function recordCollegiumConclusion(id: string, body: { revision: number; role: CollegiumVerifierRole; text: string }) {
+  return postInitiativeChange(id, "verification", body);
+}
+
+export function recordCollegiumEffectFact(id: string, effectId: string, body: CollegiumEffectFactInput & { revision: number }) {
+  return postInitiativeChange(id, `effects/${encodeURIComponent(effectId)}/fact`, body);
+}
+
+export function recordCollegiumEffectVerdict(
+  id: string,
+  effectId: string,
+  body: { revision: number; factVersion: number; verdict: "confirmed" | "not_confirmed"; comment: string },
+) {
+  return postInitiativeChange(id, `effects/${encodeURIComponent(effectId)}/verdict`, body);
 }
 
 export async function actOnCollegiumInitiative(

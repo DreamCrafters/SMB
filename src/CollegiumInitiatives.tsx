@@ -42,6 +42,7 @@ import { CollegiumMeetingsView } from "./CollegiumMeetings";
 import { CollegiumDashboardView } from "./CollegiumDashboard";
 import { CollegiumSettingsView } from "./CollegiumSettings";
 import { EconomicsSection, PassportForm, PassportSection } from "./CollegiumPassport";
+import { EffectControlSection } from "./CollegiumEffectControl";
 import { LoadingIndicator } from "./LoadingIndicator";
 import { ManagedTable } from "./ManagedTable";
 import { TableCell, TableHeader } from "./TableCell";
@@ -211,6 +212,7 @@ export function CollegiumInitiativesWorkspace({
       ) : view.kind === "card" ? (
         <InitiativeCardView
           id={view.id}
+          userId={profile.userId}
           data={data}
           refreshVersion={refreshVersion}
           onBack={() => setView({ kind: "registry" })}
@@ -590,6 +592,7 @@ function InitiativeCardView({
   id,
   data,
   refreshVersion,
+  userId,
   onBack,
   onEdit,
   onEditPassport,
@@ -597,6 +600,7 @@ function InitiativeCardView({
   onShowToast,
 }: {
   id: string;
+  userId: string;
   data: CollegiumInitiativeListResponse;
   refreshVersion: number;
   onBack: () => void;
@@ -679,6 +683,7 @@ function InitiativeCardView({
         onChanged={reload}
         onShowToast={onShowToast}
       />
+      <EffectControlSection detail={detail.data} people={data.people} userId={userId} onChanged={reload} />
 
       <CardSection title="Идентификация">
         <CardValue label="Инициатор" value={person(card.initiatorId)} />
@@ -1138,7 +1143,10 @@ function ImplementationSection({
         ) : (
           <dl className="collegium-card-grid">
             <div className="collegium-card-value collegium-field-wide"><dt>Результат</dt><dd>{result.description || "—"}</dd></div>
-            <div className="collegium-card-value"><dt>Фактический эффект</dt><dd>{formatAmount(result.actualEffectAmount)}</dd></div>
+            {result.actualEffectAmount === "" ? null : (
+              // The amount now comes from the effect facts; an older value is shown for reference.
+              <div className="collegium-card-value"><dt>Фактический эффект (прежняя запись)</dt><dd>{formatAmount(result.actualEffectAmount)}</dd></div>
+            )}
             <div className="collegium-card-value"><dt>Источник подтверждения</dt><dd>{result.source || "—"}</dd></div>
             <div className="collegium-card-value">
               <dt>Вывод</dt>
@@ -1332,7 +1340,6 @@ function ResultForm({
   const { initiative } = detail;
   const current = initiative.workflow.result;
   const [description, setDescription] = useState(current?.description ?? "");
-  const [actualEffectAmount, setActualEffectAmount] = useState(formatAmountInput(current?.actualEffectAmount ?? ""));
   const [source, setSource] = useState(current?.source ?? "");
   const [conclusion, setConclusion] = useState<CollegiumResultConclusion | "">(current?.conclusion ?? "");
   const [message, setMessage] = useState("");
@@ -1349,7 +1356,8 @@ function ResultForm({
         recordCollegiumInitiativeResult(initiative.id, {
           revision: initiative.revision,
           description: description.trim(),
-          actualEffectAmount: actualEffectAmount.trim(),
+          // Facts carry the amount; keep an older recorded value unchanged.
+          actualEffectAmount: current?.actualEffectAmount ?? "",
           source: source.trim(),
           conclusion,
         }).then(onSaved, (error: unknown) => {
@@ -1368,19 +1376,6 @@ function ResultForm({
             onChange={(event) => {
               const value = event.currentTarget.value;
               setDescription(value);
-            }}
-          />
-        </label>
-        <label className="collegium-field">
-          <span>Фактический эффект, ₽</span>
-          <input
-            disabled={isSaving}
-            inputMode="decimal"
-            maxLength={40}
-            value={actualEffectAmount}
-            onChange={(event) => {
-              const value = event.currentTarget.value;
-              setActualEffectAmount(value);
             }}
           />
         </label>

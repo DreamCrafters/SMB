@@ -16122,6 +16122,22 @@ test("collegium initiatives API routes requests and maps module errors", async (
       calls.push(`add:${id}:${fileName}:${content.length}`);
       return { id: "file-1", kind: "file", label: fileName, fileName, fileType: "pdf", sizeBytes: content.length, createdByDisplayName: "x", createdAt: "2026-10-05T09:00:00.000Z" };
     },
+    async assignControlRoles(_profile: ServerUserProfile, id: string) {
+      calls.push(`roles:${id}`);
+      return { id };
+    },
+    async recordConclusion(_profile: ServerUserProfile, id: string) {
+      calls.push(`conclusion:${id}`);
+      return { id };
+    },
+    async recordEffectFact(_profile: ServerUserProfile, id: string, effectId: string) {
+      calls.push(`fact:${id}:${effectId}`);
+      return { id };
+    },
+    async recordEffectVerdict(_profile: ServerUserProfile, id: string, effectId: string) {
+      calls.push(`verdict:${id}:${effectId}`);
+      throw new CollegiumInitiativeError("Факт изменён. Обновите карточку и проверьте новую версию.", 409);
+    },
     async savePassport(_profile: ServerUserProfile, id: string, body: unknown) {
       calls.push(`passport:${id}:${Buffer.byteLength(JSON.stringify(body)) > 100_000 ? "large" : "small"}`);
       return { id };
@@ -16220,6 +16236,14 @@ test("collegium initiatives API routes requests and maps module errors", async (
     const summary = await fetch(`${baseUrl}/api/collegium-initiatives/dashboard.pdf`, { headers });
     assert.equal(summary.headers.get("content-type"), "application/pdf");
     assert.deepEqual(calls, ["dashboard", "dashboard"]);
+    calls.length = 0;
+
+    for (const path of ["roles", "verification", "effects/main/fact"]) {
+      assert.equal((await fetch(`${baseUrl}/api/collegium-initiatives/abc-1/${path}`, { method: "POST", headers, body: "{}" })).status, 200);
+    }
+    assert.equal((await fetch(`${baseUrl}/api/collegium-initiatives/abc-1/effects/main/verdict`, { method: "POST", headers, body: "{}" })).status, 409);
+    assert.equal((await fetch(`${baseUrl}/api/collegium-initiatives/abc-1/effects/main/resolve`, { method: "POST", headers, body: "{}" })).status, 405);
+    assert.deepEqual(calls, ["roles:abc-1", "conclusion:abc-1", "fact:abc-1:main", "verdict:abc-1:main"]);
     calls.length = 0;
 
     // The passport has its own body budget above the common 100 KB.
