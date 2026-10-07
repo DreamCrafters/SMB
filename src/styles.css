@@ -208,7 +208,7 @@ p {
 
 .auth-options {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 210px), 1fr));
   gap: var(--density-3);
 }
 
@@ -922,7 +922,7 @@ p {
 
 .owner-overview-metrics {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(135px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 135px), 1fr));
   gap: var(--density-2);
   margin: 0;
 }
@@ -1018,6 +1018,8 @@ p {
 
 .owner-overview-bank-values > div {
   display: flex;
+  /* В узкой плашке значение уходит под подпись, а не за край. */
+  flex-wrap: wrap;
   align-items: baseline;
   justify-content: space-between;
   gap: var(--density-2);
@@ -1030,6 +1032,8 @@ p {
 }
 
 .owner-overview-bank-values dt {
+  min-width: 0;
+  overflow-wrap: anywhere;
   color: var(--muted);
   font-size: 11px;
   font-weight: 900;
@@ -1160,7 +1164,7 @@ p {
 
 .dispatcher-form-choice-buttons {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 190px), 1fr));
   gap: var(--density-2);
 }
 
@@ -1854,7 +1858,7 @@ p {
 
 .equipment-status-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 160px), 1fr));
   gap: var(--density-1);
 }
 
@@ -2609,7 +2613,7 @@ p {
 
 .admin-account-switcher {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 170px), 1fr));
   gap: var(--density-2);
 }
 
@@ -3796,7 +3800,7 @@ p {
 
 .admin-db-sidebar {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr));
   gap: var(--density-2);
   align-content: start;
 }
@@ -4247,7 +4251,7 @@ p {
 
 .production-detail-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr));
   gap: var(--density-2);
 }
 
@@ -5189,8 +5193,12 @@ p {
 }
 
 .board-assignment-filters {
-  display: grid;
-  grid-template-columns: minmax(260px, 2fr) repeat(3, minmax(150px, 1fr)) auto;
+  /*
+   * Фильтры переносятся по ширине самого раздела, а не окна: левое меню
+   * забирает место, и сетка из фиксированных минимумов вылезала за экран.
+   */
+  display: flex;
+  flex-wrap: wrap;
   gap: var(--density-3);
   align-items: end;
   padding: var(--density-4);
@@ -5199,8 +5207,17 @@ p {
   background: var(--surface-raised);
 }
 
-.board-assignment-filters.is-history {
-  grid-template-columns: minmax(260px, 2fr) repeat(2, minmax(150px, 1fr)) auto;
+.board-assignment-filters > * {
+  flex: 1 1 150px;
+  min-width: 0;
+}
+
+.board-assignment-filters > .board-assignment-search {
+  flex: 2 1 260px;
+}
+
+.board-assignment-filters > .board-assignment-filter-actions {
+  flex: 0 1 auto;
 }
 
 .board-assignment-status-filter {
@@ -5897,10 +5914,6 @@ p {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .board-assignment-filters.is-history {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
   .board-assignment-search,
   .board-assignment-filter-actions {
     grid-column: 1 / -1;
@@ -5928,10 +5941,6 @@ p {
   .board-assignment-review-overview,
   .board-assignment-history-overview,
   .board-assignment-schedule-fields > div {
-    grid-template-columns: 1fr;
-  }
-
-  .board-assignment-filters.is-history {
     grid-template-columns: 1fr;
   }
 
@@ -6160,7 +6169,7 @@ p {
 .sample-registration-journal-form > .sample-registration-journal-section > .laboratory-form-grid {
   grid-template-columns: repeat(
     auto-fill,
-    minmax(max(220px, calc((100% - 2 * var(--density-3)) / 3)), 1fr)
+    minmax(min(100%, max(220px, calc((100% - 2 * var(--density-3)) / 3))), 1fr)
   );
 }
 
@@ -6581,7 +6590,7 @@ p {
 .laboratory-indicator-grid,
 .laboratory-filters {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));
   gap: var(--density-3);
 }
 
@@ -6747,7 +6756,7 @@ p {
 }
 
 .laboratory-review .laboratory-section-tabs {
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr));
 }
 
 .laboratory-review-journal-note,
@@ -6795,7 +6804,7 @@ p {
 }
 
 .laboratory-filters {
-  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 170px), 1fr));
 }
 
 .raw-material-warehouse {
@@ -8012,6 +8021,7 @@ p {
 .refractory-review-card > header,
 .refractory-state {
   display: flex;
+  flex-wrap: wrap;
   align-items: flex-start;
   justify-content: space-between;
   gap: var(--density-4);
@@ -8026,9 +8036,11 @@ p {
 
 .refractory-shift-fields {
   display: grid;
-  grid-template-columns: minmax(150px, 0.75fr) minmax(180px, 1fr) minmax(210px, 1.2fr);
+  /* Поля смены уходят под заголовок и друг под друга, если рядом им тесно. */
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 170px), 1fr));
+  flex: 1 1 520px;
   gap: 10px;
-  width: min(720px, 100%);
+  max-width: 720px;
 }
 
 .refractory-shift-fields label,
@@ -8081,7 +8093,7 @@ p {
  */
 .refractory-report-menu {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(136px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 136px), 1fr));
   gap: 8px;
 }
 
@@ -8599,7 +8611,7 @@ p {
 
 .refractory-totals {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 150px), 1fr));
   gap: 7px;
   margin: var(--density-4) 0 0;
 }
@@ -8703,7 +8715,7 @@ p {
   }
 
   .refractory-report-menu {
-    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 140px), 1fr));
   }
 
   .refractory-mini-row,
@@ -8724,7 +8736,7 @@ p {
 
 /* Интеграция с 1С: остатки по складу в разрезе номенклатуры. */
 .warehouse-1c-tabs {
-  grid-template-columns: repeat(auto-fit, minmax(160px, 200px));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 160px), 200px));
   justify-content: start;
 }
 
@@ -8932,7 +8944,7 @@ p {
 .railway-field-grid {
   display: grid;
   gap: var(--density-3);
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr));
   min-width: 0;
 }
 
@@ -9230,6 +9242,14 @@ p {
 
 .managed-table-scroll {
   max-width: 100%;
+  /*
+   * Ширина таблицы не поднимается вверх по сеткам и flex-рядам: контейнер
+   * прокрутки берёт ширину только от родителя, поэтому широкая таблица всегда
+   * прокручивается внутри и не растягивает страницу.
+   */
+  contain: inline-size;
+  /* Абсолютные элементы ячеек (скрытые подписи, подсказки) остаются внутри прокрутки. */
+  position: relative;
   overflow: auto;
   overscroll-behavior: contain;
   scrollbar-gutter: stable;
@@ -9698,7 +9718,7 @@ p {
 .collegium-field-grid {
   display: grid;
   gap: var(--density-3);
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));
   min-width: 0;
   margin: 0;
 }
@@ -10201,7 +10221,7 @@ p {
 
 .collegium-dashboard-tiles {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 160px), 1fr));
   gap: var(--density-2);
   margin: 0;
 }

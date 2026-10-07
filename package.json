@@ -19,6 +19,7 @@
     "test": "rm -rf .test-build && tsc -p tsconfig.test.json && node --test tests/*.test.mjs && npm --workspace server test",
     "test:jino": "rm -rf .test-build && tsc -p tsconfig.test.json && node --test --test-concurrency=1 tests/*.test.mjs && npm --workspace server run test:jino",
     "test:web": "rm -rf .test-build && tsc -p tsconfig.test.json && node --test tests/*.test.mjs",
+    "check:layout": "node --experimental-websocket scripts/check-horizontal-overflow.mjs",
     "typecheck": "tsc --noEmit --pretty && npm --workspace server run typecheck"
   },
   "dependencies": {
