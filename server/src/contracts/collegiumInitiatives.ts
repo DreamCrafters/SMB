@@ -589,6 +589,8 @@ export type CollegiumInitiativeDetailResponse = {
   effectDuplicates: CollegiumEffectDuplicate[];
   effectControl: CollegiumEffectControl;
   effectGroups: CollegiumEffectGroupView[];
+  /** Роли, которые этот пользователь может сейчас назначить или заменить. */
+  assignableRoles: CollegiumAssignableRole[];
 };
 
 export type CollegiumInitiativeSaveRequest = {
@@ -751,6 +753,33 @@ export const collegiumVerifierRoleLabels: Record<CollegiumVerifierRole, string> 
   financial: "Финансовый верификатор",
 };
 
+/**
+ * Временные роли одной инициативы: член Коллегии назначает их любому
+ * действующему сотруднику (`POST /:id/roles`), права действуют только на эту
+ * инициативу, пока роль не заменена и инициатива не закрыта.
+ */
+export const collegiumAssignableRoles = [
+  ...collegiumInitiativeRoleFields,
+  "technicalId",
+  "financialId",
+] as const;
+export type CollegiumAssignableRole = (typeof collegiumAssignableRoles)[number];
+
+export const collegiumAssignableRoleLabels: Record<CollegiumAssignableRole, string> = {
+  ownerId: collegiumInitiativeFieldLabels.ownerId,
+  executorId: collegiumInitiativeFieldLabels.executorId,
+  executionControllerId: collegiumInitiativeFieldLabels.executionControllerId,
+  effectControllerId: collegiumInitiativeFieldLabels.effectControllerId,
+  technicalId: collegiumVerifierRoleLabels.technical,
+  financialId: collegiumVerifierRoleLabels.financial,
+};
+
+/** Тело `POST /:id/roles`: передаются только изменяемые роли. */
+export type CollegiumRoleAssignmentRequest = {
+  revision: number;
+  reason: string;
+} & Partial<Record<CollegiumAssignableRole, string>>;
+
 export type CollegiumVerifiers = {
   technicalId: string;
   financialId: string;
@@ -832,7 +861,8 @@ export type CollegiumEffectControl = {
   canRecordFacts: boolean;
   /** Роль, в которой текущий пользователь может подписать, если может. */
   signerRole?: CollegiumSignerRole;
-  canAssignRoles: boolean;
+  /** Объединение эффектов в совместный: секретарь или финансовый верификатор с вкладкой. */
+  canGroupEffects: boolean;
   /** Роль верификатора текущего пользователя для заключения. */
   verifierRole?: CollegiumVerifierRole;
 };

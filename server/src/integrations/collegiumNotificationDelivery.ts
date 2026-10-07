@@ -10,8 +10,9 @@ type CapabilityReader = {
 
 /**
  * Отправка уведомлений «Инициатив Коллегии» после ответа клиенту. Адресат
- * получает сообщение, только если сейчас видит инициативы и включил канал для
- * типа `collegium_initiatives`; автор действия исключается. Каждое письмо —
+ * получает сообщение, только если сейчас видит инициативы (или явно назначен
+ * держателем временной роли этой инициативы) и включил канал для типа
+ * `collegium_initiatives`; автор действия исключается. Каждое письмо —
  * одному адресату, в лог уходит только стабильный код без адресов.
  */
 export async function deliverCollegiumNotifications({
@@ -66,7 +67,9 @@ export async function deliverCollegiumNotifications({
     for (const userId of userIds) {
       const contact = contacts.get(userId);
       const dedupeKey = `${userId}\u0000${notification.subject}\u0000${text}`;
-      if (!viewers.has(userId) || contact === undefined || sent.has(dedupeKey)) continue;
+      const isRoleHolder = notification.userIds.includes(userId) &&
+        (notification.roleHolderUserIds ?? []).includes(userId);
+      if ((!viewers.has(userId) && !isRoleHolder) || contact === undefined || sent.has(dedupeKey)) continue;
       sent.add(dedupeKey);
       if (contact.email !== undefined && emailService.sendTextNotification !== undefined) {
         try {

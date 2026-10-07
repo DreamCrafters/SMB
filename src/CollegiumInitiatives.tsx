@@ -42,7 +42,7 @@ import { CollegiumMeetingsView } from "./CollegiumMeetings";
 import { CollegiumDashboardView } from "./CollegiumDashboard";
 import { CollegiumSettingsView } from "./CollegiumSettings";
 import { EconomicsSection, PassportForm, PassportSection } from "./CollegiumPassport";
-import { EffectControlSection } from "./CollegiumEffectControl";
+import { EffectControlSection, RoleAssignmentPanel } from "./CollegiumEffectControl";
 import { LoadingIndicator } from "./LoadingIndicator";
 import { ManagedTable } from "./ManagedTable";
 import { TableCell, TableHeader } from "./TableCell";
@@ -160,8 +160,8 @@ export function CollegiumInitiativesWorkspace({
         <div className="collegium-section-tabs" role="tablist">
           {([
             ["initiatives", "Инициативы"],
-            ["meetings", "Заседания"],
-            ["dashboard", "Дашборд"],
+            // Без вкладки раздел открыт только временной ролью: заседаний и сводок нет.
+            ...(data.permissions.canView ? [["meetings", "Заседания"] as const, ["dashboard", "Дашборд"] as const] : []),
             ...(data.permissions.canManage ? [["settings", "Настройки"] as const] : []),
           ] as const).map(([id, label]) => (
             <button
@@ -518,12 +518,16 @@ function InitiativeRegistry({
           <button className="secondary-button" type="button" onClick={() => setShowMore((current) => !current)}>
             {showMore ? "Меньше фильтров" : "Ещё фильтры"}
           </button>
-          <button className="secondary-button" disabled={isExporting} type="button" onClick={() => void exportRegistry("xlsx")}>
-            Выгрузить в Excel
-          </button>
-          <button className="secondary-button" disabled={isExporting} type="button" onClick={() => void exportRegistry("pdf")}>
-            Выгрузить в PDF
-          </button>
+          {data.permissions.canView ? (
+            <>
+              <button className="secondary-button" disabled={isExporting} type="button" onClick={() => void exportRegistry("xlsx")}>
+                Выгрузить в Excel
+              </button>
+              <button className="secondary-button" disabled={isExporting} type="button" onClick={() => void exportRegistry("pdf")}>
+                Выгрузить в PDF
+              </button>
+            </>
+          ) : null}
           {data.permissions.canParticipate ? (
             <button className="primary-button collegium-create-button" type="button" onClick={onCreate}>
               Новая инициатива
@@ -531,6 +535,9 @@ function InitiativeRegistry({
           ) : null}
         </div>
         {message === "" ? null : <p className="form-message is-error" role="alert">{message}</p>}
+        {data.permissions.canView ? null : (
+          <p className="collegium-empty-note">Показаны инициативы, в которых вам назначена роль.</p>
+        )}
       </form>
 
       {initiatives.length === 0 ? (
@@ -743,6 +750,7 @@ function InitiativeCardView({
         <CardValue label={collegiumInitiativeFieldLabels.plannedStart} value={formatDate(card.plannedStart, "")} />
         <CardValue label={collegiumInitiativeFieldLabels.plannedResult} value={formatDate(card.plannedResult, "")} />
       </CardSection>
+      <RoleAssignmentPanel detail={detail.data} people={data.people} onChanged={reload} />
       <CardSection title="KPI, риски и решение">
         <CardValue label={collegiumInitiativeFieldLabels.kpiCriterion} value={card.kpiCriterion} wide />
         <CardValue label={collegiumInitiativeFieldLabels.kpiSource} value={card.kpiSource} />
@@ -1687,7 +1695,8 @@ function InitiativeForm({
   // Archived reference values stay selectable only where the saved card uses them.
   const saved = loaded?.initiative.card;
   const reasonRequired = id !== undefined && status !== "draft";
-  const assignable = data.people.filter((person) => person.hasInitiativesTab);
+  // Роль — временная и даётся любому действующему сотруднику, вкладка не нужна.
+  const assignable = data.people;
   const update = <K extends keyof FormState>(field: K, value: FormState[K]) => {
     setForm((current) => ({ ...current, [field]: value }));
     setMessage("");
@@ -1779,7 +1788,8 @@ function InitiativeForm({
       <label className="collegium-field">
         <span>{collegiumInitiativeFieldLabels[field]}</span>
         <select
-          disabled={isSaving}
+          // Роли раздаёт член Коллегии; временная роль этого права не даёт (сервер тоже не примет).
+          disabled={isSaving || (field !== "initiatorId" && !data.permissions.canParticipate)}
           value={current}
           onChange={(event) => {
             const value = event.currentTarget.value;

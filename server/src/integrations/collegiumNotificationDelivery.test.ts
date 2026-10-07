@@ -50,3 +50,27 @@ test("collegium notifications reach only viewers with enabled channels, one addr
   // A failed address does not stop the batch and is not logged.
   assert.deepEqual(errors, ["failed"]);
 });
+
+test("a role holder without the tab still gets messages about the own initiative", async () => {
+  const emails: string[] = [];
+  await deliverCollegiumNotifications({
+    notifications: [
+      // Explicit addressee holding a temporary role: the tab is not needed.
+      { subject: "И-1: вы назначены", lines: ["Роль"], userIds: ["worker"], roleHolderUserIds: ["worker"], actorUserId: "member" },
+      // A role holder who is not an addressee of this message gets nothing.
+      { subject: "И-1: на оценке", lines: ["Оценка"], userIds: ["outsider"], roleHolderUserIds: ["worker"], actorUserId: "member" },
+    ],
+    people: { async listUserIdsWithCapability() { return []; } },
+    notificationSettings: {
+      async listDeliveryRecipients() {
+        return [
+          { userId: "worker", position: "p1", email: "worker@example.com" },
+          { userId: "outsider", position: "p2", email: "outsider@example.com" },
+        ];
+      },
+    },
+    emailService: { async sendTextNotification(to) { emails.push(to[0]); } },
+    maxService: {},
+  });
+  assert.deepEqual(emails, ["worker@example.com"]);
+});

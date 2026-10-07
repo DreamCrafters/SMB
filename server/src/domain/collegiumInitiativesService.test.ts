@@ -634,3 +634,108 @@ test("a possible double count needs an explanation and never reveals hidden draf
   assert.equal(explained.card.passport?.effects[0].id, savedEffect.id);
   assert.deepEqual((await service.read(secretary, mine.id)).effectDuplicates.map(({ initiativeId }) => initiativeId), [hidden.id]);
 });
+
+test("a temporary role opens one initiative to an employee without the tab until it is replaced", async () => {
+  const { service, auditEvents } = createHarness(["author", "other", "secretary", "owner", "chair", "worker"]);
+  const author = profile("author", "participant");
+  const member = profile("other", "participant");
+  const secretary = profile("secretary", "secretary");
+  const worker = profile("worker", "none");
+
+  const assigned = await service.create(author, { card: completeCard() });
+  const foreign = await service.create(author, { card: completeCard({ title: "Чужая идея" }) });
+  for (const initiative of [assigned, foreign]) {
+    await service.act(author, initiative.id, { action: "submit_for_review", revision: 1 });
+  }
+  // Without the tab and without a role the module stays closed.
+  await assert.rejects(service.list(worker), (error) => error instanceof CollegiumInitiativeError && error.status === 403);
+  assert.equal(await service.hasAssignedInitiatives(worker), false);
+
+  // Any member of the Collegium assigns any active employee, with a reason and an audit trail.
+  await assert.rejects(
+    service.assignRoles(member, assigned.id, { revision: 2, ownerId: "account:worker" }),
+    /причину/u,
+  );
+  const withRole = await service.assignRoles(member, assigned.id, {
+    revision: 2, ownerId: "account:worker", reason: "Нужен технолог участка",
+  });
+  assert.equal(withRole.card.ownerId, "account:worker");
+  assert.deepEqual(auditEvents.at(-1)?.details?.at(-1), { label: "Владелец результата", value: "owner → worker" });
+  assert.equal(await service.hasAssignedInitiatives(worker), true);
+
+  // The holder sees and acts on this initiative only; meetings and reports stay closed.
+  const list = await service.list(worker);
+  assert.deepEqual(list.initiatives.map(({ id }) => id), [assigned.id]);
+  assert.deepEqual(list.meetings, []);
+  assert.equal(list.permissions.canView, false);
+  assert.ok(list.people.every(({ id }) => id !== "account:chair"));
+  const detail = await service.read(worker, assigned.id);
+  assert.equal(detail.canComment, true);
+  assert.deepEqual(detail.assignableRoles, []);
+  await service.comment(worker, assigned.id, { kind: "comment", text: "Принял в работу" });
+  await assert.rejects(service.read(worker, foreign.id), (error) => error instanceof CollegiumInitiativeError && error.status === 403);
+  await assert.rejects(service.dashboard(worker), (error) => error instanceof CollegiumInitiativeError && error.status === 403);
+  await assert.rejects(service.create(worker, { card: card() }), (error) => error instanceof CollegiumInitiativeError && error.status === 403);
+
+  // A temporary role never lets its holder hand out roles.
+  await assert.rejects(
+    service.assignRoles(worker, assigned.id, { revision: withRole.revision, executorId: "account:worker", reason: "Сам" }),
+    (error) => error instanceof CollegiumInitiativeError && error.status === 403,
+  );
+  const reworked = await service.act(secretary, assigned.id, {
+    action: "return_for_rework",
+    revision: withRole.revision,
+    comment: "Уточнить",
+    rework: { remarks: ["Уточнить эффект"], responsibleId: "account:worker", dueDate: "2026-10-20", readinessCriterion: "Уточнено" },
+  });
+  const edited = await service.update(worker, assigned.id, {
+    card: completeCard({ ownerId: "account:worker", executorId: "account:worker", title: "Уточнённая идея" }),
+    revision: reworked.revision,
+    reason: "Уточнение",
+  });
+  assert.equal(edited.card.title, "Уточнённая идея");
+  assert.equal(edited.card.executorId, "account:author");
+
+  // Replacing the role ends the access at once.
+  await service.assignRoles(member, assigned.id, { revision: edited.revision, ownerId: "account:owner", reason: "Замена" });
+  assert.equal(await service.hasAssignedInitiatives(worker), false);
+  await assert.rejects(service.read(worker, assigned.id), (error) => error instanceof CollegiumInitiativeError && error.status === 403);
+});
+
+test("after admission roles are replaced, not cleared, and checkers stay independent", async () => {
+  const { service } = createHarness();
+  const author = profile("author", "participant");
+  const member = profile("other", "participant");
+  const draft = await service.create(author, { card: completeCard() });
+  await service.act(author, draft.id, { action: "submit_for_review", revision: 1 });
+  const ready = await service.act(profile("chair", "chair"), draft.id, { action: "admit", revision: 2 });
+  assert.equal(ready.status, "ready");
+
+  await assert.rejects(
+    service.assignRoles(member, draft.id, { revision: ready.revision, executionControllerId: "", reason: "Снять" }),
+    /не снимается/u,
+  );
+  // The owner may not become the effect controller, nor the controller the owner.
+  await assert.rejects(
+    service.assignRoles(member, draft.id, { revision: ready.revision, effectControllerId: "account:owner", reason: "x" }),
+    /не проверяет собственный эффект/u,
+  );
+  await assert.rejects(
+    service.assignRoles(member, draft.id, { revision: ready.revision, ownerId: "account:other", reason: "x" }),
+    /не проверяет собственный эффект/u,
+  );
+  // Verifiers are assigned only after the Collegium decision.
+  await assert.rejects(
+    service.assignRoles(member, draft.id, { revision: ready.revision, financialId: "account:chair", reason: "x" }),
+    (error) => error instanceof CollegiumInitiativeError && error.status === 403,
+  );
+  const replaced = await service.assignRoles(member, draft.id, {
+    revision: ready.revision, executionControllerId: "account:chair", reason: "Замена контролёра",
+  });
+  assert.equal(replaced.card.executionControllerId, "account:chair");
+  // Unknown or inactive accounts are refused.
+  await assert.rejects(
+    service.assignRoles(member, draft.id, { revision: replaced.revision, executorId: "account:ghost", reason: "x" }),
+    /действующую учётную запись/u,
+  );
+});

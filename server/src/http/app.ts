@@ -707,6 +707,7 @@ export function createApiServer({
           devSessions,
           authService,
           accounts,
+          collegiumInitiatives,
         });
         return;
       }
@@ -829,6 +830,7 @@ export function createApiServer({
           authService,
           accounts,
           audit,
+          collegiumInitiatives,
         });
         return;
       }
@@ -1080,7 +1082,7 @@ export function createApiServer({
           const [, id, section, itemId, itemAction] = match;
           if (id && section === "roles" && !itemId && req.method === "POST") {
             const outbox: CollegiumOutbox = [];
-            sendJson(res, 200, { initiative: await collegiumInitiatives.assignControlRoles(access.profile, id, await readJsonBody(req), outbox) });
+            sendJson(res, 200, { initiative: await collegiumInitiatives.assignRoles(access.profile, id, await readJsonBody(req), outbox) });
             await deliverCollegiumOutbox(outbox);
           } else if (id && section === "verification" && !itemId && req.method === "POST") {
             sendJson(res, 200, { initiative: await collegiumInitiatives.recordConclusion(access.profile, id, await readJsonBody(req)) });
@@ -8752,6 +8754,7 @@ async function handleAuditEventRequest({
   authService,
   accounts,
   audit,
+  collegiumInitiatives,
 }: {
   req: IncomingMessage;
   res: ServerResponse;
@@ -8760,6 +8763,7 @@ async function handleAuditEventRequest({
   authService: AuthSessionService | undefined;
     accounts?: AccountsRepository | undefined;
   audit: AuditRepository;
+  collegiumInitiatives?: CollegiumInitiativesService | undefined;
 }) {
   if (req.method !== "POST") {
     sendJson(res, 405, {
@@ -8795,7 +8799,10 @@ async function handleAuditEventRequest({
     return;
   }
 
-  if (!canProfileViewAuditScreen(access.profile, screen)) {
+  if (!canProfileViewAuditScreen(
+    await withCollegiumRoleNavigation(access.profile, collegiumInitiatives),
+    screen,
+  )) {
     sendJson(res, 403, {
       error: {
         code: "access_denied",
@@ -15088,6 +15095,7 @@ async function handleAccessProfile(
     devSessions: Map<string, DevAccessSession>;
     authService: AuthSessionService | undefined;
     accounts?: AccountsRepository | undefined;
+    collegiumInitiatives?: CollegiumInitiativesService | undefined;
   },
 ) {
   if (req.method !== "GET") {
@@ -15103,8 +15111,42 @@ async function handleAccessProfile(
   const access = await readRequestAccess(req, dependencies);
 
   sendJson(res, 200, {
-    profile: access?.profile ?? null,
+    profile: access === undefined
+      ? null
+      : await withCollegiumRoleNavigation(access.profile, dependencies.collegiumInitiatives),
   });
+}
+
+/**
+ * Держатель временной роли в инициативе Коллегии без вкладки видит раздел в
+ * меню. Пункт добавляется только в ответ профиля и в проверку экрана аудита:
+ * в `account_accesses` он не хранится и capability не даёт, права на каждую
+ * инициативу проверяет сервис модуля.
+ */
+async function withCollegiumRoleNavigation(
+  profile: ServerUserProfile,
+  collegiumInitiatives: CollegiumInitiativesService | undefined,
+): Promise<ServerUserProfile> {
+  if (
+    collegiumInitiatives === undefined ||
+    profile.activeAccess.navigationItems.includes(collegiumInitiativesNavigationItem)
+  ) {
+    return profile;
+  }
+  try {
+    if (!(await collegiumInitiatives.hasAssignedInitiatives(profile))) return profile;
+  } catch {
+    // Сбой модуля не должен ломать загрузку профиля.
+    console.warn("collegium_initiatives.role_navigation_failed");
+    return profile;
+  }
+  return {
+    ...profile,
+    activeAccess: {
+      ...profile.activeAccess,
+      navigationItems: [...profile.activeAccess.navigationItems, collegiumInitiativesNavigationItem],
+    },
+  };
 }
 
 async function handleDevAccessSession(

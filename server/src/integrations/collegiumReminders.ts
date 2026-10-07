@@ -65,7 +65,8 @@ export function createCollegiumReminderRunner({
       if (reminder.audienceCapability !== undefined) for (const userId of chairs) userIds.add(userId);
       for (const userId of userIds) {
         const contact = contacts.get(userId);
-        if (!viewers.has(userId) || contact === undefined) continue;
+        const isRoleHolder = reminder.userIds.includes(userId) && reminder.roleHolderUserIds.includes(userId);
+        if ((!viewers.has(userId) && !isRoleHolder) || contact === undefined) continue;
         for (const channel of ["email", "max"] as const) {
           const send = channel === "email" ? sendEmail : sendMax;
           const address = channel === "email" ? contact.email : contact.maxUserId;

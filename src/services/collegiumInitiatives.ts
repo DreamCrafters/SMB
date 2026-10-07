@@ -5,6 +5,7 @@ import {
   collegiumEffectGroupsApiPath,
   type CollegiumAttachment,
   type CollegiumAttentionItem,
+  type CollegiumRoleAssignmentRequest,
   type CollegiumDashboard,
   type CollegiumEffectFactInput,
   type CollegiumEffectGroupSaveRequest,
@@ -200,10 +201,7 @@ async function postInitiativeChange(id: string, path: string, body: unknown) {
   return result.initiative;
 }
 
-export function assignCollegiumControlRoles(
-  id: string,
-  body: { revision: number; effectControllerId: string; technicalId: string; financialId: string; reason: string },
-) {
+export function assignCollegiumRoles(id: string, body: CollegiumRoleAssignmentRequest) {
   return postInitiativeChange(id, "roles", body);
 }
 

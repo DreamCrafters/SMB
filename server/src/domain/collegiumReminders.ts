@@ -1,5 +1,6 @@
 import type { CollegiumInitiative, CollegiumMeeting } from "../contracts/collegiumInitiatives.js";
 import type { DirectorAssignment } from "../contracts/directorAssignments.js";
+import { listCollegiumRoleHolderIds } from "./collegiumInitiative.js";
 
 /**
  * Напоминания и эскалации «Инициатив Коллегии» (ТЗ 12.1–12.2). Рабочие дни —
@@ -55,6 +56,8 @@ export type CollegiumReminder = {
   /** Рабочих дней до срока; −1 — день просрочки. */
   offset: number;
   userIds: string[];
+  /** Держатели временных ролей инициативы: явному адресату из их числа вкладка не нужна. */
+  roleHolderUserIds: string[];
   /** Пользователи с этой capability тоже адресаты (эскалация председателю). */
   audienceCapability?: "business.approve_collegium_initiatives";
   subject: string;
@@ -67,6 +70,10 @@ function userIdOf(accountId: string) {
 
 function userIds(...accountIds: string[]) {
   return [...new Set(accountIds.map(userIdOf).filter((id) => id !== ""))];
+}
+
+function roleHolderUserIds(initiative: CollegiumInitiative | undefined) {
+  return initiative === undefined ? [] : userIds(...listCollegiumRoleHolderIds(initiative));
 }
 
 function formatDate(value: string) {
@@ -91,6 +98,7 @@ export function listCollegiumReminders({
 }): CollegiumReminder[] {
   if (!isWorkday(today)) return [];
   const reminders: CollegiumReminder[] = [];
+  const byInitiative = new Map(initiatives.map((initiative) => [initiative.id, initiative]));
 
   for (const initiative of initiatives) {
     const rework = initiative.workflow.rework;
@@ -102,6 +110,7 @@ export function listCollegiumReminders({
       cycle: rework.requestedAt,
       targetDate: today,
       userIds: userIds(rework.responsibleId),
+      roleHolderUserIds: roleHolderUserIds(initiative),
     };
     for (const count of collegiumReminderWorkdaysBefore) {
       if (workdaysBefore(due, count) !== today) continue;
@@ -137,6 +146,7 @@ export function listCollegiumReminders({
           targetDate: today,
           offset: count,
           userIds: userIds(item.snapshot.card.initiatorId, item.snapshot.card.ownerId, item.speakerId),
+          roleHolderUserIds: roleHolderUserIds(byInitiative.get(item.initiativeId)),
           subject: `${item.initiativeNumber}: заседание ${meeting.number} ${formatDate(meeting.meetingDate)}`,
           text: `Инициатива ${item.initiativeNumber} «${item.snapshot.card.title}» в повестке заседания ${meeting.number}.\nДо заседания ${count} ${workdayWord(count)}: подготовьте материалы.`,
         });
@@ -144,7 +154,6 @@ export function listCollegiumReminders({
     }
   }
 
-  const byInitiative = new Map(initiatives.map((initiative) => [initiative.id, initiative]));
   const overdueCount = new Map<string, number>();
   for (const assignment of assignments) {
     if (assignment.status === "completed" || assignment.currentOccurrenceDate >= today) continue;
@@ -164,6 +173,7 @@ export function listCollegiumReminders({
       targetDate: today,
       offset: -1,
       userIds: userIds(initiative.card.ownerId),
+      roleHolderUserIds: roleHolderUserIds(initiative),
       audienceCapability: "business.approve_collegium_initiatives",
       subject: `${initiative.number}: просрочено поручение ${assignment.number}${repeated ? " (повторная просрочка)" : ""}`,
       text: `Инициатива ${initiative.number} «${initiative.card.title}».\nПоручение ${assignment.number} не выполнено в срок ${formatDate(assignment.currentOccurrenceDate)}.${repeated ? "\nПо инициативе просрочено несколько поручений." : ""}`,

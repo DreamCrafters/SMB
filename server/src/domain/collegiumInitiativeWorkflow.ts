@@ -88,9 +88,9 @@ export function listCollegiumAdmissionGaps(
       gaps.push(label);
       continue;
     }
-    const person = people.get(accountId);
-    if (person === undefined || !person.hasInitiativesTab) {
-      gaps.push(`${label}: учётная запись недоступна или без вкладки инициатив`);
+    // Роль — временная и даётся любому действующему сотруднику, вкладка не нужна.
+    if (people.get(accountId) === undefined) {
+      gaps.push(`${label}: учётная запись недоступна`);
     }
   }
   if (

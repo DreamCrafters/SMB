@@ -39,8 +39,9 @@ const detailExtras = {
   passportGaps: ["Затраты: CAPEX, разовые и постоянные OPEX"],
   canEditPassport: false,
   effectDuplicates: [],
-  effectControl: { rows: [], canRecordFacts: false, canAssignRoles: false },
+  effectControl: { rows: [], canRecordFacts: false, canGroupEffects: false },
   effectGroups: [],
+  assignableRoles: [],
 };
 
 function buildInitiative(card) {
@@ -174,13 +175,13 @@ test("participant creates a draft and opens its card from the registry", async (
     assert.ok(form);
     // Archived reference values are not offered for a new card.
     assert.doesNotMatch(form.textContent, /Старое направление/u);
-    // Only accounts with the initiatives tab can be assigned.
+    // A role is temporary: any active employee can be assigned, with or without the tab.
     const ownerSelect = Array.from(form.querySelectorAll("label")).find(
       (label) => label.querySelector(":scope > span")?.textContent === "Владелец результата",
     ).querySelector("select");
     assert.deepEqual(
       Array.from(ownerSelect.options).map((option) => option.value),
-      ["", "account:owner"],
+      ["", "account:owner", "account:outsider"],
     );
     // A participant cannot pick another initiator.
     assert.equal(form.textContent.includes("Инициатор"), false);
@@ -662,7 +663,7 @@ test("the effect controller signs the latest fact version from the card", async 
           ...detailExtras,
           effectControl: {
             rows: [{ effectId: "main", label: "Эффект экспресс-карты", plannedAnnual: "1200000.00", fact, status: "in_review", deviationAmount: "-250000.00", deviationPercent: "-20.8" }],
-            canRecordFacts: false, canAssignRoles: false, signerRole: "controller",
+            canRecordFacts: false, canGroupEffects: false, signerRole: "controller",
           },
           effectGroups: [{
             id: "g-1", revision: 2, canEditShares: true, canRecordFact: false,
@@ -734,6 +735,86 @@ test("viewer sees the registry without the create action", async () => {
     assert.match(container.textContent, /Чужая идея/u);
   } finally {
     await view.cleanup();
+  }
+});
+
+test("a role holder without the tab sees only own initiatives and a member assigns roles", async () => {
+  const stored = { ...buildInitiative({ title: "Экономия газа", ownerId: "account:owner" }), status: "preliminary_review", workflow: { submittedAt: "2026-10-05T09:00:00.000Z" } };
+  const detail = (assignableRoles) => ({
+    initiative: stored, revisions: [], comments: [], attachments: [], canAttach: false, canEdit: false,
+    canComment: true, canResolveComments: false, actions: [], missingAdmissionFields: [],
+    linkedAssignments: [], summaryStatus: "not_started", canCreateAssignments: false, canRecordResult: false,
+    ...detailExtras, assignableRoles,
+  });
+  const holder = await renderWorkspace(
+    { canView: false, canParticipate: false, canManage: false, canApprove: false },
+    async (url, _init, permissions) => {
+      if (url.pathname === "/api/collegium-initiatives") {
+        return [{ initiatives: [stored], people, reference, permissions, meetings: [], overdueIds: [] }];
+      }
+      if (url.pathname === "/api/collegium-initiatives/initiative-1") return [detail([])];
+      throw new Error(`Unexpected request: ${url.pathname}`);
+    },
+  );
+  try {
+    const { React, container } = holder;
+    await waitFor(React, () => container.querySelector(".collegium-initiatives-table") !== null);
+    const tabs = Array.from(container.querySelectorAll('[role="tab"]')).map((tab) => tab.textContent);
+    assert.deepEqual(tabs, ["Инициативы"]);
+    assert.match(container.textContent, /Показаны инициативы, в которых вам назначена роль\./u);
+    assert.equal(container.textContent.includes("Выгрузить в Excel"), false);
+    assert.equal(container.textContent.includes("Новая инициатива"), false);
+    await React.act(async () => findButtonByText(container, "И-2026-0001").click());
+    await waitFor(React, () => container.querySelector(".collegium-card-header") !== null);
+    assert.equal(container.textContent.includes("Назначить роли"), false);
+  } finally {
+    await holder.cleanup();
+  }
+
+  const posts = [];
+  const member = await renderWorkspace(
+    { canView: true, canParticipate: true, canManage: false, canApprove: false },
+    async (url, init, permissions) => {
+      if (url.pathname === "/api/collegium-initiatives/initiative-1/roles") {
+        posts.push(JSON.parse(String(init.body)));
+        return [{ initiative: stored }];
+      }
+      if (url.pathname === "/api/collegium-initiatives") {
+        return [{ initiatives: [stored], people, reference, permissions, meetings: [], overdueIds: [] }];
+      }
+      if (url.pathname === "/api/collegium-initiatives/initiative-1") return [detail(["ownerId", "executorId"])];
+      throw new Error(`Unexpected request: ${url.pathname}`);
+    },
+  );
+  try {
+    const { dom, React, container } = member;
+    await waitFor(React, () => container.querySelector(".collegium-initiatives-table") !== null);
+    await React.act(async () => findButtonByText(container, "И-2026-0001").click());
+    await waitFor(React, () => container.textContent.includes("Назначить роли"));
+    await React.act(async () => findButtonByText(container, "Назначить роли").click());
+    const form = container.querySelector(".collegium-role-assignment form");
+    const field = (label) => Array.from(form.querySelectorAll("label")).find(
+      (item) => item.querySelector(":scope > span")?.textContent === label,
+    ).querySelector("input, select");
+    // Only the roles the server allows are offered; any employee can take one.
+    assert.deepEqual(
+      Array.from(form.querySelectorAll("label > span")).map((span) => span.textContent),
+      ["Владелец результата", "Предлагаемый исполнитель", "Причина изменения"],
+    );
+    await React.act(async () => {
+      const owner = field("Владелец результата");
+      setNativeInputValue(owner, "account:outsider");
+      owner.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
+      const reason = field("Причина изменения");
+      setNativeInputValue(reason, "Нужен мастер участка");
+      reason.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+    });
+    await React.act(async () => findButtonByText(form, "Сохранить роли").click());
+    await waitFor(React, () => posts.length === 1);
+    // Only the changed role is sent.
+    assert.deepEqual(posts, [{ revision: 1, ownerId: "account:outsider", reason: "Нужен мастер участка" }]);
+  } finally {
+    await member.cleanup();
   }
 });
 

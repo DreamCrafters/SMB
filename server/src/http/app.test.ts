@@ -16446,6 +16446,54 @@ test("a delegated dev preview cannot inherit impersonation from a colliding prod
   }, dispatcherSubmissions, emptyReferenceDataSource, undefined, undefined, adminDatabase, config, undefined, repository);
 });
 
+test("access profile shows the initiatives section to a temporary role holder without the tab", async () => {
+  const base = buildProductionProfile("business_owner");
+  const profile: ServerUserProfile = {
+    ...base,
+    activeAccess: {
+      ...base.activeAccess,
+      navigationItems: base.activeAccess.navigationItems.filter((item) => item !== "business.collegium_initiatives"),
+    },
+  };
+  let failure: Error | undefined;
+  const server = createApiServer({
+    config: productionConfig,
+    dispatcherSubmissions,
+    authService: buildAuthService({ profile }),
+    collegiumInitiatives: {
+      async hasAssignedInitiatives() {
+        if (failure !== undefined) throw failure;
+        return true;
+      },
+    } as unknown as CollegiumInitiativesService,
+    audit: {
+      async record() {},
+      async listReport() { throw new Error("not used"); },
+    },
+    databaseTransaction: {
+      async run(operation) { return operation(); },
+    },
+  });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  const headers = { Cookie: `${productionConfig.session.cookieName}=prod-session` };
+  const readItems = async () => {
+    const response = await fetch(`${baseUrl}/api/access/profile`, { headers });
+    assert.equal(response.status, 200);
+    return ((await response.json()) as { profile: ServerUserProfile }).profile.activeAccess.navigationItems;
+  };
+  try {
+    assert.ok((await readItems()).includes("business.collegium_initiatives"));
+    // A module failure never breaks loading the profile.
+    failure = new Error("db down");
+    assert.ok(!(await readItems()).includes("business.collegium_initiatives"));
+  } finally {
+    server.close();
+    await once(server, "close");
+  }
+});
+
 test("collegium initiatives API routes requests and maps module errors", async () => {
   const profile = buildProductionProfile("business_owner");
   const calls: string[] = [];
@@ -16476,7 +16524,7 @@ test("collegium initiatives API routes requests and maps module errors", async (
       calls.push(`add:${id}:${fileName}:${content.length}`);
       return { id: "file-1", kind: "file", label: fileName, fileName, fileType: "pdf", sizeBytes: content.length, createdByDisplayName: "x", createdAt: "2026-10-05T09:00:00.000Z" };
     },
-    async assignControlRoles(_profile: ServerUserProfile, id: string) {
+    async assignRoles(_profile: ServerUserProfile, id: string) {
       calls.push(`roles:${id}`);
       return { id };
     },

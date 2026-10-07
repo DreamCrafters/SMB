@@ -1,10 +1,12 @@
 import { useState, type FormEvent } from "react";
 import {
+  collegiumAssignableRoleLabels,
   collegiumEffectStatusLabels,
   collegiumSignerRoleLabels,
   collegiumSignerRoles,
   collegiumVerifierRoleLabels,
   collegiumVerifierRoles,
+  type CollegiumAssignableRole,
   type CollegiumEffectControlRow,
   type CollegiumEffectGroupView,
   type CollegiumInitiativeDetailResponse,
@@ -15,7 +17,7 @@ import { formatSignedAmount } from "./CollegiumPassport";
 import { ManagedTable } from "./ManagedTable";
 import { TableCell, TableHeader } from "./TableCell";
 import {
-  assignCollegiumControlRoles,
+  assignCollegiumRoles,
   recordCollegiumEffectGroupFact,
   saveCollegiumEffectGroup,
   recordCollegiumConclusion,
@@ -38,8 +40,8 @@ export function EffectControlSection({ detail, people, userId, onChanged }: {
   const { initiative, effectControl: control } = detail;
   const workflow = initiative.workflow;
   const hasAnything = control.rows.some((row) => row.fact !== undefined) ||
-    workflow.verifiers !== undefined || control.canRecordFacts || control.canAssignRoles || detail.effectGroups.length > 0;
-  const canGroup = control.canAssignRoles || control.verifierRole === "financial";
+    workflow.verifiers !== undefined || control.canRecordFacts || control.canGroupEffects || detail.effectGroups.length > 0;
+  const canGroup = control.canGroupEffects;
   const [editing, setEditing] = useState<Editing>();
   const [message, setMessage] = useState("");
   const [isBusy, setIsBusy] = useState(false);
@@ -83,26 +85,12 @@ export function EffectControlSection({ detail, people, userId, onChanged }: {
         })}
       </dl>
       <div className="collegium-form-actions">
-        {control.canAssignRoles ? (
-          <button className="secondary-button" disabled={isBusy} type="button" onClick={() => setEditing("roles")}>
-            Назначить роли контроля
-          </button>
-        ) : null}
         {control.verifierRole === undefined ? null : (
           <button className="secondary-button" disabled={isBusy} type="button" onClick={() => setEditing("conclusion")}>
             Внести заключение
           </button>
         )}
       </div>
-      {editing === "roles" ? (
-        <RolesForm
-          detail={detail}
-          isBusy={isBusy}
-          people={people.filter((person) => person.hasInitiativesTab)}
-          onCancel={() => setEditing(undefined)}
-          onSubmit={(body) => run(() => assignCollegiumControlRoles(initiative.id, { revision: initiative.revision, ...body }), "Не удалось назначить роли.")}
-        />
-      ) : null}
       {editing === "conclusion" && control.verifierRole !== undefined ? (
         <TextForm
           isBusy={isBusy}
@@ -242,7 +230,7 @@ export function EffectControlSection({ detail, people, userId, onChanged }: {
   );
 }
 
-type Editing = "roles" | "conclusion" | { fact: string } | { reject: string } | { shares: string } | { groupFact: string } | undefined;
+type Editing = "conclusion" | { fact: string } | { reject: string } | { shares: string } | { groupFact: string } | undefined;
 
 /** Совместный эффект: один факт на группу, доли участников (ТЗ 11.2). */
 function GroupBlock({ group, isBusy, editing, onEdit, onSaveShares, onSaveFact }: {
@@ -333,45 +321,124 @@ function GroupBlock({ group, isBusy, editing, onEdit, onSaveShares, onSaveFact }
   );
 }
 
+/**
+ * Временные роли инициативы: член Коллегии назначает их любому сотруднику.
+ * Какие роли можно менять сейчас, решает сервер (`assignableRoles`).
+ */
+export function RoleAssignmentPanel({ detail, people, onChanged }: {
+  detail: CollegiumInitiativeDetailResponse;
+  people: CollegiumPerson[];
+  onChanged: () => void;
+}) {
+  const { initiative, assignableRoles } = detail;
+  const [isEditing, setIsEditing] = useState(false);
+  const [isBusy, setIsBusy] = useState(false);
+  const [message, setMessage] = useState("");
+  if (assignableRoles.length === 0) return null;
+
+  const submit = async (body: Partial<Record<CollegiumAssignableRole, string>> & { reason: string }) => {
+    setIsBusy(true);
+    setMessage("");
+    try {
+      await assignCollegiumRoles(initiative.id, { revision: initiative.revision, ...body });
+      setIsEditing(false);
+      onChanged();
+    } catch (error) {
+      setMessage(errorText(error, "Не удалось назначить роли."));
+    } finally {
+      setIsBusy(false);
+    }
+  };
+  return (
+    <div className="collegium-role-assignment">
+      {isEditing ? (
+        <RolesForm
+          detail={detail}
+          isBusy={isBusy}
+          people={people}
+          onCancel={() => setIsEditing(false)}
+          onSubmit={(body) => void submit(body)}
+        />
+      ) : (
+        <div className="collegium-form-actions">
+          <button className="secondary-button" type="button" onClick={() => setIsEditing(true)}>
+            Назначить роли
+          </button>
+        </div>
+      )}
+      {message === "" ? null : <p className="form-message is-error" role="alert">{message}</p>}
+    </div>
+  );
+}
+
 function RolesForm({ detail, people, isBusy, onCancel, onSubmit }: {
   detail: CollegiumInitiativeDetailResponse;
   people: CollegiumPerson[];
   isBusy: boolean;
   onCancel: () => void;
-  onSubmit: (body: { effectControllerId: string; technicalId: string; financialId: string; reason: string }) => void;
+  onSubmit: (body: Partial<Record<CollegiumAssignableRole, string>> & { reason: string }) => void;
 }) {
   const { card, workflow } = detail.initiative;
-  const [form, setForm] = useState({
-    effectControllerId: card.effectControllerId,
-    technicalId: workflow.verifiers?.technicalId ?? "",
-    financialId: workflow.verifiers?.financialId ?? "",
-    reason: "",
-  });
+  const current = (role: CollegiumAssignableRole) => role === "technicalId" || role === "financialId"
+    ? workflow.verifiers?.[role] ?? ""
+    : card[role];
+  const [form, setForm] = useState(() => Object.fromEntries(
+    detail.assignableRoles.map((role) => [role, current(role)]),
+  ) as Partial<Record<CollegiumAssignableRole, string>>);
+  const [reason, setReason] = useState("");
   const submit = (event: FormEvent) => {
     event.preventDefault();
-    onSubmit(form);
+    // Передаются только изменённые роли: сервер проверяет итоговое состояние.
+    const changed = Object.fromEntries(detail.assignableRoles
+      .filter((role) => form[role] !== current(role))
+      .map((role) => [role, form[role] ?? ""]));
+    onSubmit({ ...changed, reason });
   };
   return (
     <form className="collegium-action-form" onSubmit={submit}>
       <div className="collegium-field-grid">
-        {([
-          ["effectControllerId", "Контролёр эффекта"],
-          ["technicalId", "Технический верификатор"],
-          ["financialId", "Финансовый верификатор"],
-        ] as const).map(([key, label]) => (
-          <label className="collegium-field" key={key}>
-            <span>{label}</span>
-            <select disabled={isBusy} value={form[key]} onChange={(event) => setForm({ ...form, [key]: event.currentTarget.value })}>
-              <option value="">Не назначен</option>
-              {people.map((person) => <option key={person.id} value={person.id}>{person.displayName}</option>)}
-            </select>
-          </label>
-        ))}
+        {detail.assignableRoles.map((role) => {
+          const value = form[role] ?? "";
+          const options = value !== "" && !people.some((person) => person.id === value)
+            ? [...people, { id: value, displayName: "Учётная запись недоступна", position: "", hasInitiativesTab: false }]
+            : people;
+          return (
+            <label className="collegium-field" key={role}>
+              <span>{collegiumAssignableRoleLabels[role]}</span>
+              <select
+                disabled={isBusy}
+                value={value}
+                onChange={(event) => {
+                  const next = event.currentTarget.value;
+                  setForm((currentForm) => ({ ...currentForm, [role]: next }));
+                }}
+              >
+                <option value="">Не назначен</option>
+                {options.map((person) => (
+                  <option key={person.id} value={person.id}>
+                    {person.position === "" ? person.displayName : `${person.displayName} — ${person.position}`}
+                  </option>
+                ))}
+              </select>
+            </label>
+          );
+        })}
         <label className="collegium-field collegium-field-wide">
           <span>Причина изменения</span>
-          <input disabled={isBusy} maxLength={1000} value={form.reason} onChange={(event) => setForm({ ...form, reason: event.currentTarget.value })} />
+          <input
+            disabled={isBusy}
+            maxLength={500}
+            value={reason}
+            onChange={(event) => {
+              const next = event.currentTarget.value;
+              setReason(next);
+            }}
+          />
         </label>
       </div>
+      <p className="collegium-empty-note">
+        Роль даёт сотруднику доступ только к этой инициативе, пока роль не заменена и инициатива не закрыта.
+      </p>
       <div className="collegium-form-actions">
         <button className="primary-button" disabled={isBusy} type="submit">Сохранить роли</button>
         <button className="secondary-button" disabled={isBusy} type="button" onClick={onCancel}>Отмена</button>

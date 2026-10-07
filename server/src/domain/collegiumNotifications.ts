@@ -5,6 +5,7 @@ import {
   type CollegiumInitiativeCard,
   type CollegiumMeeting,
 } from "../contracts/collegiumInitiatives.js";
+import { listCollegiumRoleHolderIds } from "./collegiumInitiative.js";
 
 /**
  * Описание уведомления модуля «Инициативы Коллегии». Сервисы кладут описания в
@@ -20,6 +21,12 @@ export type CollegiumNotification = {
   audienceCapability?: "business.manage_collegium_initiatives" | "business.approve_collegium_initiatives";
   /** Автор действия не получает уведомление о собственном действии. */
   actorUserId: string;
+  /**
+   * Держатели временных ролей этой инициативы: явному адресату из их числа
+   * вкладка не нужна (канал по-прежнему включает должность). Сводное письмо
+   * по протоколу их не заполняет — в нём чужие вопросы.
+   */
+  roleHolderUserIds?: string[];
 };
 
 export type CollegiumOutbox = CollegiumNotification[];
@@ -33,6 +40,10 @@ const roleLabels: Record<(typeof collegiumInitiativeRoleFields)[number], string>
 
 function userIdOf(accountId: string) {
   return accountId.startsWith("account:") ? accountId.slice("account:".length) : "";
+}
+
+function roleHolderUserIds(initiative: CollegiumInitiative) {
+  return userIds(...listCollegiumRoleHolderIds(initiative));
 }
 
 function userIds(...accountIds: string[]) {
@@ -67,6 +78,7 @@ export function buildRoleAssignmentNotifications(
     lines: [head(initiative), `Вам назначена роль: ${roles.join(", ")}.`],
     userIds: [userId],
     actorUserId,
+    roleHolderUserIds: roleHolderUserIds(initiative),
   }));
 }
 
@@ -90,6 +102,7 @@ export function buildHiddenRoleNotifications(
     lines: [head(initiative), `Вам назначена роль: ${roles.join(", ")}.`],
     userIds: [userId],
     actorUserId,
+    roleHolderUserIds: roleHolderUserIds(initiative),
   }));
 }
 
@@ -120,6 +133,7 @@ export function buildReworkNotification(initiative: CollegiumInitiative, actorUs
       rework?.responsibleId ?? "",
     ),
     actorUserId,
+    roleHolderUserIds: roleHolderUserIds(initiative),
   };
 }
 
@@ -137,6 +151,7 @@ export function buildAgendaNotification(
     ],
     userIds: userIds(initiative.card.initiatorId, initiative.card.ownerId, speakerId),
     actorUserId,
+    roleHolderUserIds: roleHolderUserIds(initiative),
   };
 }
 
@@ -173,6 +188,7 @@ export function buildAssignmentCreatedNotification(
     lines: [head(initiative), `По инициативе создано поручение Коллегии ${assignmentNumber}.`],
     userIds: userIds(initiative.card.initiatorId, initiative.card.ownerId, initiative.card.executorId),
     actorUserId,
+    roleHolderUserIds: roleHolderUserIds(initiative),
   };
 }
 
@@ -183,6 +199,7 @@ export function buildResultConfirmationNotification(initiative: CollegiumInitiat
     lines: [head(initiative), "Работы завершены, требуется проверить факты и подписать эффект."],
     userIds: userIds(initiative.card.effectControllerId, initiative.workflow.verifiers?.financialId ?? ""),
     actorUserId,
+    roleHolderUserIds: roleHolderUserIds(initiative),
   };
 }
 
@@ -207,6 +224,7 @@ export function buildControlRoleNotifications(
     lines: [head(initiative), `Вам назначена роль: ${roles.join(", ")}.`],
     userIds: [userId],
     actorUserId,
+    roleHolderUserIds: roleHolderUserIds(initiative),
   }));
 }
 
@@ -220,6 +238,7 @@ export function buildOutcomeNotification(
     lines: [head(initiative), `${outcome}.`],
     userIds: userIds(initiative.card.initiatorId, initiative.card.ownerId),
     actorUserId,
+    roleHolderUserIds: roleHolderUserIds(initiative),
   };
 }
 

@@ -5,8 +5,11 @@ import {
   collegiumCommentKinds,
   collegiumInitiativeActionLabels,
   collegiumInitiativeFieldLabels,
+  collegiumAssignableRoleLabels,
+  collegiumAssignableRoles,
   collegiumInitiativeRoleFields,
   collegiumInitiativeStatusLabels,
+  type CollegiumAssignableRole,
   type CollegiumAttachment,
   type CollegiumAttentionItem,
   type CollegiumBoardReport,
@@ -101,6 +104,8 @@ import {
   canEditCollegiumInitiative,
   canViewCollegiumInitiative,
   collegiumAccountId,
+  listCollegiumRoleHolderIds,
+  resolveCollegiumInitiativeAccess,
   collegiumInitiativePermissions,
   CollegiumInitiativeError,
   isOwnCollegiumInitiative,
@@ -133,6 +138,27 @@ const controlRoleStatuses: readonly CollegiumInitiative["status"][] = [
   "board_referral",
   "in_progress",
   "result_confirmation",
+];
+
+/** Роли не меняются на повестке (решение принимается по снимку) и после закрытия или отклонения. */
+const roleFrozenStatuses: readonly CollegiumInitiative["status"][] = [
+  "on_agenda",
+  "in_discussion",
+  "rejected",
+  "closed",
+];
+
+/** До допуска роль можно очистить; дальше — только заменить. */
+const roleClearableStatuses: readonly CollegiumInitiative["status"][] = [
+  "draft",
+  "preliminary_review",
+  "rework",
+];
+
+/** После проверки эффекта контролёр не меняется: подтверждение опирается на его подпись. */
+const effectCheckedStatuses: readonly CollegiumInitiative["status"][] = [
+  "done_confirmed",
+  "done_unconfirmed",
 ];
 
 const conclusionStatuses: readonly CollegiumInitiative["status"][] = [
@@ -271,7 +297,7 @@ export function createCollegiumInitiativesService({
   ) {
     if ((initiative.card.passport?.effects.length ?? 0) === 0) return [];
     const others = (await repository.list()).filter((other) =>
-      canViewCollegiumInitiative(other, profile, permissions));
+      canViewCollegiumInitiative(other, profile));
     return findCollegiumEffectDuplicates(initiative, others);
   }
 
@@ -290,9 +316,47 @@ export function createCollegiumInitiativesService({
       rows: buildCollegiumEffectControlRows(initiative),
       canRecordFacts: canRecordResult(initiative, profile, permissions),
       ...(signerRole === undefined ? {} : { signerRole }),
-      canAssignRoles: permissions.canManage && controlRoleStatuses.includes(initiative.status),
+      canGroupEffects: canGroupEffects(initiative, profile, verifierRole),
       ...(verifierRole === undefined || !conclusionStatuses.includes(initiative.status) ? {} : { verifierRole }),
     };
+  }
+
+  /** Совместный эффект охватывает чужие инициативы, поэтому нужна вкладка, а не временная роль. */
+  function canGroupEffects(
+    initiative: CollegiumInitiative,
+    profile: ServerUserProfile,
+    verifierRole: CollegiumVerifierRole | undefined,
+  ) {
+    const global = collegiumInitiativePermissions(profile);
+    return global.canView && (
+      (global.canManage && controlRoleStatuses.includes(initiative.status)) ||
+      verifierRole === "financial"
+    );
+  }
+
+  /**
+   * Роли, которые пользователь может сейчас назначить. Назначает член
+   * Коллегии (глобальный `participate`, временная роль этого права не даёт).
+   * Роли контроля после решения Коллегии не меняют текущие владелец и
+   * исполнитель — иначе они сами выбирали бы проверяющего свой эффект.
+   */
+  function listAssignableRoles(
+    initiative: CollegiumInitiative,
+    profile: ServerUserProfile,
+  ): CollegiumAssignableRole[] {
+    const global = collegiumInitiativePermissions(profile);
+    if (!global.canParticipate || roleFrozenStatuses.includes(initiative.status)) return [];
+    const accountId = collegiumAccountId(profile.userId);
+    const isDecided = controlRoleStatuses.includes(initiative.status) ||
+      effectCheckedStatuses.includes(initiative.status);
+    const mayChangeControl = global.canManage || !isDecided ||
+      (initiative.card.ownerId !== accountId && initiative.card.executorId !== accountId);
+    return collegiumAssignableRoles.filter((role) => {
+      if (role === "ownerId" || role === "executorId" || role === "executionControllerId") return true;
+      if (!mayChangeControl) return false;
+      if (role === "effectControllerId") return !effectCheckedStatuses.includes(initiative.status);
+      return controlRoleStatuses.includes(initiative.status);
+    });
   }
 
   /** Изменение контроля эффекта: ревизия со снимком (ТЗ 16) и аудит в одной транзакции. */
@@ -305,6 +369,7 @@ export function createCollegiumInitiativesService({
     reason,
     comment = "",
     summary,
+    details,
   }: {
     profile: ServerUserProfile;
     initiative: CollegiumInitiative;
@@ -314,6 +379,7 @@ export function createCollegiumInitiativesService({
     reason: string;
     comment?: string;
     summary: string;
+    details?: Array<{ label: string; value: string }>;
   }) {
     const at = now();
     const updated: CollegiumInitiative = {
@@ -337,7 +403,7 @@ export function createCollegiumInitiativesService({
       card,
       ...(effectSnapshot === undefined ? {} : { effectSnapshot }),
     });
-    await recordAudit(profile, "collegium_initiative.update", updated, `${summary}: инициатива ${updated.number}`);
+    await recordAudit(profile, "collegium_initiative.update", updated, `${summary}: инициатива ${updated.number}`, details);
     return updated;
   }
 
@@ -356,6 +422,8 @@ export function createCollegiumInitiativesService({
   ): Promise<CollegiumEffectGroupView[]> {
     if (effectGroups === undefined) return [];
     const me = collegiumAccountId(profile.userId);
+    // Совместный эффект ведут только аккаунты с вкладкой: группа охватывает чужие инициативы.
+    const global = collegiumInitiativePermissions(profile);
     const groupIds = [...new Set(Object.values(initiative.workflow.effectShares ?? {}).map(({ groupId }) => groupId))];
     const views: CollegiumEffectGroupView[] = [];
     for (const groupId of groupIds) {
@@ -363,7 +431,7 @@ export function createCollegiumInitiativesService({
       if (group === undefined) continue;
       const members = await Promise.all((await effectGroups.listMembers(groupId)).map(async (member) => {
         const other = member.initiativeId === initiative.id ? initiative : await repository.read(member.initiativeId);
-        const visible = other !== undefined && canViewCollegiumInitiative(other, profile, permissions);
+        const visible = other !== undefined && canViewCollegiumInitiative(other, profile);
         return {
           initiativeId: visible ? member.initiativeId : "",
           number: visible ? other.number : "",
@@ -378,8 +446,9 @@ export function createCollegiumInitiativesService({
         revision: group.revision,
         ...(group.fact === undefined ? {} : { fact: group.fact }),
         members,
-        canEditShares: permissions.canManage || initiative.workflow.verifiers?.financialId === me,
-        canRecordFact: factStatuses.includes(initiative.status) &&
+        canEditShares: global.canView &&
+          (permissions.canManage || initiative.workflow.verifiers?.financialId === me),
+        canRecordFact: factStatuses.includes(initiative.status) && global.canView &&
           (permissions.canManage || (permissions.canParticipate && isResultReporter(initiative, profile.userId))),
       });
     }
@@ -419,15 +488,16 @@ export function createCollegiumInitiativesService({
     id: string,
     lock = false,
   ) {
-    const permissions = requireView(profile);
     const initiative = await repository.read(id, lock);
-    if (
-      initiative === undefined ||
-      !canViewCollegiumInitiative(initiative, profile, permissions)
-    ) {
+    const access = initiative === undefined
+      ? undefined
+      : resolveCollegiumInitiativeAccess(initiative, profile);
+    if (initiative === undefined || access === undefined || !access.visible) {
+      // Аккаунт без вкладки и без роли в этой карточке получает прежний ответ.
+      requireView(profile);
       throw new CollegiumInitiativeError("Инициатива недоступна.", 404);
     }
-    return { initiative, permissions };
+    return { initiative, permissions: access.permissions, global: access.global };
   }
 
   /**
@@ -574,7 +644,6 @@ export function createCollegiumInitiativesService({
    */
   async function loadRegistry(
     profile: ServerUserProfile,
-    permissions: CollegiumInitiativePermissions,
     filters: CollegiumInitiativeFilters,
   ) {
     const [initiatives, people, reference, meetings, linked, moduleSettings, commentMatches] = await Promise.all([
@@ -598,7 +667,7 @@ export function createCollegiumInitiativesService({
       new Set(meeting.items.filter((item) => item.removedAt === undefined).map((item) => item.initiativeId)),
     ]));
     const visible = initiatives.filter((initiative) =>
-      canViewCollegiumInitiative(initiative, profile, permissions));
+      canViewCollegiumInitiative(initiative, profile));
     const passportRequiredIds = new Set(visible
       .filter((initiative) => listCollegiumPassportReasons(initiative, moduleSettings, reference).length > 0)
       .map((initiative) => initiative.id));
@@ -625,7 +694,7 @@ export function createCollegiumInitiativesService({
     profile: ServerUserProfile,
     id: string,
   ): Promise<CollegiumInitiativeDetailResponse> {
-    const { initiative, permissions } = await requireInitiative(profile, id);
+    const { initiative, permissions, global } = await requireInitiative(profile, id);
     const [revisions, comments, attachments, people, linkedAssignments, passport] = await Promise.all([
       repository.listRevisions(id),
       repository.listComments(id),
@@ -648,6 +717,7 @@ export function createCollegiumInitiativesService({
       linkedAssignments,
       summaryStatus: readCollegiumSummaryStatus(initiative, linkedAssignments),
       canCreateAssignments: assignableStatuses.includes(initiative.status) &&
+        global.canView &&
         hasProfileCapability(profile, "business.manage_collegium_assignments") &&
         (initiative.status !== "approved_pilot" || passport.gaps.length === 0),
       canRecordResult: canRecordResult(initiative, profile, permissions),
@@ -658,6 +728,7 @@ export function createCollegiumInitiativesService({
       effectDuplicates: await findVisibleDuplicates(profile, permissions, initiative),
       effectControl: buildEffectControl(initiative, profile, permissions),
       effectGroups: await readEffectGroups(initiative, profile, permissions),
+      assignableRoles: listAssignableRoles(initiative, profile),
     };
   }
 
@@ -684,8 +755,22 @@ export function createCollegiumInitiativesService({
       profile: ServerUserProfile,
       filters: CollegiumInitiativeFilters = {},
     ): Promise<CollegiumInitiativeListResponse> {
-      const permissions = requireView(profile);
-      const registry = await loadRegistry(profile, permissions, filters);
+      const permissions = collegiumInitiativePermissions(profile);
+      const registry = await loadRegistry(profile, filters);
+      if (!permissions.canView) {
+        // Без вкладки реестр — только инициативы, где у аккаунта временная роль:
+        // ни справочника всех сотрудников, ни заседаний ему не отдаём.
+        const assigned = (await repository.list()).filter((initiative) =>
+          canViewCollegiumInitiative(initiative, profile));
+        if (assigned.length === 0) requireView(profile);
+        const mentioned = new Set(assigned.flatMap((initiative) => [
+          initiative.card.initiatorId,
+          ...listCollegiumRoleHolderIds(initiative),
+          initiative.workflow.rework?.responsibleId ?? "",
+        ]));
+        registry.people = registry.people.filter((person) => mentioned.has(person.id));
+        registry.meetings = [];
+      }
       return {
         // The registry is a projection: the full passport is read with the card.
         initiatives: registry.initiatives.map(({ card: { passport: _passport, ...card }, ...initiative }) => ({
@@ -705,6 +790,15 @@ export function createCollegiumInitiativesService({
           .filter((initiative) => registry.passportRequiredIds.has(initiative.id))
           .map((initiative) => initiative.id),
       };
+    },
+
+    /**
+     * Есть ли у аккаунта без вкладки инициатива, открытая ему временной ролью:
+     * по ответу профиль получает пункт меню раздела.
+     */
+    async hasAssignedInitiatives(profile: ServerUserProfile) {
+      if (collegiumInitiativePermissions(profile).canView) return false;
+      return (await repository.list()).some((initiative) => canViewCollegiumInitiative(initiative, profile));
     },
 
     /** Адресаты уведомлений по capability (для доставки после ответа). */
@@ -736,7 +830,6 @@ export function createCollegiumInitiativesService({
      * пользователю, включая проверку независимости при подтверждении эффекта.
      */
     async attention(profile: ServerUserProfile): Promise<CollegiumAttentionItem[]> {
-      const permissions = requireView(profile);
       const [initiatives, linked] = await Promise.all([
         repository.list(),
         assignments?.listWithInitiativeLink() ?? Promise.resolve([]),
@@ -746,8 +839,12 @@ export function createCollegiumInitiativesService({
         .filter((assignment) => assignment.status !== "completed" && assignment.currentOccurrenceDate < today())
         .map((assignment) => assignment.sourceInitiativeId ?? ""));
       const items: CollegiumAttentionItem[] = [];
+      let hasVisible = false;
       for (const initiative of initiatives) {
-        if (!canViewCollegiumInitiative(initiative, profile, permissions)) continue;
+        // Права считаются на каждую инициативу: временная роль действует только в своей.
+        const { visible, permissions } = resolveCollegiumInitiativeAccess(initiative, profile);
+        if (!visible) continue;
+        hasVisible = true;
         const actions = listAvailableCollegiumActions(initiative, profile.userId, permissions);
         const add = (reason: string) => items.push({
           initiativeId: initiative.id,
@@ -793,12 +890,13 @@ export function createCollegiumInitiativesService({
           add("Просрочены поручения по инициативе");
         }
       }
+      if (!hasVisible) requireView(profile);
       return items;
     },
 
     /** Дашборд Коллегии (ТЗ 13.1) по инициативам, видимым пользователю. */
     async dashboard(profile: ServerUserProfile): Promise<CollegiumDashboard> {
-      const permissions = requireView(profile);
+      requireView(profile);
       const [initiatives, meetings, linked, reference] = await Promise.all([
         repository.list(),
         repository.listMeetings(),
@@ -808,7 +906,7 @@ export function createCollegiumInitiativesService({
       return buildCollegiumDashboard({
         today: today(),
         reference,
-        initiatives: initiatives.filter((initiative) => canViewCollegiumInitiative(initiative, profile, permissions)),
+        initiatives: initiatives.filter((initiative) => canViewCollegiumInitiative(initiative, profile)),
         meetings,
         assignments: linked,
       });
@@ -816,7 +914,7 @@ export function createCollegiumInitiativesService({
 
     /** Квартальный отчёт для СД (ТЗ 13.3) по инициативам, видимым пользователю. */
     async boardReport(profile: ServerUserProfile, quarter: string | null): Promise<CollegiumBoardReport> {
-      const permissions = requireView(profile);
+      requireView(profile);
       const period = readCollegiumQuarter(quarter, today());
       const [all, linked, reference, moduleSettings] = await Promise.all([
         repository.list(),
@@ -824,7 +922,7 @@ export function createCollegiumInitiativesService({
         repository.listReference(),
         readSettings(),
       ]);
-      const visible = all.filter((initiative) => canViewCollegiumInitiative(initiative, profile, permissions));
+      const visible = all.filter((initiative) => canViewCollegiumInitiative(initiative, profile));
       const revisions = new Map(await Promise.all(visible.map(async (initiative) =>
         [initiative.id, await repository.listRevisions(initiative.id)] as const)));
       return buildCollegiumBoardReport({
@@ -840,8 +938,8 @@ export function createCollegiumInitiativesService({
 
     /** Тот же отфильтрованный реестр для выгрузок XLSX и PDF. */
     async exportRegistry(profile: ServerUserProfile, filters: CollegiumInitiativeFilters) {
-      const permissions = requireView(profile);
-      return loadRegistry(profile, permissions, filters);
+      requireView(profile);
+      return loadRegistry(profile, filters);
     },
 
     read(profile: ServerUserProfile, id: string) {
@@ -908,7 +1006,7 @@ export function createCollegiumInitiativesService({
       const reference = await repository.listReference();
 
       return transaction.run(async () => {
-        const { initiative, permissions } = await requireInitiative(profile, id, true);
+        const { initiative, permissions, global } = await requireInitiative(profile, id, true);
         if (!canEditCollegiumInitiative(initiative, profile, permissions)) {
           throw new CollegiumInitiativeError("Эту инициативу сейчас нельзя изменить.", 403);
         }
@@ -922,6 +1020,10 @@ export function createCollegiumInitiativesService({
           nextCard.initiatorId = initiative.card.initiatorId;
         } else if (nextCard.initiatorId === "") {
           nextCard.initiatorId = initiative.card.initiatorId;
+        }
+        // Временная роль не даёт права раздавать роли: их назначает член Коллегии.
+        if (!global.canParticipate) {
+          for (const field of collegiumInitiativeRoleFields) nextCard[field] = initiative.card[field];
         }
         const changedFields = listChangedCollegiumFields(initiative.card, nextCard);
         if (changedFields.length === 0) return initiative;
@@ -965,89 +1067,136 @@ export function createCollegiumInitiativesService({
     },
 
     /**
-     * Роли контроля эффекта (секретарь): контролёр эффекта, технический и
-     * финансовый верификаторы. Подписывают разные люди, не владелец и не
-     * исполнитель после допуска; смена роли снимает её подписи и заключение.
+     * Временные роли одной инициативы (`POST /:id/roles`): член Коллегии
+     * назначает или заменяет переданные роли любому действующему сотруднику.
+     * Инварианты независимости проверяются на итоговом состоянии; смена
+     * проверяющего снимает его подписи и заключение.
      */
-    async assignControlRoles(profile: ServerUserProfile, id: string, body: unknown, outbox?: CollegiumOutbox) {
-      const record = readControlBody(body, ["effectControllerId", "technicalId", "financialId", "reason"]);
+    async assignRoles(profile: ServerUserProfile, id: string, body: unknown, outbox?: CollegiumOutbox) {
+      const record = readControlBody(body, [...collegiumAssignableRoles, "reason"]);
       const reason = readCollegiumOptionalText(record.reason, maxReasonLength, "Причина изменения");
-      const ids = Object.fromEntries((["effectControllerId", "technicalId", "financialId"] as const).map((key) => {
-        const value = readCollegiumOptionalText(record[key], 120, "Роль");
+      const requested = new Map<CollegiumAssignableRole, string>();
+      for (const role of collegiumAssignableRoles) {
+        if (record[role] === undefined) continue;
+        const value = readCollegiumOptionalText(record[role], 120, "Роль");
         if (value !== "" && !/^account:[A-Za-z0-9_-]{1,100}$/u.test(value)) {
           throw new CollegiumInitiativeError("Выберите действующую учётную запись.");
         }
-        return [key, value];
-      })) as Record<"effectControllerId" | "technicalId" | "financialId", string>;
-      if (ids.effectControllerId === "" || ids.financialId === "") {
-        throw new CollegiumInitiativeError("Назначьте контролёра эффекта и финансового верификатора.");
-      }
-      if (ids.effectControllerId === ids.financialId) {
-        throw new CollegiumInitiativeError("Контролёр эффекта и финансовый верификатор должны быть разными людьми.");
+        requested.set(role, value);
       }
       return transaction.run(async () => {
-        const { initiative, permissions } = await lockForControl(profile, id, record.revision);
-        if (!permissions.canManage) throw new CollegiumInitiativeError("Роли контроля назначает секретарь Коллегии.", 403);
-        if (!controlRoleStatuses.includes(initiative.status)) {
-          throw new CollegiumInitiativeError("Роли контроля назначаются после решения Коллегии.", 409);
+        const { initiative } = await lockForControl(profile, id, record.revision);
+        if (!collegiumInitiativePermissions(profile).canParticipate) {
+          throw new CollegiumInitiativeError("Роли назначает член Коллегии.", 403);
         }
-        const previous = initiative.workflow.verifiers;
-        const changed = {
-          controller: ids.effectControllerId !== initiative.card.effectControllerId,
-          technical: ids.technicalId !== (previous?.technicalId ?? ""),
-          financial: ids.financialId !== (previous?.financialId ?? ""),
-        };
-        if (!changed.controller && !changed.technical && !changed.financial) return initiative;
-        if (reason === "") throw new CollegiumInitiativeError("Укажите причину изменения.");
-        for (const accountId of [ids.effectControllerId, ids.technicalId, ids.financialId]) {
-          if (accountId === "") continue;
-          const person = await repository.readPerson(accountId, true);
-          if (person === undefined || !person.hasInitiativesTab) {
-            throw new CollegiumInitiativeError("Роли контроля — действующие аккаунты с вкладкой инициатив.");
+        const allowed = listAssignableRoles(initiative, profile);
+        const current = (role: CollegiumAssignableRole) => role === "technicalId" || role === "financialId"
+          ? initiative.workflow.verifiers?.[role] ?? ""
+          : initiative.card[role];
+        const changed = [...requested].filter(([role, value]) => value !== current(role));
+        if (changed.length === 0) return initiative;
+        for (const [role, value] of changed) {
+          if (!allowed.includes(role)) {
+            throw new CollegiumInitiativeError(
+              `«${collegiumAssignableRoleLabels[role]}» сейчас назначить нельзя.`,
+              roleFrozenStatuses.includes(initiative.status) ? 409 : 403,
+            );
+          }
+          if (value === "" && role !== "technicalId" && !roleClearableStatuses.includes(initiative.status)) {
+            throw new CollegiumInitiativeError(
+              `«${collegiumAssignableRoleLabels[role]}»: после допуска роль заменяется, но не снимается.`,
+            );
           }
         }
-        for (const accountId of [ids.effectControllerId, ids.financialId]) {
-          if (accountId === initiative.card.ownerId || accountId === initiative.card.executorId) {
+        if (initiative.status !== "draft" && reason === "") {
+          throw new CollegiumInitiativeError("Укажите причину изменения.");
+        }
+        const next = (role: CollegiumAssignableRole) => requested.get(role) ?? current(role);
+        const isChanged = (role: CollegiumAssignableRole) => changed.some(([changedRole]) => changedRole === role);
+        // До допуска независимость проверяет фильтр допуска; дальше — каждое изменение.
+        if (!roleClearableStatuses.includes(initiative.status)) {
+          const doers = [next("ownerId"), next("executorId")];
+          const checkers = [next("effectControllerId"), next("financialId")].filter((accountId) => accountId !== "");
+          if (checkers.some((accountId) => doers.includes(accountId))) {
             throw new CollegiumInitiativeError("Владелец или исполнитель не проверяет собственный эффект.");
           }
-          await assertIndependentAccount(initiative, accountId);
+          if (checkers.length === 2 && checkers[0] === checkers[1]) {
+            throw new CollegiumInitiativeError("Контролёр эффекта и финансовый верификатор должны быть разными людьми.");
+          }
         }
+        const controlChanged = isChanged("effectControllerId") || isChanged("technicalId") || isChanged("financialId");
+        if (controlChanged && controlRoleStatuses.includes(initiative.status)) {
+          if (next("effectControllerId") === "" || next("financialId") === "") {
+            throw new CollegiumInitiativeError("Назначьте контролёра эффекта и финансового верификатора.");
+          }
+          if (!collegiumInitiativePermissions(profile).canManage) {
+            // Проверяющего выбирает тот, кто сам не был владельцем или исполнителем после допуска.
+            await assertIndependentAccount(initiative, collegiumAccountId(profile.userId));
+          }
+        }
+        // Блокировки: строка инициативы уже взята, затем изменённые аккаунты по id.
+        const newAccounts = [...new Set(changed.map(([, value]) => value).filter((value) => value !== ""))].sort();
+        const names = new Map<string, string>();
+        for (const accountId of newAccounts) {
+          const person = await repository.readPerson(accountId, true);
+          if (person === undefined) {
+            throw new CollegiumInitiativeError("Выберите действующую учётную запись.");
+          }
+          names.set(accountId, person.displayName);
+        }
+        for (const role of ["effectControllerId", "financialId"] as const) {
+          if (isChanged(role) && next(role) !== "") await assertIndependentAccount(initiative, next(role));
+        }
+
+        const card = { ...initiative.card };
+        for (const role of collegiumInitiativeRoleFields) card[role] = next(role);
         const workflow = { ...initiative.workflow };
-        workflow.verifiers = {
-          technicalId: ids.technicalId,
-          financialId: ids.financialId,
-          assignedByDisplayName: profile.displayName,
-          assignedAt: now().toISOString(),
-        };
-        if (workflow.verification !== undefined) {
+        if (isChanged("technicalId") || isChanged("financialId")) {
+          workflow.verifiers = {
+            technicalId: next("technicalId"),
+            financialId: next("financialId"),
+            assignedByDisplayName: profile.displayName,
+            assignedAt: now().toISOString(),
+          };
+        }
+        if (workflow.verification !== undefined && (isChanged("technicalId") || isChanged("financialId"))) {
           const verification = { ...workflow.verification };
-          if (changed.technical) delete verification.technical;
-          if (changed.financial) delete verification.financial;
+          if (isChanged("technicalId")) delete verification.technical;
+          if (isChanged("financialId")) delete verification.financial;
           workflow.verification = verification;
         }
-        if (workflow.effectFacts !== undefined && (changed.controller || changed.financial)) {
+        if (workflow.effectFacts !== undefined && (isChanged("effectControllerId") || isChanged("financialId"))) {
           workflow.effectFacts = Object.fromEntries(Object.entries(workflow.effectFacts).map(([effectId, fact]) => {
             const verdicts = { ...fact.verdicts };
-            if (changed.controller) delete verdicts.controller;
-            if (changed.financial) delete verdicts.financial;
+            if (isChanged("effectControllerId")) delete verdicts.controller;
+            if (isChanged("financialId")) delete verdicts.financial;
             return [effectId, { ...fact, verdicts }];
           }));
         }
-        const card = { ...initiative.card, effectControllerId: ids.effectControllerId };
+        const previousNames = new Map((await repository.listPeople()).map((person) => [person.id, person.displayName]));
+        const personName = (accountId: string) =>
+          accountId === "" ? "—" : names.get(accountId) ?? previousNames.get(accountId) ?? "—";
         const updated = await saveControlChange({
           profile,
           initiative,
           card,
           workflow,
-          changedFields: changed.controller ? ["effectControllerId"] : [],
+          changedFields: collegiumInitiativeRoleFields.filter(isChanged),
           reason,
-          summary: "Назначены роли контроля эффекта",
+          summary: "Изменены роли",
+          details: changed.map(([role, value]) => ({
+            label: collegiumAssignableRoleLabels[role],
+            value: `${personName(current(role))} → ${personName(value)}`,
+          })),
         });
-        outbox?.push(...buildControlRoleNotifications(updated, {
-          controller: changed.controller ? ids.effectControllerId : "",
-          technical: changed.technical ? ids.technicalId : "",
-          financial: changed.financial ? ids.financialId : "",
-        }, profile.userId));
+        outbox?.push(
+          ...buildRoleAssignmentNotifications(updated, initiative.card, profile.userId),
+          ...buildControlRoleNotifications(updated, {
+            controller: "",
+            technical: isChanged("technicalId") ? next("technicalId") : "",
+            financial: isChanged("financialId") ? next("financialId") : "",
+          }, profile.userId),
+        );
         return updated;
       });
     },
@@ -1172,6 +1321,8 @@ export function createCollegiumInitiativesService({
      * участников; сумма долей не больше 100 %, участники ещё не прошли проверку.
      */
     async saveEffectGroup(profile: ServerUserProfile, body: unknown) {
+      // Группа охватывает чужие инициативы, поэтому временной роли недостаточно.
+      requireView(profile);
       const groups = requireGroups();
       const record = readControlBody(body, ["groupId", "members"]);
       const requestedGroupId = readCollegiumOptionalText(record.groupId, 36, "Группа");
@@ -1283,6 +1434,7 @@ export function createCollegiumInitiativesService({
 
     /** Единственный факт совместного эффекта; копия у каждого участника, подписи заново. */
     async recordEffectGroupFact(profile: ServerUserProfile, groupId: string, body: unknown) {
+      requireView(profile);
       const groups = requireGroups();
       const record = readControlBody(body, ["actualAmount", "period", "sources", "calculation"]);
       const input = readFactInput(record);
@@ -1607,6 +1759,8 @@ export function createCollegiumInitiativesService({
     assignmentLinks: {
       async lockForAssignment(profile: ServerUserProfile, initiativeId: string) {
         try {
+          // Поручение из инициативы создаёт аккаунт с вкладкой, а не держатель временной роли.
+          requireView(profile);
           const { initiative } = await requireInitiative(profile, initiativeId, true);
           if (!assignableStatuses.includes(initiative.status)) {
             throw new CollegiumInitiativeError(

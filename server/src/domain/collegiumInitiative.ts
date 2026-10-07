@@ -128,18 +128,60 @@ export function isOwnCollegiumInitiative(
     initiative.card.ownerId === accountId;
 }
 
+/** Шесть ролей карточки, которые член Коллегии выдаёт на одну инициативу. */
+export function listCollegiumRoleHolderIds(initiative: CollegiumInitiative) {
+  // Неполные снимки (старые фикстуры, частичные карточки) не должны ронять чтение.
+  return [
+    ...collegiumInitiativeRoleFields.map((field) => initiative.card[field]),
+    initiative.workflow.verifiers?.technicalId ?? "",
+    initiative.workflow.verifiers?.financialId ?? "",
+  ].filter((accountId): accountId is string => typeof accountId === "string" && accountId !== "");
+}
+
 /**
+ * Временная роль действует, пока аккаунт назначен в карточке и инициатива не
+ * закрыта: замена роли или закрытие снимают права без отдельного отзыва.
+ */
+export function isActiveCollegiumRoleHolder(
+  initiative: CollegiumInitiative,
+  userId: string,
+) {
+  return initiative.status !== "closed" &&
+    listCollegiumRoleHolderIds(initiative).includes(collegiumAccountId(userId));
+}
+
+/**
+ * Права на одну инициативу: уровень вкладки, расширенный ролью в этой
+ * карточке до участника. Результат нельзя переносить на другую инициативу;
+ * назначение ролей, заседания и сводные отчёты читают только `global`.
  * Никогда не отправлявшуюся инициативу видят только автор, инициатор,
  * владелец и секретарь — в том числе после её отзыва.
  */
+export function resolveCollegiumInitiativeAccess(
+  initiative: CollegiumInitiative,
+  profile: ServerUserProfile,
+) {
+  const global = collegiumInitiativePermissions(profile);
+  const isRoleHolder = isActiveCollegiumRoleHolder(initiative, profile.userId);
+  const permissions: CollegiumInitiativePermissions = {
+    canView: global.canView || isRoleHolder,
+    canParticipate: global.canParticipate || isRoleHolder,
+    canManage: global.canManage,
+    canApprove: global.canApprove,
+  };
+  const visible = permissions.canView && (
+    initiative.workflow.submittedAt !== undefined ||
+    permissions.canManage ||
+    isOwnCollegiumInitiative(initiative, profile.userId)
+  );
+  return { visible, permissions, global };
+}
+
 export function canViewCollegiumInitiative(
   initiative: CollegiumInitiative,
   profile: ServerUserProfile,
-  permissions = collegiumInitiativePermissions(profile),
 ) {
-  if (!permissions.canView) return false;
-  if (initiative.workflow.submittedAt !== undefined || permissions.canManage) return true;
-  return isOwnCollegiumInitiative(initiative, profile.userId);
+  return resolveCollegiumInitiativeAccess(initiative, profile).visible;
 }
 
 export function canEditCollegiumInitiative(

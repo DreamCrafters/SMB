@@ -475,12 +475,12 @@ test("two independent signatures confirm the effect facts; the chair corrects wi
     /Не назначен финансовый верификатор/u,
   );
   await assert.rejects(
-    initiatives.assignControlRoles(secretary, approved.id, {
+    initiatives.assignRoles(secretary, approved.id, {
       revision: current.revision, effectControllerId: "account:chair", technicalId: "", financialId: "account:owner", reason: "Назначение",
     }),
     /Владелец или исполнитель/u,
   );
-  current = await initiatives.assignControlRoles(secretary, approved.id, {
+  current = await initiatives.assignRoles(secretary, approved.id, {
     revision: current.revision, effectControllerId: "account:chair", technicalId: "account:secretary", financialId: "account:finance", reason: "Назначение",
   });
   assert.equal(current.workflow.verifiers?.financialId, "account:finance");
@@ -621,7 +621,7 @@ test("the executor never signs, even as a chair; a rejected verdict ends unconfi
   initiative = await initiatives.act(chair, ready.id, { action: "complete_work", revision: initiative.revision });
   // The executor can never be a signer, even with the chair level.
   await assert.rejects(
-    initiatives.assignControlRoles(secretary, ready.id, {
+    initiatives.assignRoles(secretary, ready.id, {
       revision: initiative.revision, effectControllerId: "account:secretary", technicalId: "", financialId: "account:chair", reason: "x",
     }),
     /не проверяет собственный эффект/u,
@@ -630,7 +630,7 @@ test("the executor never signs, even as a chair; a rejected verdict ends unconfi
     initiatives.act(chair, ready.id, { action: "confirm_effect", revision: initiative.revision }),
     (error) => error instanceof CollegiumInitiativeError && error.status === 403,
   );
-  initiative = await initiatives.assignControlRoles(secretary, ready.id, {
+  initiative = await initiatives.assignRoles(secretary, ready.id, {
     revision: initiative.revision, effectControllerId: "account:secretary", technicalId: "", financialId: "account:finance", reason: "Назначение",
   });
   const finance = profile("finance", "view");
@@ -746,12 +746,12 @@ test("facts tie planned effects: a measured effect is not removed and roles rese
     (error) => error instanceof CollegiumInitiativeError && error.status === 404,
   );
   current = await initiatives.act(owner, approved.id, { action: "complete_work", revision: current.revision });
-  current = await initiatives.assignControlRoles(secretary, approved.id, {
+  current = await initiatives.assignRoles(secretary, approved.id, {
     revision: current.revision, effectControllerId: "account:chair", technicalId: "", financialId: "account:finance", reason: "Назначение",
   });
   current = await initiatives.recordEffectVerdict(chair, approved.id, "main", { revision: current.revision, factVersion: 1, verdict: "confirmed" });
   // Replacing the effect controller drops that role's signature only.
-  current = await initiatives.assignControlRoles(secretary, approved.id, {
+  current = await initiatives.assignRoles(secretary, approved.id, {
     revision: current.revision, effectControllerId: "account:secretary", technicalId: "", financialId: "account:finance", reason: "Замена",
   });
   assert.deepEqual(current.workflow.effectFacts?.main.verdicts, {});
