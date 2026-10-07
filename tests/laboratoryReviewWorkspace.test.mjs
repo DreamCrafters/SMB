@@ -546,7 +546,7 @@ test("laboratory review filters every journal by date and nomenclature", async (
         "25.07.2026",
         "ШКИ-66",
         "Склад готовой продукции",
-        "26.1690Ожидает заполнения",
+        "26.1690Анализ проведён, запись не заполнена",
       ],
     );
     // The waiting row already shows the chemical analysis of the registration.

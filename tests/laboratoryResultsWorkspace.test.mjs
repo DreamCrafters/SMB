@@ -2743,7 +2743,8 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
       ".raw-material-quality-table .laboratory-pending-transmission-row",
     );
     assert.match(rawPendingRow.textContent, /26\.1701/u);
-    assert.match(rawPendingRow.textContent, /Ожидает заполнения/u);
+    // Анализ уже внесён в ЦЗЛ: строка не выглядит невыполненной (задача 132).
+    assert.match(rawPendingRow.textContent, /Анализ проведён, запись не заполнена/u);
     assert.match(rawPendingRow.textContent, /ХА-1701/u);
     const rawTransmissionPicker = rawQualityForm.querySelector(
       ".sample-registration-transmission-picker select",

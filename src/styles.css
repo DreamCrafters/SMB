@@ -6127,6 +6127,8 @@ p {
 .raw-material-quality-form,
 .green-product-quality-form {
   display: grid;
+  /* Таблицы замеров внутри формы прокручиваются, а не выталкивают поля за карточку. */
+  grid-template-columns: minmax(0, 1fr);
   gap: var(--density-4);
 }
 
@@ -6143,6 +6145,7 @@ p {
 
 .sample-registration-journal-section {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: var(--density-3);
   padding-top: var(--density-3);
   border-top: 1px solid var(--line);
@@ -6738,6 +6741,8 @@ p {
 
 .laboratory-history {
   display: grid;
+  /* Широкая история прокручивается в своём контейнере, а не выходит за карточку. */
+  grid-template-columns: minmax(0, 1fr);
   gap: var(--density-4);
 }
 

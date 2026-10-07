@@ -194,10 +194,23 @@ function PendingTransmissionCode({
             </button>
           )}
       <span className="laboratory-pending-transmission-badge">
-        Ожидает заполнения
+        {readPendingTransmissionStatus(option)}
       </span>
     </>
   );
+}
+
+/**
+ * Строка-ожидание означает незаполненную запись этого журнала, а не отсутствие
+ * анализа: если химанализ пробы уже внесён в ЦЗЛ, подпись говорит об этом,
+ * чтобы проведённый анализ не выглядел невыполненным.
+ */
+export function readPendingTransmissionStatus(
+  option: LaboratorySampleRegistrationTransmissionOption,
+) {
+  return option.chemicalAnalysis === undefined
+    ? "Ожидает анализа и заполнения"
+    : "Анализ проведён, запись не заполнена";
 }
 
 function formatPendingTransmissionValue(
