@@ -128,6 +128,7 @@ import {
   buildLaboratorySampleCodeDraft,
   laboratorySampleRegistrationTransmissionTargets,
   type LaboratorySampleRegistrationTransmissionTarget,
+  type LaboratorySampleRegistrationJournalSubmission,
 } from "../contracts/laboratorySampleRegistrationJournal.js";
 import {
   buildLaboratoryUnshapedProductSampleCodeDraft,
@@ -5326,15 +5327,24 @@ async function handleLaboratoryRequest({
       return;
     }
 
-    const saved = await runAuditedMutation({
-      transaction: databaseTransaction,
-      audit,
-      mutate: () => laboratorySampleRegistrationJournal.create({
+    const autoTransmission = await planSampleRegistrationAutoTransmission({
+      res,
+      submission: validation.value,
+      productionBrands,
+      hasVerificationJournal: laboratoryVerificationJournal !== undefined,
+      hasFormedProductJournal: laboratoryFormedProductSampleJournal !== undefined,
+    });
+    const submittedBy = {
+      submittedByUserId: access.profile.userId,
+      submittedByAccountId: access.profile.activeAccess.accountId,
+    };
+
+    const { saved, transmittedTo } = await databaseTransaction.run(async () => {
+      const record = await laboratorySampleRegistrationJournal.create({
         record: validation.value,
-        submittedByUserId: access.profile.userId,
-        submittedByAccountId: access.profile.activeAccess.accountId,
-      }),
-      buildEvent: (record) => ({
+        ...submittedBy,
+      });
+      await audit.record({
         actor: buildAuditActor(access.profile),
         category: "form_submission",
         action: "laboratory_sample_registration.submit",
@@ -5355,10 +5365,69 @@ async function handleLaboratoryRequest({
         ],
         targetType: "laboratory_sample_registration",
         targetId: record.id,
-      }),
+      });
+
+      // Задача 132: журналы, все обязательные поля которых известны из
+      // регистрации, получают запись сразу — без строки «ожидает заполнения».
+      if (autoTransmission?.target === "verification" && laboratoryVerificationJournal !== undefined) {
+        const target = await laboratoryVerificationJournal.create({
+          record: {
+            verificationDate: record.samplingDate,
+            productName: autoTransmission.productName,
+            samplingLocation: record.samplingLocation,
+            sampleCode: record.laboratorySampleCode,
+            sourceSampleRegistrationId: record.id,
+          },
+          ...submittedBy,
+        });
+        await audit.record({
+          actor: buildAuditActor(access.profile),
+          category: "form_submission",
+          action: "laboratory_verification.submit",
+          summary: "Добавлена запись журнала верификаций по трансляции из регистрации проб",
+          details: [
+            { label: "Дата", value: target.verificationDate },
+            { label: "Наименование продукции", value: target.productName },
+            { label: "Место отбора пробы", value: target.samplingLocation },
+            { label: "Код пробы", value: target.sampleCode },
+          ],
+          targetType: "laboratory_verification",
+          targetId: target.id,
+        });
+        return { saved: record, transmittedTo: autoTransmission.target };
+      }
+      if (autoTransmission?.target === "formed_product_sample" && laboratoryFormedProductSampleJournal !== undefined) {
+        const target = await laboratoryFormedProductSampleJournal.create({
+          record: {
+            sortingDate: record.samplingDate,
+            sampleCode: record.laboratorySampleCode,
+            productBrand: record.sampleName,
+            sourceSampleRegistrationId: record.id,
+          },
+          ...submittedBy,
+        });
+        await audit.record({
+          actor: buildAuditActor(access.profile),
+          category: "form_submission",
+          action: "laboratory_formed_product_sample.submit",
+          summary: "Добавлена запись журнала регистрации проб формованной продукции по трансляции из регистрации проб",
+          details: [
+            { label: "Дата сортировки", value: target.sortingDate },
+            { label: "Код пробы", value: target.sampleCode ?? "—" },
+            { label: "Марка изделия", value: target.productBrand },
+          ],
+          targetType: "laboratory_formed_product_sample",
+          targetId: target.id,
+        });
+        return { saved: record, transmittedTo: autoTransmission.target };
+      }
+      return { saved: record, transmittedTo: undefined };
     });
 
-    sendJson(res, 201, { record: saved });
+    sendJson(res, 201, {
+      record: saved,
+      ...(transmittedTo === undefined ? {} : { transmittedTo }),
+    });
     return;
   }
 
@@ -8930,6 +8999,54 @@ async function handleOwnNotificationEmailRequest({
     return;
   }
   sendJson(res, 200, { email });
+}
+
+/**
+ * Задача 132: трансляция в «Верификации» и журнал кирпича создаёт запись
+ * сразу, потому что все обязательные поля этих журналов известны из
+ * регистрации. Наименование для «Верификаций» должно быть маркой Журнала
+ * марок (как при ручном вводе); если марки нет или проверка недоступна,
+ * запись не создаётся и проба остаётся строкой-ожиданием для лаборанта.
+ */
+async function planSampleRegistrationAutoTransmission({
+  res,
+  submission,
+  productionBrands,
+  hasVerificationJournal,
+  hasFormedProductJournal,
+}: {
+  res: ServerResponse;
+  submission: LaboratorySampleRegistrationJournalSubmission;
+  productionBrands: ProductionBrandsDataSource;
+  hasVerificationJournal: boolean;
+  hasFormedProductJournal: boolean;
+}): Promise<
+  | { target: "verification"; productName: string }
+  | { target: "formed_product_sample" }
+  | undefined
+> {
+  if (submission.transmitToJournal === "formed_product_sample") {
+    return hasFormedProductJournal ? { target: "formed_product_sample" } : undefined;
+  }
+  if (submission.transmitToJournal !== "verification" || !hasVerificationJournal) {
+    return undefined;
+  }
+  try {
+    // Как при ручном вводе: марку не переименуют и не сольют до конца запроса.
+    await ensureProductBrandMutationLock(res, productionBrands);
+    const resolution = await productionBrands.resolveReferences([{
+      fieldName: "productName",
+      label: submission.sampleName,
+    }]);
+    if (!resolution.ok) return undefined;
+    return {
+      target: "verification",
+      productName: resolution.references[0]?.label ?? submission.sampleName,
+    };
+  } catch {
+    console.warn("laboratory_sample_registration.auto_transmission_brand_check_failed");
+    return undefined;
+  }
 }
 
 async function runAuditedMutation<T>({

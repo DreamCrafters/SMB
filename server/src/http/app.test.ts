@@ -1751,6 +1751,107 @@ test("rotary kiln 2 firing journal saves, filters, and averages records", async 
   );
 });
 
+test("transmission to journals fully known from the registration creates their record at once", async () => {
+  const base = buildProductionProfile("business_owner");
+  const profile: ServerUserProfile = {
+    ...base,
+    activeAccess: {
+      ...base.activeAccess,
+      navigationItems: ["business.laboratory_results"],
+      capabilities: ["business.manage_laboratory_results"],
+    },
+  };
+  const calls: Array<[string, unknown]> = [];
+  const auditActions: string[] = [];
+  let createdRegistrations = 0;
+  const server = createApiServer({
+    config: productionConfig,
+    dispatcherSubmissions,
+    authService: buildAuthService({ profile }),
+    audit: {
+      async record(event) { auditActions.push(event.action); },
+      async listReport() { throw new Error("not used"); },
+    },
+    databaseTransaction: { async run(operation) { return operation(); } },
+    productionBrands: {
+      async list() { return []; },
+      async resolveReferences(references) {
+        const [reference] = references;
+        return reference?.label === "шки-66"
+          ? { ok: true, references: [{ ...reference, label: "ШКИ-66" }] }
+          : { ok: false, missing: reference! };
+      },
+    },
+    laboratorySampleRegistrationJournal: {
+      async create(input: { record: Record<string, unknown> }) {
+        createdRegistrations += 1;
+        return { id: `reg-${createdRegistrations}`, ...input.record, createdAt: "2026-10-07T08:00:00.000Z" };
+      },
+    } as unknown as LaboratorySampleRegistrationJournalRepository,
+    laboratoryVerificationJournal: {
+      async create(input: { record: Record<string, unknown> }) {
+        calls.push(["verification", input.record]);
+        return { id: "ver-1", ...input.record, createdAt: "2026-10-07T08:00:00.000Z" };
+      },
+    } as never,
+    laboratoryFormedProductSampleJournal: {
+      async create(input: { record: Record<string, unknown> }) {
+        calls.push(["formed", input.record]);
+        return { id: "formed-1", ...input.record, wagonNumber: null, moldingDate: null, createdAt: "2026-10-07T08:00:00.000Z" };
+      },
+    } as never,
+  });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  const submit = async (transmitToJournal: string, sampleName = "шки-66") => {
+    const response = await fetch(`${baseUrl}/api/laboratory/sample-registration-journal`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Cookie: `${productionConfig.session.cookieName}=prod-session` },
+      body: JSON.stringify({
+        sampleNumber: "1690",
+        laboratorySampleCode: "26.1690",
+        samplingDate: "2026-10-06",
+        samplingLaboratoryAssistant: "Иванова А.А.",
+        sampleName,
+        registrationDate: "2026-10-07",
+        samplingLocation: "Склад готовой продукции",
+        transmitToJournal,
+      }),
+    });
+    assert.equal(response.status, 201);
+    return (await response.json()) as { transmittedTo?: string };
+  };
+  try {
+    // Verification: every required field comes from the registration, the name is canonicalized.
+    assert.equal((await submit("verification")).transmittedTo, "verification");
+    assert.deepEqual(calls.at(-1), ["verification", {
+      verificationDate: "2026-10-06",
+      productName: "ШКИ-66",
+      samplingLocation: "Склад готовой продукции",
+      sampleCode: "26.1690",
+      sourceSampleRegistrationId: "reg-1",
+    }]);
+    assert.deepEqual(auditActions.slice(-2), ["laboratory_sample_registration.submit", "laboratory_verification.submit"]);
+    // Formed product: sorting date and brand come from the sampling date and the sample name.
+    assert.equal((await submit("formed_product_sample", "ША-10")).transmittedTo, "formed_product_sample");
+    assert.deepEqual(calls.at(-1), ["formed", {
+      sortingDate: "2026-10-06",
+      sampleCode: "26.1690",
+      productBrand: "ША-10",
+      sourceSampleRegistrationId: "reg-2",
+    }]);
+    // An unknown brand keeps the waiting row; other journals still need the lab assistant.
+    calls.length = 0;
+    assert.equal((await submit("verification", "Неизвестная марка")).transmittedTo, undefined);
+    assert.equal((await submit("unshaped_product_sample")).transmittedTo, undefined);
+    assert.deepEqual(calls, []);
+  } finally {
+    server.close();
+    await once(server, "close");
+  }
+});
+
 test("sample registration journal saves and filters registration records", async () => {
   const profile: ServerUserProfile = {
     ...buildProductionProfile("business_owner"),

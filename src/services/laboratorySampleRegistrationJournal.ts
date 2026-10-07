@@ -1,5 +1,6 @@
 import {
   laboratorySampleRegistrationFields,
+  laboratorySampleRegistrationTransmissionTargets,
   type LaboratorySampleRegistrationCorrection,
   type LaboratorySampleRegistrationDraft,
   type LaboratorySampleRegistrationJournalFilters,
@@ -54,6 +55,8 @@ export type LaboratorySampleRegistrationJournalSaveResult =
   | {
       status: "ready";
       record: LaboratorySampleRegistrationJournalRecord;
+      /** Журнал, в котором сервер сразу создал запись по трансляции (задача 132). */
+      transmittedTo?: LaboratorySampleRegistrationTransmissionTarget;
     }
   | ErrorResult;
 export type LaboratorySampleRegistrationPendingTransmissionsResult =
@@ -222,7 +225,14 @@ function readJournalSaveResult(
     return invalidResponse(invalidMessage);
   }
 
-  return { status: "ready", record: result.payload.record };
+  const transmittedTo = laboratorySampleRegistrationTransmissionTargets.find(
+    ({ value }) => value === (result.payload as Record<string, unknown>).transmittedTo,
+  )?.value;
+  return {
+    status: "ready",
+    record: result.payload.record,
+    ...(transmittedTo === undefined ? {} : { transmittedTo }),
+  };
 }
 
 async function requestJson(

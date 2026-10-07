@@ -3,6 +3,7 @@ import {
   buildLaboratorySampleCodeDraft,
   laboratorySampleRegistrationFields,
   laboratorySampleRegistrationSamplingLocations,
+  laboratorySampleRegistrationTransmissionTargetLabels,
   laboratorySampleRegistrationTransmissionTargets,
   type LaboratorySampleRegistrationJournalRecord,
   type LaboratorySampleRegistrationJournalSubmission,
@@ -296,7 +297,9 @@ export function LaboratorySampleRegistrationJournal({
     }
     onShowToast(
       wasEditing ? "Проба исправлена" : "Запись сохранена",
-      `${result.record.sampleNumber} · ${result.record.laboratorySampleCode}.`,
+      result.transmittedTo === undefined
+        ? `${result.record.sampleNumber} · ${result.record.laboratorySampleCode}.`
+        : `${result.record.sampleNumber} · ${result.record.laboratorySampleCode}. Запись добавлена в журнал «${laboratorySampleRegistrationTransmissionTargetLabels[result.transmittedTo]}».`,
       "success",
     );
   }
