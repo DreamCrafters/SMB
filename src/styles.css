@@ -5974,6 +5974,8 @@ p {
 
 .laboratory-workspace {
   display: grid;
+  /* Широкие журналы прокручиваются внутри себя, а не растягивают вкладки. */
+  grid-template-columns: minmax(0, 1fr);
   gap: var(--density-5);
 }
 
@@ -6112,6 +6114,8 @@ p {
 .raw-material-quality-journal,
 .green-product-quality-journal {
   display: grid;
+  /* Широкая история прокручивается сама и не растягивает форму над ней. */
+  grid-template-columns: minmax(0, 1fr);
   gap: var(--density-5);
 }
 
@@ -6147,6 +6151,14 @@ p {
 .sample-registration-journal-section h3 {
   margin: 0;
   font-size: 16px;
+}
+
+/* Регистрация отбора: не больше трёх полей в строке, на узком экране — меньше. */
+.sample-registration-journal-form > .sample-registration-journal-section > .laboratory-form-grid {
+  grid-template-columns: repeat(
+    auto-fill,
+    minmax(max(220px, calc((100% - 2 * var(--density-3)) / 3)), 1fr)
+  );
 }
 
 .sample-registration-transmission-picker {
@@ -7985,6 +7997,8 @@ p {
 }
 
 .refractory-workspace {
+  /* Колонка `auto` растягивалась по ширине таблицы вместе с кнопками и шапкой. */
+  grid-template-columns: minmax(0, 1fr);
   padding: clamp(18px, 3vw, 36px);
 }
 
@@ -8144,6 +8158,7 @@ p {
 
 .refractory-wagon-journal {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: var(--density-4);
 }
 
@@ -8171,6 +8186,7 @@ p {
 
 .refractory-form-sections {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: var(--density-4);
 }
 
@@ -8183,6 +8199,7 @@ p {
 
 .refractory-section {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 12px;
 }
 
