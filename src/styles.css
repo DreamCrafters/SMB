@@ -890,6 +890,8 @@ p {
 
 .owner-overview-block-header {
   display: flex;
+  /* Подпись уходит под заголовок, когда рядом с меню блоку тесно. */
+  flex-wrap: wrap;
   align-items: baseline;
   gap: var(--density-3);
   min-width: 0;
@@ -903,6 +905,7 @@ p {
 
 .owner-overview-heading-meta {
   display: flex;
+  flex-wrap: wrap;
   align-items: baseline;
   gap: 6px;
   min-width: 0;
@@ -4621,10 +4624,6 @@ p {
 
   .owner-overview-stack {
     grid-template-columns: 1fr;
-  }
-
-  .owner-overview-block-header {
-    flex-wrap: wrap;
   }
 
   .owner-overview-metrics {

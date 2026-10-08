@@ -13,7 +13,10 @@
  *
  * Запуск (нужны `npm run dev:api` и `npm run dev:web -- --host 127.0.0.1`):
  *   npm run check:layout -- [--url http://127.0.0.1:5173] [--widths 375,1024]
- *     [--positions a,b] [--max-states 40] [--debug 1] [--trace <селектор>]
+ *     [--positions <части названий должностей через запятую>] [--max-states 40]
+ *     [--debug 1] [--trace <селектор>] [--eval <выражение JS>]
+ * Должности берутся с экрана «Выбор доступа» (каталог должностей из БД), поэтому
+ * на копии production (`npm run db:pull-production`) проверяются все настоящие.
  */
 import { spawn } from "node:child_process";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
@@ -256,24 +259,49 @@ function clickByLabel(scope, text) {
   return true;
 }
 
-async function main() {
-  const optionsResponse = await fetch(`${appUrl}/api/dev/access-session`);
-  if (!optionsResponse.ok) throw new Error(`Dev access is not available at ${appUrl}.`);
-  const { options } = await optionsResponse.json();
-  const positions = options
-    .map((option) => option.position)
-    .filter((position) => onlyPositions === undefined || onlyPositions.includes(position));
-  const displayNames = new Map(options.map((option) => [option.position, option.positionDisplayName]));
+/** Runs in the page: position names as the access screen shows them (the DB catalog). */
+function listAccessCards() {
+  return [...document.querySelectorAll(".auth-options button")]
+    .map((card) => (card.querySelector("strong, h2, h3")?.textContent ?? card.textContent).replace(/\s+/gu, " ").trim())
+    .filter((name) => name !== "");
+}
 
+function clickAccessCard(name) {
+  const card = [...document.querySelectorAll(".auth-options button")].find((element) =>
+    (element.querySelector("strong, h2, h3")?.textContent ?? element.textContent).replace(/\s+/gu, " ").trim() === name);
+  card?.click();
+  return card !== undefined;
+}
+
+async function main() {
   const chrome = await launchChrome();
   const version = await (await fetch(`http://127.0.0.1:${chrome.port}/json/version`)).json();
   const cdp = connect(version.webSocketDebuggerUrl);
   await cdp.ready;
   const report = [];
 
+  // Positions come from the access screen: with a production copy that is the real catalog.
+  const probe = await cdp.send("Target.createTarget", { url: `${appUrl}/` });
+  const { sessionId: probeSession } = await cdp.send("Target.attachToTarget", { targetId: probe.targetId, flatten: true });
+  let positionNames = [];
+  for (let attempt = 0; attempt < 20 && positionNames.length === 0; attempt += 1) {
+    await sleep(500);
+    const result = await cdp.send("Runtime.evaluate", {
+      expression: `(${listAccessCards.toString()})()`,
+      returnByValue: true,
+    }, probeSession);
+    positionNames = result.result?.value ?? [];
+  }
+  await cdp.send("Target.closeTarget", { targetId: probe.targetId });
+  if (positionNames.length === 0) throw new Error(`No access cards at ${appUrl} (is dev access enabled?).`);
+  const positions = positionNames.filter((name) =>
+    onlyPositions === undefined || onlyPositions.some((part) => name.toLowerCase().includes(part.toLowerCase())));
+  // Positions with the same menu at the same width are checked on their start screen only.
+  const walkedRails = new Set();
+
   try {
     for (const position of positions) {
-      const displayName = displayNames.get(position);
+      const displayName = position;
 
       for (const width of widths) {
         // Own cookies and storage per position and width: dev sessions must not leak between runs.
@@ -339,12 +367,7 @@ async function main() {
         // Enter the way a person does: the access screen is checked too.
         await navigate(`${appUrl}/`);
         await check("Выбор доступа");
-        const entered = await evaluate((name) => {
-          const card = [...document.querySelectorAll("button")]
-            .find((element) => element.textContent.replace(/\s+/gu, " ").includes(name));
-          card?.click();
-          return card !== undefined;
-        }, displayName);
+        const entered = await evaluate(clickAccessCard, displayName);
         if (!entered) {
           report.push({ position, width, state: "login", problems: [{ kind: "login", where: "access card not found", overflow: 0 }] });
           await cdp.send("Target.closeTarget", { targetId });
@@ -359,6 +382,12 @@ async function main() {
           console.log(`  rail: ${rail.join(" | ")}`);
           console.log(`  text: ${String(await evaluate(() => document.body.innerText.slice(0, 300))).replace(/\s+/gu, " ")}`);
         }
+        const railSignature = `${width}|${rail.join("|")}`;
+        if (walkedRails.has(railSignature)) {
+          if (debug) console.log(`  same menu as an earlier position at ${width}px: start screen only`);
+          rail.length = 0;
+        }
+        walkedRails.add(railSignature);
         // Every state starts from a fresh load: a click may switch modes (preview, forms).
         const openRail = async (railLabel) => {
           await navigate(`${appUrl}/`);
@@ -397,7 +426,7 @@ async function main() {
             const { tabs } = await evaluate(listNavigation);
             for (const tab of tabs) {
               // A position card in the admin preview switches the whole session: never press it.
-              if ([...displayNames.values()].some((name) => tab.includes(name))) continue;
+              if (positionNames.some((name) => tab.includes(name))) continue;
               const key = [...trail, tab].join(" › ");
               if (visited.has(tab) || trail.includes(tab)) continue;
               visited.add(tab);

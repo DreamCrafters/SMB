@@ -11,6 +11,7 @@
     "dev:web": "vite",
     "dev:api": "npm --workspace server run dev",
     "db:migrate": "npm --workspace server run db:migrate",
+    "db:pull-production": "bash scripts/pull-production-copy.sh",
     "build": "tsc --noEmit && vite build && npm --workspace server run build",
     "build:web:test": "vite build --mode test",
     "build:web:production": "vite build --mode production",
