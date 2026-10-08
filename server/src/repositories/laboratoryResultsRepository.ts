@@ -9,6 +9,7 @@ import {
   laboratoryIndicatorDefinitions,
   type LaboratoryReferenceData,
 } from "../integrations/googleSheetsReference.js";
+import { toSqlDateTime } from "../db/sqlDateTime.js";
 
 export type LaboratoryResult = LaboratoryResultSubmission & {
   id: string;
@@ -130,7 +131,7 @@ export function createLaboratoryResultsRepository(
             ...input.result,
             protocolReference: input.protocolReference,
           }),
-          createdAt,
+          toSqlDateTime(createdAt),
         ],
       );
 

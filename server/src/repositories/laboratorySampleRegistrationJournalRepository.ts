@@ -17,6 +17,7 @@ import {
   mapSampleChemicalAnalysis,
 } from "./laboratoryChemicalAnalysisJournalRepository.js";
 import { escapeLikePattern } from "./laboratoryResultsRepository.js";
+import { toSqlDateTime } from "../db/sqlDateTime.js";
 
 export class LaboratorySampleRegistrationTransmissionUnavailableError
   extends Error {}
@@ -44,6 +45,8 @@ type LaboratorySampleRegistrationJournalCreatedRecord =
 export type LaboratorySampleRegistrationCorrectionResult = {
   before: LaboratorySampleRegistrationCorrection;
   record: LaboratorySampleRegistrationJournalRecord;
+  /** Проба уже использована записью целевого журнала (задача 132). */
+  transmissionClaimed: boolean;
 };
 
 export type LaboratorySampleRegistrationJournalRepository = {
@@ -125,6 +128,7 @@ type LaboratorySampleRegistrationEditableRow = RowDataPacket & {
   sampling_location: string;
   water_absorption: string | null;
   transmit_to_journal: LaboratorySampleRegistrationTransmissionTarget | null;
+  transmitted_record_id: string | null;
   created_at: Date | string;
 };
 
@@ -206,7 +210,7 @@ export function createLaboratorySampleRegistrationJournalRepository(
           record.transmitToJournal ?? null,
           input.submittedByUserId,
           input.submittedByAccountId,
-          createdAt,
+          toSqlDateTime(createdAt),
         ],
       );
 
@@ -226,6 +230,7 @@ export function createLaboratorySampleRegistrationJournalRepository(
           sampling_location,
           water_absorption,
           transmit_to_journal,
+          transmitted_record_id,
           created_at
         from laboratory_sample_registration_journal
         where id = ?
@@ -235,6 +240,11 @@ export function createLaboratorySampleRegistrationJournalRepository(
       );
       const current = rows[0];
       if (current === undefined) return undefined;
+      const transmissionClaimed = current.transmitted_record_id !== null;
+      // Использованная проба уже лежит в журнале: смена цели потеряла бы её.
+      if (transmissionClaimed && (input.record.transmitToJournal ?? null) !== current.transmit_to_journal) {
+        throw new LaboratorySampleRegistrationTransmissionUnavailableError();
+      }
 
       const before = mapEditableRecord(current);
       const correctedAt = now().toISOString();
@@ -294,7 +304,7 @@ export function createLaboratorySampleRegistrationJournalRepository(
           input.correctedByUserId,
           input.correctedByAccountId,
           input.correctedByDisplayName,
-          correctedAt,
+          toSqlDateTime(correctedAt),
         ],
       );
 
@@ -305,6 +315,7 @@ export function createLaboratorySampleRegistrationJournalRepository(
           ...correctedRecord,
           createdAt: new Date(current.created_at).toISOString(),
         },
+        transmissionClaimed,
       };
     },
 

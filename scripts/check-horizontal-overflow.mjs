@@ -12,11 +12,18 @@
  * диалоги подтверждения закрываются отказом.
  *
  * Запуск (нужны `npm run dev:api` и `npm run dev:web -- --host 127.0.0.1`):
- *   npm run check:layout -- [--url http://127.0.0.1:5173] [--widths 375,1024]
- *     [--positions <части названий должностей через запятую>] [--max-states 40]
- *     [--debug 1] [--trace <селектор>] [--eval <выражение JS>]
+ *   npm run check:layout -- [--url http://127.0.0.1:5173] [--widths 375,820,1024,1280]
+ *     [--positions <части названий должностей через запятую>]
+ *     [--rail <части названий пунктов меню через запятую>] [--preview 1]
+ *     [--api http://127.0.0.1:3000] [--max-states 40] [--debug 1]
+ *     [--trace <селектор>] [--eval <выражение JS>]
  * Должности берутся с экрана «Выбор доступа» (каталог должностей из БД), поэтому
  * на копии production (`npm run db:pull-production`) проверяются все настоящие.
+ * Каждая ширина идёт отдельным процессом параллельно. `--rail` ограничивает обход
+ * затронутыми задачей вкладками. `--preview 1` входит администратором и
+ * проходит по одному настоящему аккаунту каждой должности через предпросмотр:
+ * так видны личные экраны (мои поручения, временные роли), пустые у dev-входа.
+ * На каждом экране открывается и первая строка таблицы (карточка, окно записи).
  */
 import { spawn } from "node:child_process";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
@@ -28,7 +35,10 @@ const args = Object.fromEntries(process.argv.slice(2).reduce((pairs, value, inde
   return pairs;
 }, []));
 const appUrl = (args.url ?? "http://127.0.0.1:5173").replace(/\/$/u, "");
-const widths = (args.widths ?? "375,1024").split(",").map(Number).filter((value) => value > 0);
+const apiUrl = (args.api ?? "http://127.0.0.1:3000").replace(/\/$/u, "");
+const widths = (args.widths ?? "375,820,1024,1280").split(",").map(Number).filter((value) => value > 0);
+const onlyRail = args.rail?.split(",").filter(Boolean).map((part) => part.toLowerCase());
+const previewMode = "preview" in args;
 const onlyPositions = args.positions?.split(",").filter(Boolean);
 const chromePath = args.chrome ?? process.env.CHROME_PATH ??
   "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
@@ -246,6 +256,11 @@ function listNavigation() {
   const tabs = [...document.querySelectorAll("main button, main [role='tab'], section button")]
     .filter((element) => !element.closest("nav") && isTabLike(element) && !element.disabled && label(element) !== "")
     .map((element) => label(element));
+  // The first row of a table opens a card or an edit dialog; action buttons are never pressed.
+  const rowOpener = [...document.querySelectorAll("main tbody button, main [role='row'] button, section tbody button")]
+    .find((element) => !element.disabled && label(element) !== "" &&
+      !/^(Удалить|Подтвердить|Вернуть|Отклонить|Принять|Закрыть|Архив|Отправить|Сохранить|Снять|Отменить|Выйти)/u.test(label(element)));
+  if (rowOpener !== undefined) tabs.push(label(rowOpener));
   return { rail: [...new Set(rail)], tabs: [...new Set(tabs)] };
 }
 
@@ -273,7 +288,32 @@ function clickAccessCard(name) {
   return card !== undefined;
 }
 
+/** Several widths run as parallel child processes; their reports are printed in order. */
+async function runWidthsInParallel() {
+  const scriptPath = new URL(import.meta.url).pathname;
+  const rest = process.argv.slice(2).filter((_, index, all) =>
+    all[index] !== "--widths" && all[index - 1] !== "--widths");
+  const runs = widths.map((width) => new Promise((resolve) => {
+    const child = spawn(process.execPath, [
+      "--experimental-websocket", "--no-warnings", scriptPath, ...rest, "--widths", String(width), "--child", "1",
+    ], { stdio: ["ignore", "pipe", "pipe"] });
+    let output = "";
+    child.stdout.on("data", (chunk) => { output += chunk; });
+    child.stderr.on("data", (chunk) => { output += chunk; });
+    child.on("close", (code) => resolve({ width, code: code ?? 1, output }));
+  }));
+  for (const { width, code, output } of await Promise.all(runs)) {
+    console.log(`== ${width}px`);
+    process.stdout.write(output);
+    if (code !== 0) process.exitCode = 1;
+  }
+}
+
 async function main() {
+  if (widths.length > 1 && !("child" in args)) {
+    await runWidthsInParallel();
+    return;
+  }
   const chrome = await launchChrome();
   const version = await (await fetch(`http://127.0.0.1:${chrome.port}/json/version`)).json();
   const cdp = connect(version.webSocketDebuggerUrl);
@@ -294,8 +334,58 @@ async function main() {
   }
   await cdp.send("Target.closeTarget", { targetId: probe.targetId });
   if (positionNames.length === 0) throw new Error(`No access cards at ${appUrl} (is dev access enabled?).`);
-  const positions = positionNames.filter((name) =>
-    onlyPositions === undefined || onlyPositions.some((part) => name.toLowerCase().includes(part.toLowerCase())));
+  const matchesFilter = (name) =>
+    onlyPositions === undefined || onlyPositions.some((part) => name.toLowerCase().includes(part.toLowerCase()));
+  // In preview mode every entry is a real account (one per position) seen through the admin preview.
+  let previewTargets = new Map();
+  if (previewMode) {
+    const { targetId: adminTarget } = await cdp.send("Target.createTarget", { url: `${appUrl}/` });
+    const { sessionId: adminSession } = await cdp.send("Target.attachToTarget", { targetId: adminTarget, flatten: true });
+    const run = async (fn, ...fnArgs) => {
+      const answer = await cdp.send("Runtime.evaluate", {
+        expression: `(${fn.toString()})(...${JSON.stringify(fnArgs)})`, returnByValue: true, awaitPromise: true,
+      }, adminSession);
+      if (answer.exceptionDetails) return { error: answer.exceptionDetails.exception?.description ?? answer.exceptionDetails.text };
+      return answer.result?.value;
+    };
+    let entered = false;
+    for (let attempt = 0; attempt < 20 && !entered; attempt += 1) {
+      await sleep(500);
+      entered = await run(clickAccessCard, "Администратор");
+    }
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      await sleep(500);
+      if (await run(() => document.querySelector("nav") !== null)) break;
+    }
+    const accounts = await run(async (api) => {
+      const sessionId = sessionStorage.getItem("smb.devAccessSessionId") ?? "";
+      const response = await fetch(`${api}/api/admin/accounts`, { headers: { "X-SMB-Dev-Session": sessionId } });
+      if (!response.ok) return { error: `HTTP ${response.status}` };
+      const body = await response.json();
+      const list = Array.isArray(body) ? body : body.accounts;
+      if (!Array.isArray(list)) return { error: "unexpected accounts payload" };
+      return list.map((account) => ({
+        accessId: account.accessId, status: account.userStatus, root: account.isRootAdmin,
+        position: account.position, user: account.userDisplayName,
+      }));
+    }, apiUrl);
+    await cdp.send("Target.closeTarget", { targetId: adminTarget });
+    if (!Array.isArray(accounts)) {
+      throw new Error(`Preview mode: cannot list accounts as the administrator (${accounts?.error ?? "no answer"}).`);
+    }
+    // One real account per position, labelled with the position name from the catalog.
+    const catalog = await (await fetch(`${apiUrl}/api/dev/access-session`)).json();
+    const positionLabel = new Map((catalog.options ?? []).map((option) => [option.position, option.positionDisplayName]));
+    const seenPositions = new Set();
+    for (const account of accounts) {
+      if (account.status !== "active" || account.root || seenPositions.has(account.position)) continue;
+      const name = positionLabel.get(account.position) ?? account.position;
+      if (!matchesFilter(name)) continue;
+      seenPositions.add(account.position);
+      previewTargets.set(`${name} (предпросмотр)`, { accessId: account.accessId, user: account.user });
+    }
+  }
+  const positions = previewMode ? [...previewTargets.keys()] : positionNames.filter(matchesFilter);
   // Positions with the same menu at the same width are checked on their start screen only.
   const walkedRails = new Set();
 
@@ -367,7 +457,35 @@ async function main() {
         // Enter the way a person does: the access screen is checked too.
         await navigate(`${appUrl}/`);
         await check("Выбор доступа");
-        const entered = await evaluate(clickAccessCard, displayName);
+        // A page reload ends the admin preview, so preview mode re-enters it through the UI.
+        const enterPreview = async () => {
+          await navigate(`${appUrl}/`);
+          const target = previewTargets.get(displayName);
+          if (!(await evaluate(clickByLabel, "rail", "ПредпросмотрАккаунты и рабочие вкладки"))) return false;
+          await sleep(500);
+          if (!(await evaluate(clickByLabel, "tabs", "Созданные аккаунты"))) return false;
+          await sleep(500);
+          const picked = await evaluate((user) => {
+            const button = [...document.querySelectorAll(".admin-account-switcher button")]
+              .find((element) => element.textContent.includes(user));
+            button?.click();
+            return button !== undefined;
+          }, target.user);
+          await sleep(2000);
+          if (debug) {
+            const state = await evaluate(() => ({
+              panel: document.querySelector(".admin-preview-mode-panel")?.textContent?.replace(/\s+/gu, " ").slice(0, 120) ?? null, toasts: [...document.querySelectorAll("[class*=toast]")].map((element) => element.textContent.replace(/\s+/gu, " ").slice(0, 160)).slice(0, 3),
+              nav: [...document.querySelectorAll("nav button")].slice(0, 3).map((element) => element.textContent.replace(/\s+/gu, " ").slice(0, 40)),
+            }));
+            console.log(`  preview ${target.user}: picked=${picked} ${JSON.stringify(state)}`);
+          }
+          return picked;
+        };
+        let entered = await evaluate(clickAccessCard, previewMode ? "Администратор" : displayName);
+        if (entered && previewMode) {
+          await sleep(2000);
+          entered = await enterPreview();
+        }
         if (!entered) {
           report.push({ position, width, state: "login", problems: [{ kind: "login", where: "access card not found", overflow: 0 }] });
           await cdp.send("Target.closeTarget", { targetId });
@@ -390,11 +508,16 @@ async function main() {
         walkedRails.add(railSignature);
         // Every state starts from a fresh load: a click may switch modes (preview, forms).
         const openRail = async (railLabel) => {
-          await navigate(`${appUrl}/`);
+          if (previewMode) {
+            if (!(await enterPreview())) return false;
+          } else {
+            await navigate(`${appUrl}/`);
+          }
           return evaluate(clickByLabel, "rail", railLabel);
         };
         for (const railLabel of rail) {
           if (/выйти|выход|меню|закрыть/iu.test(railLabel)) continue;
+          if (onlyRail !== undefined && !onlyRail.some((part) => railLabel.toLowerCase().includes(part))) continue;
           if (!(await openRail(railLabel))) {
             if (debug) {
               const text = await evaluate(() => document.body.innerText.slice(0, 200));

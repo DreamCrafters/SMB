@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { DatabasePool } from "../db/pool.js";
-import { createLaboratorySampleRegistrationJournalRepository } from "./laboratorySampleRegistrationJournalRepository.js";
+import {
+  createLaboratorySampleRegistrationJournalRepository,
+  LaboratorySampleRegistrationTransmissionUnavailableError,
+} from "./laboratorySampleRegistrationJournalRepository.js";
 
 const record = {
   sampleNumber: "17-А",
@@ -70,7 +73,7 @@ test("sample registration repository stores the complete record and session auth
     null,
     "laboratory-user",
     "laboratory-account",
-    "2026-07-30T08:30:00.000Z",
+    "2026-07-30 08:30:00.000",
   ]);
 });
 
@@ -196,6 +199,7 @@ test("sample registration repository corrects a stable record and stores a revis
           sampling_location: record.samplingLocation,
           water_absorption: record.waterAbsorption,
           transmit_to_journal: null,
+          transmitted_record_id: null,
           created_at: "2026-07-30T08:30:00.000Z",
         }], []];
       }
@@ -229,6 +233,7 @@ test("sample registration repository corrects a stable record and stores a revis
       ...corrected,
       createdAt: "2026-07-30T08:30:00.000Z",
     },
+    transmissionClaimed: false,
   });
   assert.match(queries[0]?.sql ?? "", /for update/u);
   assert.match(
@@ -248,7 +253,7 @@ test("sample registration repository corrects a stable record and stores a revis
     "laboratory-user",
     "laboratory-account",
     "Иванова Анна",
-    "2026-08-03T09:15:00.000Z",
+    "2026-08-03 09:15:00.000",
   ]);
 });
 
@@ -652,4 +657,46 @@ test("sample registration repository rejects claiming a transmission for a missi
   });
 
   assert.deepEqual(result, { ok: false, reason: "not_found" });
+});
+
+test("a used sample keeps its journal: changing the transmission target is refused before any write", async () => {
+  const writes: string[] = [];
+  const pool = {
+    async query(sql: string) {
+      if (/for update/u.test(sql)) {
+        return [[{
+          id: "sample-registration-1",
+          sample_number: record.sampleNumber,
+          laboratory_sample_code: record.laboratorySampleCode,
+          sampling_date: record.samplingDate,
+          sampling_laboratory_assistant: record.samplingLaboratoryAssistant,
+          sample_name: record.sampleName,
+          registration_date: record.registrationDate,
+          sampling_location: record.samplingLocation,
+          water_absorption: record.waterAbsorption,
+          transmit_to_journal: "formed_product_sample",
+          transmitted_record_id: "formed-1",
+          created_at: "2026-07-30T08:30:00.000Z",
+        }], []];
+      }
+      writes.push(sql);
+      return [[], []];
+    },
+  } as unknown as DatabasePool;
+  const repository = createLaboratorySampleRegistrationJournalRepository(pool);
+  const correction = {
+    id: "sample-registration-1",
+    correctedByUserId: "laboratory-user",
+    correctedByAccountId: "laboratory-account",
+    correctedByDisplayName: "Иванова Анна",
+  };
+
+  await assert.rejects(
+    repository.update({ ...correction, record: { ...record, transmitToJournal: "verification" } }),
+    LaboratorySampleRegistrationTransmissionUnavailableError,
+  );
+  assert.deepEqual(writes, []);
+  // The same target is fine and reports the claim, so no second record is created.
+  const kept = await repository.update({ ...correction, record: { ...record, transmitToJournal: "formed_product_sample" } });
+  assert.equal(kept?.transmissionClaimed, true);
 });

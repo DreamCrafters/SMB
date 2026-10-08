@@ -9,6 +9,7 @@ import type {
   RotaryKiln2FiringJournalSubmission,
   RotaryKiln2MaterialBulkDensity,
 } from "../contracts/rotaryKiln2FiringJournal.js";
+import { toSqlDateTime } from "../db/sqlDateTime.js";
 
 type RepositoryFilters = RotaryKiln2FiringJournalFilters & {
   limit?: number;
@@ -162,7 +163,7 @@ export function createRotaryKiln2FiringJournalRepository(
           record.note ?? null,
           input.submittedByUserId,
           input.submittedByAccountId,
-          createdAt,
+          toSqlDateTime(createdAt),
         ],
       );
 
@@ -272,7 +273,7 @@ export function createRotaryKiln2FiringJournalRepository(
           input.correctedByUserId,
           input.correctedByAccountId,
           input.correctedByDisplayName,
-          correctedAt,
+          toSqlDateTime(correctedAt),
         ],
       );
 

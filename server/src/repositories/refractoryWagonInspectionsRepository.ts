@@ -6,6 +6,7 @@ import {
   type RefractoryWagonInspectionSubmission,
 } from "../contracts/refractoryWagons.js";
 import type { DatabasePool } from "../db/pool.js";
+import { toSqlDateTime } from "../db/sqlDateTime.js";
 
 export class RefractoryWagonInspectionNotAllowedError extends Error {
   constructor() {
@@ -149,7 +150,7 @@ export function createRefractoryWagonInspectionsRepository(
           input.inspectedByUserId,
           input.inspectedByAccountId,
           input.inspectedByDisplayName,
-          createdAt,
+          toSqlDateTime(createdAt),
         ],
       );
       await pool.query(
@@ -182,7 +183,7 @@ export function createRefractoryWagonInspectionsRepository(
             wagon.wagon_number,
             input.inspectedByUserId,
             input.inspectedByAccountId,
-            createdAt,
+            toSqlDateTime(createdAt),
           ],
         );
       }

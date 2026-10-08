@@ -15,6 +15,7 @@ import type {
   RailwayWagonOrderSubmission,
 } from "../domain/railwayWagons.js";
 import type { DatabasePool } from "../db/pool.js";
+import { toSqlDateTime } from "../db/sqlDateTime.js";
 
 export class RailwayWagonOrderNotFoundError extends Error {
   constructor() {
@@ -364,7 +365,7 @@ export function createRailwayWagonsRepository(
         input.actor.userId,
         input.actor.accountId,
         input.actor.displayName,
-        now().toISOString(),
+        toSqlDateTime(now()),
       ],
     );
   }
@@ -526,7 +527,7 @@ export function createRailwayWagonsRepository(
       } else {
         if (stage.stamps !== null) {
           assignments.push(`${stageColumns[stage.stamps]} = ?`);
-          parameters.push(now().toISOString());
+          parameters.push(toSqlDateTime(now()));
         }
         if (decision === "approve") {
           assignments.push("decline_comment = null", "decline_stage_id = null");

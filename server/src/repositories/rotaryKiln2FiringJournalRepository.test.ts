@@ -71,7 +71,7 @@ test("rotary kiln 2 firing repository stores every parameter and session author"
     "Краткая остановка для осмотра.",
     "laboratory-user",
     "laboratory-account",
-    "2026-07-29T08:30:00.000Z",
+    "2026-07-29 08:30:00.000",
   ]);
 });
 
@@ -467,6 +467,6 @@ test("rotary kiln 2 firing repository corrects a stable record and stores a revi
     "laboratory-user",
     "laboratory-account",
     "Иванова Анна",
-    "2026-08-04T10:15:00.000Z",
+    "2026-08-04 10:15:00.000",
   ]);
 });

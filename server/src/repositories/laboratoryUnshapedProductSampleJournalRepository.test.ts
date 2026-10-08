@@ -65,7 +65,7 @@ test("unshaped product sample repository stores the record and session author", 
     null,
     "laboratory-user",
     "laboratory-account",
-    "2026-08-05T08:30:00.000Z",
+    "2026-08-05 08:30:00.000",
   ]);
 });
 
@@ -229,7 +229,7 @@ test("unshaped product sample repository corrects a stable row and stores revisi
     "laboratory-user",
     "laboratory-account",
     "Иванова Анна",
-    "2026-08-05T09:15:00.000Z",
+    "2026-08-05 09:15:00.000",
   ]);
 });
 

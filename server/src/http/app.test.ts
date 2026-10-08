@@ -65,6 +65,7 @@ import type { LaboratoryResultsRepository } from "../repositories/laboratoryResu
 import type { LaboratoryBankAssignmentsRepository } from "../repositories/laboratoryBankAssignmentsRepository.js";
 import type { RotaryKiln2FiringJournalRepository } from "../repositories/rotaryKiln2FiringJournalRepository.js";
 import type { LaboratorySampleRegistrationJournalRepository } from "../repositories/laboratorySampleRegistrationJournalRepository.js";
+import { LaboratorySampleRegistrationTransmissionUnavailableError } from "../repositories/laboratorySampleRegistrationJournalRepository.js";
 import {
   LaboratoryChemicalAnalysisSampleUnavailableError,
   type LaboratoryChemicalAnalysisJournalRepository,
@@ -491,6 +492,10 @@ test("remote API allows dev access session DELETE preflight", async () => {
     assert.match(
       response.headers.get("access-control-allow-headers") ?? "",
       /\bX-SMB-Dev-Session\b/,
+    );
+    assert.match(
+      response.headers.get("access-control-allow-headers") ?? "",
+      /\bX-SMB-Account-Preview\b/,
     );
   });
 });
@@ -1773,19 +1778,26 @@ test("transmission to journals fully known from the registration creates their r
       async listReport() { throw new Error("not used"); },
     },
     databaseTransaction: { async run(operation) { return operation(); } },
-    productionBrands: {
-      async list() { return []; },
-      async resolveReferences(references) {
-        const [reference] = references;
-        return reference?.label === "шки-66"
-          ? { ok: true, references: [{ ...reference, label: "ШКИ-66" }] }
-          : { ok: false, missing: reference! };
+    // «Верификации» берут наименование из Номенклатуры → Сырьё (решение 08.10.2026).
+    rawMaterialNomenclature: {
+      async resolveLabel(label: string) {
+        return label === "глина сувор" ? "Глина Сувор" : undefined;
       },
-    },
+    } as unknown as RawMaterialNomenclatureRepository,
     laboratorySampleRegistrationJournal: {
       async create(input: { record: Record<string, unknown> }) {
         createdRegistrations += 1;
         return { id: `reg-${createdRegistrations}`, ...input.record, createdAt: "2026-10-07T08:00:00.000Z" };
+      },
+      async update(input: { id: string; record: Record<string, unknown> }) {
+        if (input.id === "reg-used" && input.record.transmitToJournal !== "verification") {
+          throw new LaboratorySampleRegistrationTransmissionUnavailableError();
+        }
+        return {
+          before: input.record,
+          record: { id: input.id, ...input.record, createdAt: "2026-10-07T08:00:00.000Z" },
+          transmissionClaimed: input.id === "reg-used",
+        };
       },
     } as unknown as LaboratorySampleRegistrationJournalRepository,
     laboratoryVerificationJournal: {
@@ -1804,9 +1816,9 @@ test("transmission to journals fully known from the registration creates their r
   server.listen(0, "127.0.0.1");
   await once(server, "listening");
   const baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
-  const submit = async (transmitToJournal: string, sampleName = "шки-66") => {
-    const response = await fetch(`${baseUrl}/api/laboratory/sample-registration-journal`, {
-      method: "POST",
+  const submit = async (transmitToJournal: string, sampleName = "глина сувор", path = "", method = "POST", status = 201) => {
+    const response = await fetch(`${baseUrl}/api/laboratory/sample-registration-journal${path}`, {
+      method,
       headers: { "Content-Type": "application/json", Cookie: `${productionConfig.session.cookieName}=prod-session` },
       body: JSON.stringify({
         sampleNumber: "1690",
@@ -1819,15 +1831,15 @@ test("transmission to journals fully known from the registration creates their r
         transmitToJournal,
       }),
     });
-    assert.equal(response.status, 201);
-    return (await response.json()) as { transmittedTo?: string };
+    assert.equal(response.status, status);
+    return (await response.json()) as { transmittedTo?: string; transmissionSkippedReason?: string };
   };
   try {
     // Verification: every required field comes from the registration, the name is canonicalized.
     assert.equal((await submit("verification")).transmittedTo, "verification");
     assert.deepEqual(calls.at(-1), ["verification", {
       verificationDate: "2026-10-06",
-      productName: "ШКИ-66",
+      productName: "Глина Сувор",
       samplingLocation: "Склад готовой продукции",
       sampleCode: "26.1690",
       sourceSampleRegistrationId: "reg-1",
@@ -1841,11 +1853,21 @@ test("transmission to journals fully known from the registration creates their r
       productBrand: "ША-10",
       sourceSampleRegistrationId: "reg-2",
     }]);
-    // An unknown brand keeps the waiting row; other journals still need the lab assistant.
+    // An unknown raw material keeps the waiting row and says why; other journals still need the lab assistant.
     calls.length = 0;
-    assert.equal((await submit("verification", "Неизвестная марка")).transmittedTo, undefined);
+    const unknown = await submit("verification", "Неизвестное сырьё");
+    assert.equal(unknown.transmittedTo, undefined);
+    assert.equal(unknown.transmissionSkippedReason, "unknown_raw_material");
     assert.equal((await submit("unshaped_product_sample")).transmittedTo, undefined);
     assert.deepEqual(calls, []);
+    // A correction of a free sample creates the record; a used sample keeps its record.
+    assert.equal((await submit("verification", "глина сувор", "/reg-free", "PATCH", 200)).transmittedTo, "verification");
+    assert.equal(calls.length, 1);
+    assert.equal((await submit("verification", "глина сувор", "/reg-used", "PATCH", 200)).transmittedTo, undefined);
+    assert.equal(calls.length, 1);
+    // Moving a used sample to another journal would lose it, so it is refused.
+    await submit("formed_product_sample", "глина сувор", "/reg-used", "PATCH", 409);
+    assert.equal(calls.length, 1);
   } finally {
     server.close();
     await once(server, "close");
@@ -1894,6 +1916,7 @@ test("sample registration journal saves and filters registration records", async
           ...input.record,
           createdAt: "2026-07-30T08:30:00.000Z",
         },
+        transmissionClaimed: false,
       };
     },
     async list(filters) {
@@ -14012,6 +14035,9 @@ test("raw material nomenclature API keeps the journal server-owned", async () =>
     async listLabels() {
       return records.map((record) => record.name);
     },
+    async resolveLabel(label) {
+      return records.find((record) => record.name.toLocaleLowerCase("ru-RU") === label.trim().toLocaleLowerCase("ru-RU"))?.name;
+    },
     async listRecords() {
       return records;
     },
@@ -14204,6 +14230,9 @@ async function withRawMaterialWarehouseApiServer(
     rawMaterialNomenclature: {
       async listLabels() {
         return ["Глина БР-1", "Кварцевая мука R10 EW"];
+      },
+      async resolveLabel(label) {
+        return ["Глина БР-1", "Кварцевая мука R10 EW"].find((name) => name === label);
       },
       async listRecords() {
         throw new Error("not used");

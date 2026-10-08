@@ -20,6 +20,7 @@ import {
   listLinkedSampleRegistrationResults,
   type ClaimSampleRegistrationTransmission,
 } from "./laboratorySampleRegistrationJournalRepository.js";
+import { toSqlDateTime } from "../db/sqlDateTime.js";
 
 export class LaboratoryGreenProductQualityWagonUnavailableError extends Error {
   constructor() {
@@ -198,7 +199,7 @@ export function createLaboratoryGreenProductQualityJournalRepository(
           record.sourceSampleRegistrationId ?? null,
           input.submittedByUserId,
           input.submittedByAccountId,
-          createdAt,
+          toSqlDateTime(createdAt),
         ],
       );
       await insertWagonLinks(pool, id, record.wagonIds);
@@ -446,7 +447,7 @@ export function createLaboratoryGreenProductQualityJournalRepository(
           input.correctedByUserId,
           input.correctedByAccountId,
           input.correctedByDisplayName,
-          correctedAt,
+          toSqlDateTime(correctedAt),
         ],
       );
 

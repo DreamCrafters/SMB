@@ -84,7 +84,7 @@ test("refractory wagon repository creates and lists server-owned wagon records",
     "В-17",
     "refractory-user",
     "refractory-account",
-    "2026-08-06T08:30:00.000Z",
+    "2026-08-06 08:30:00.000",
   ]);
   assert.match(queries[1]?.sql ?? "", /insert into refractory_wagons/u);
   assert.deepEqual(queries[1]?.parameters, [
@@ -99,7 +99,7 @@ test("refractory wagon repository creates and lists server-owned wagon records",
     "Петров П.П.",
     "refractory-user",
     "refractory-account",
-    "2026-08-06T08:30:00.000Z",
+    "2026-08-06 08:30:00.000",
   ]);
 
   assert.deepEqual(await repository.list(), [{
@@ -256,7 +256,7 @@ test("refractory wagon repository corrects a wagon and stores an immutable revis
     "refractory-user",
     "refractory-account",
     "Мастер ОЦ",
-    "2026-08-08T09:15:00.000Z",
+    "2026-08-08 09:15:00.000",
   ]);
 });
 

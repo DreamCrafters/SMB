@@ -17,6 +17,7 @@ import {
   LaboratorySampleRegistrationTransmissionUnavailableError,
   type ClaimSampleRegistrationTransmission,
 } from "./laboratorySampleRegistrationJournalRepository.js";
+import { toSqlDateTime } from "../db/sqlDateTime.js";
 
 export class LaboratoryFormedProductSampleWagonNotFoundError extends Error {
   constructor() {
@@ -137,7 +138,7 @@ export function createLaboratoryFormedProductSampleJournalRepository(
             null,
             input.submittedByUserId,
             input.submittedByAccountId,
-            createdAt,
+            toSqlDateTime(createdAt),
           ],
         );
 
@@ -186,7 +187,7 @@ export function createLaboratoryFormedProductSampleJournalRepository(
           record.sourceSampleRegistrationId ?? null,
           input.submittedByUserId,
           input.submittedByAccountId,
-          createdAt,
+          toSqlDateTime(createdAt),
         ],
       );
 
@@ -292,7 +293,7 @@ export function createLaboratoryFormedProductSampleJournalRepository(
           input.correctedByUserId,
           input.correctedByAccountId,
           input.correctedByDisplayName,
-          correctedAt,
+          toSqlDateTime(correctedAt),
         ],
       );
 

@@ -15,6 +15,7 @@ import {
   listLinkedSampleRegistrationResults,
   type ClaimSampleRegistrationTransmission,
 } from "./laboratorySampleRegistrationJournalRepository.js";
+import { toSqlDateTime } from "../db/sqlDateTime.js";
 
 type RepositoryFilters = LaboratoryRawMaterialQualityFilters & {
   limit?: number;
@@ -147,7 +148,7 @@ export function createLaboratoryRawMaterialQualityJournalRepository(
           record.sourceSampleRegistrationId ?? null,
           input.submittedByUserId,
           input.submittedByAccountId,
-          createdAt,
+          toSqlDateTime(createdAt),
         ],
       );
 
@@ -316,7 +317,7 @@ export function createLaboratoryRawMaterialQualityJournalRepository(
           input.correctedByUserId,
           input.correctedByAccountId,
           input.correctedByDisplayName,
-          correctedAt,
+          toSqlDateTime(correctedAt),
         ],
       );
 

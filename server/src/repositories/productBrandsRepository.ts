@@ -26,6 +26,7 @@ import type {
   ProductionBrandsDataSource,
 } from "../domain/productionBrandsDataSource.js";
 import type { ValidatedProductBrandSubmission } from "../domain/productBrandJournal.js";
+import { toSqlDateTime } from "../db/sqlDateTime.js";
 
 export class ProductBrandNameAlreadyExistsError extends Error {
   constructor() {
@@ -321,7 +322,7 @@ export function createProductBrandsRepository(
           actor.userId,
           actor.accountId,
           actor.displayName,
-          now().toISOString(),
+          toSqlDateTime(now()),
         ],
       );
       updatedRecords += 1;
@@ -527,8 +528,8 @@ export function createProductBrandsRepository(
           nullable(record.strength),
           input.submittedByUserId,
           input.submittedByAccountId,
-          timestamp,
-          timestamp,
+          toSqlDateTime(timestamp),
+          toSqlDateTime(timestamp),
         ],
       );
     } catch (error) {
@@ -658,7 +659,7 @@ export function createProductBrandsRepository(
             nullable(next.al2o3),
             nullable(next.fe2o3),
             nullable(next.strength),
-            updatedAt,
+            toSqlDateTime(updatedAt),
             input.id,
           ],
         );
@@ -694,7 +695,7 @@ export function createProductBrandsRepository(
           input.correctedByUserId,
           input.correctedByAccountId,
           input.correctedByDisplayName,
-          updatedAt,
+          toSqlDateTime(updatedAt),
         ],
       );
       return { before, record };
@@ -768,9 +769,9 @@ export function createProductBrandsRepository(
         set deleted_at = ?, merged_into_id = ?, updated_at = ?
         where id = ? and deleted_at is null`,
         [
-          deletedAt,
+          toSqlDateTime(deletedAt),
           replacement?.id ?? null,
-          deletedAt,
+          toSqlDateTime(deletedAt),
           source.id,
         ],
       );

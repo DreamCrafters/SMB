@@ -61,8 +61,8 @@ test("raw material repository creates and lists nomenclature records", async () 
     "2 %",
     "laboratory-user",
     "laboratory-account",
-    "2026-08-23T08:00:00.000Z",
-    "2026-08-23T08:00:00.000Z",
+    "2026-08-23 08:00:00.000",
+    "2026-08-23 08:00:00.000",
   ]);
 
   assert.deepEqual(await repository.listRecords({ query: "Глина" }), [{
@@ -151,3 +151,18 @@ function withoutNormalizedName(value: typeof submission) {
   const { normalizedName: _normalizedName, ...rest } = value;
   return rest;
 }
+
+test("raw material repository resolves a typed name to the canonical one", async () => {
+  const queries: Array<{ sql: string; values: unknown[] }> = [];
+  const pool = {
+    async query(sql: string, values: unknown[]) {
+      queries.push({ sql, values });
+      return [values[0] === "глина огнеупорная" ? [{ name: "Глина огнеупорная" }] : []];
+    },
+  } as unknown as DatabasePool;
+  const repository = createRawMaterialNomenclatureRepository(pool);
+
+  assert.equal(await repository.resolveLabel("  ГЛИНА   огнеупорная "), "Глина огнеупорная");
+  assert.equal(await repository.resolveLabel("Шамот"), undefined);
+  assert.match(queries[0]?.sql ?? "", /collate utf8mb4_bin/u);
+});

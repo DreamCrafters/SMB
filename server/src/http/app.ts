@@ -128,6 +128,7 @@ import {
   buildLaboratorySampleCodeDraft,
   laboratorySampleRegistrationTransmissionTargets,
   type LaboratorySampleRegistrationTransmissionTarget,
+  type LaboratorySampleRegistrationJournalRecord,
   type LaboratorySampleRegistrationJournalSubmission,
 } from "../contracts/laboratorySampleRegistrationJournal.js";
 import {
@@ -5205,47 +5206,81 @@ async function handleLaboratoryRequest({
     }
 
     const recordId = sampleRegistrationRecordMatch[1];
-    const correction = await runAuditedMutation({
-      transaction: databaseTransaction,
-      audit,
-      mutate: () => laboratorySampleRegistrationJournal.update({
-        id: recordId,
-        record: validation.value,
-        correctedByUserId: access.profile.userId,
-        correctedByAccountId: access.profile.activeAccess.accountId,
-        correctedByDisplayName: access.profile.displayName,
-      }),
-      buildEvent: (result) => result === undefined
-        ? undefined
-        : {
-            actor: buildAuditActor(access.profile),
-            category: "data_change",
-            action: "laboratory_sample_registration.correct",
-            summary: "Исправлена зарегистрированная проба",
-            details: [
-              {
-                label: "№ пробы",
-                value: `${result.before.sampleNumber} → ${result.record.sampleNumber}`,
-              },
-              {
-                label: "Код лабораторной пробы",
-                value:
-                  `${result.before.laboratorySampleCode} → ${result.record.laboratorySampleCode}`,
-              },
-              {
-                label: "Наименование пробы",
-                value: `${result.before.sampleName} → ${result.record.sampleName}`,
-              },
-              {
-                label: "Водопоглощение",
-                value:
-                  `${result.before.waterAbsorption ?? "—"} → ${result.record.waterAbsorption ?? "—"}`,
-              },
-            ],
-            targetType: "laboratory_sample_registration",
-            targetId: result.record.id,
-          },
+    // Задача 132: исправление незанятой пробы тоже создаёт запись журнала.
+    const autoTransmission = await planSampleRegistrationAutoTransmission({
+      submission: validation.value,
+      rawMaterialNomenclature,
+      hasVerificationJournal: laboratoryVerificationJournal !== undefined,
+      hasFormedProductJournal: laboratoryFormedProductSampleJournal !== undefined,
     });
+    let correction;
+    try {
+      correction = await databaseTransaction.run(async () => {
+        const result = await laboratorySampleRegistrationJournal.update({
+          id: recordId,
+          record: validation.value,
+          correctedByUserId: access.profile.userId,
+          correctedByAccountId: access.profile.activeAccess.accountId,
+          correctedByDisplayName: access.profile.displayName,
+        });
+        if (result === undefined) return undefined;
+        await audit.record({
+          actor: buildAuditActor(access.profile),
+          category: "data_change",
+          action: "laboratory_sample_registration.correct",
+          summary: "Исправлена зарегистрированная проба",
+          details: [
+            {
+              label: "№ пробы",
+              value: `${result.before.sampleNumber} → ${result.record.sampleNumber}`,
+            },
+            {
+              label: "Код лабораторной пробы",
+              value:
+                `${result.before.laboratorySampleCode} → ${result.record.laboratorySampleCode}`,
+            },
+            {
+              label: "Наименование пробы",
+              value: `${result.before.sampleName} → ${result.record.sampleName}`,
+            },
+            {
+              label: "Водопоглощение",
+              value:
+                `${result.before.waterAbsorption ?? "—"} → ${result.record.waterAbsorption ?? "—"}`,
+            },
+          ],
+          targetType: "laboratory_sample_registration",
+          targetId: result.record.id,
+        });
+        const transmittedTo = result.transmissionClaimed
+          ? undefined
+          : await createSampleRegistrationTransmittedRecord({
+              plan: autoTransmission,
+              registration: result.record,
+              submittedBy: {
+                submittedByUserId: access.profile.userId,
+                submittedByAccountId: access.profile.activeAccess.accountId,
+              },
+              actor: buildAuditActor(access.profile),
+              audit,
+              verificationJournal: laboratoryVerificationJournal,
+              formedProductJournal: laboratoryFormedProductSampleJournal,
+            });
+        return { ...result, transmittedTo };
+      });
+    } catch (error) {
+      if (error instanceof LaboratorySampleRegistrationTransmissionUnavailableError) {
+        sendJson(res, 409, {
+          error: {
+            code: "invalid_response",
+            message:
+              "Проба уже использована в журнале: сменить «Трансляцию в журнал» нельзя. Исправьте запись в самом журнале.",
+          },
+        });
+        return;
+      }
+      throw error;
+    }
     if (correction === undefined) {
       sendJson(res, 404, {
         error: {
@@ -5256,7 +5291,13 @@ async function handleLaboratoryRequest({
       return;
     }
 
-    sendJson(res, 200, { record: correction.record });
+    sendJson(res, 200, {
+      record: correction.record,
+      ...(correction.transmittedTo === undefined ? {} : { transmittedTo: correction.transmittedTo }),
+      ...(!correction.transmissionClaimed && autoTransmission !== undefined && "skipped" in autoTransmission
+        ? { transmissionSkippedReason: autoTransmission.skipped }
+        : {}),
+    });
     return;
   }
 
@@ -5328,9 +5369,8 @@ async function handleLaboratoryRequest({
     }
 
     const autoTransmission = await planSampleRegistrationAutoTransmission({
-      res,
       submission: validation.value,
-      productionBrands,
+      rawMaterialNomenclature,
       hasVerificationJournal: laboratoryVerificationJournal !== undefined,
       hasFormedProductJournal: laboratoryFormedProductSampleJournal !== undefined,
     });
@@ -5369,64 +5409,25 @@ async function handleLaboratoryRequest({
 
       // Задача 132: журналы, все обязательные поля которых известны из
       // регистрации, получают запись сразу — без строки «ожидает заполнения».
-      if (autoTransmission?.target === "verification" && laboratoryVerificationJournal !== undefined) {
-        const target = await laboratoryVerificationJournal.create({
-          record: {
-            verificationDate: record.samplingDate,
-            productName: autoTransmission.productName,
-            samplingLocation: record.samplingLocation,
-            sampleCode: record.laboratorySampleCode,
-            sourceSampleRegistrationId: record.id,
-          },
-          ...submittedBy,
-        });
-        await audit.record({
-          actor: buildAuditActor(access.profile),
-          category: "form_submission",
-          action: "laboratory_verification.submit",
-          summary: "Добавлена запись журнала верификаций по трансляции из регистрации проб",
-          details: [
-            { label: "Дата", value: target.verificationDate },
-            { label: "Наименование продукции", value: target.productName },
-            { label: "Место отбора пробы", value: target.samplingLocation },
-            { label: "Код пробы", value: target.sampleCode },
-          ],
-          targetType: "laboratory_verification",
-          targetId: target.id,
-        });
-        return { saved: record, transmittedTo: autoTransmission.target };
-      }
-      if (autoTransmission?.target === "formed_product_sample" && laboratoryFormedProductSampleJournal !== undefined) {
-        const target = await laboratoryFormedProductSampleJournal.create({
-          record: {
-            sortingDate: record.samplingDate,
-            sampleCode: record.laboratorySampleCode,
-            productBrand: record.sampleName,
-            sourceSampleRegistrationId: record.id,
-          },
-          ...submittedBy,
-        });
-        await audit.record({
-          actor: buildAuditActor(access.profile),
-          category: "form_submission",
-          action: "laboratory_formed_product_sample.submit",
-          summary: "Добавлена запись журнала регистрации проб формованной продукции по трансляции из регистрации проб",
-          details: [
-            { label: "Дата сортировки", value: target.sortingDate },
-            { label: "Код пробы", value: target.sampleCode ?? "—" },
-            { label: "Марка изделия", value: target.productBrand },
-          ],
-          targetType: "laboratory_formed_product_sample",
-          targetId: target.id,
-        });
-        return { saved: record, transmittedTo: autoTransmission.target };
-      }
+      const transmittedTo = await createSampleRegistrationTransmittedRecord({
+        plan: autoTransmission,
+        registration: record,
+        submittedBy,
+        actor: buildAuditActor(access.profile),
+        audit,
+        verificationJournal: laboratoryVerificationJournal,
+        formedProductJournal: laboratoryFormedProductSampleJournal,
+      });
+      if (transmittedTo !== undefined) return { saved: record, transmittedTo };
       return { saved: record, transmittedTo: undefined };
     });
 
     sendJson(res, 201, {
       record: saved,
       ...(transmittedTo === undefined ? {} : { transmittedTo }),
+      ...(autoTransmission !== undefined && "skipped" in autoTransmission
+        ? { transmissionSkippedReason: autoTransmission.skipped }
+        : {}),
     });
     return;
   }
@@ -6616,18 +6617,15 @@ async function handleLaboratoryRequest({
       return;
     }
 
-    const productReferences = await resolveProductionBrandReferencesForRequest({
+    // Задача 95 и решение 08.10.2026: наименование «Верификаций» — из Номенклатуры → Сырьё.
+    const productName = await resolveVerificationProductNameForRequest({
       res,
-      productionBrands,
-      references: [{
-        fieldName: "productName",
-        label: validation.value.productName,
-      }],
-      logEvent: "verification_brands.database_read_failed",
+      rawMaterialNomenclature,
+      label: validation.value.productName,
+      logEvent: "verification_raw_materials.database_read_failed",
     });
-    if (productReferences === undefined) return;
-    validation.value.productName = productReferences[0]?.label ??
-      validation.value.productName;
+    if (productName === undefined) return;
+    validation.value.productName = productName;
 
     let saved;
     try {
@@ -6717,18 +6715,15 @@ async function handleLaboratoryRequest({
       return;
     }
 
-    const productReferences = await resolveProductionBrandReferencesForRequest({
+    // Задача 95 и решение 08.10.2026: наименование «Верификаций» — из Номенклатуры → Сырьё.
+    const productName = await resolveVerificationProductNameForRequest({
       res,
-      productionBrands,
-      references: [{
-        fieldName: "productName",
-        label: validation.value.productName,
-      }],
-      logEvent: "verification_correction_brands.database_read_failed",
+      rawMaterialNomenclature,
+      label: validation.value.productName,
+      logEvent: "verification_correction_raw_materials.database_read_failed",
     });
-    if (productReferences === undefined) return;
-    validation.value.productName = productReferences[0]?.label ??
-      validation.value.productName;
+    if (productName === undefined) return;
+    validation.value.productName = productName;
 
     const recordId = verificationRecordMatch[1];
     const correction = await runAuditedMutation({
@@ -9002,6 +8997,45 @@ async function handleOwnNotificationEmailRequest({
 }
 
 /**
+ * Наименование продукции «Верификаций» канонизируется по `Номенклатуре → Сырьё`
+ * (форма предлагает именно сырьё). Нет такого сырья — 400 без сохранения.
+ */
+async function resolveVerificationProductNameForRequest({
+  res,
+  rawMaterialNomenclature,
+  label,
+  logEvent,
+}: {
+  res: ServerResponse;
+  rawMaterialNomenclature: RawMaterialNomenclatureRepository | undefined;
+  label: string;
+  logEvent: string;
+}): Promise<string | undefined> {
+  if (rawMaterialNomenclature === undefined) {
+    sendJson(res, 503, {
+      error: { code: "server_error", message: "Номенклатура сырья не настроена." },
+    });
+    return undefined;
+  }
+  try {
+    const productName = await rawMaterialNomenclature.resolveLabel(label);
+    if (productName !== undefined) return productName;
+    sendJson(res, 400, {
+      error: {
+        code: "invalid_response",
+        message: `Сначала добавьте «${label}» в Номенклатура → Сырьё.`,
+      },
+    });
+  } catch (error) {
+    console.warn(logEvent, error);
+    sendJson(res, 502, {
+      error: { code: "server_error", message: "Не удалось проверить наименование по номенклатуре сырья." },
+    });
+  }
+  return undefined;
+}
+
+/**
  * Задача 132: трансляция в «Верификации» и журнал кирпича создаёт запись
  * сразу, потому что все обязательные поля этих журналов известны из
  * регистрации. Наименование для «Верификаций» должно быть маркой Журнала
@@ -9009,44 +9043,120 @@ async function handleOwnNotificationEmailRequest({
  * запись не создаётся и проба остаётся строкой-ожиданием для лаборанта.
  */
 async function planSampleRegistrationAutoTransmission({
-  res,
   submission,
-  productionBrands,
+  rawMaterialNomenclature,
   hasVerificationJournal,
   hasFormedProductJournal,
 }: {
-  res: ServerResponse;
   submission: LaboratorySampleRegistrationJournalSubmission;
-  productionBrands: ProductionBrandsDataSource;
+  rawMaterialNomenclature: RawMaterialNomenclatureRepository | undefined;
   hasVerificationJournal: boolean;
   hasFormedProductJournal: boolean;
-}): Promise<
-  | { target: "verification"; productName: string }
-  | { target: "formed_product_sample" }
-  | undefined
-> {
+}): Promise<SampleRegistrationAutoTransmissionPlan> {
   if (submission.transmitToJournal === "formed_product_sample") {
     return hasFormedProductJournal ? { target: "formed_product_sample" } : undefined;
   }
-  if (submission.transmitToJournal !== "verification" || !hasVerificationJournal) {
+  if (
+    submission.transmitToJournal !== "verification" ||
+    !hasVerificationJournal ||
+    rawMaterialNomenclature === undefined
+  ) {
     return undefined;
   }
   try {
-    // Как при ручном вводе: марку не переименуют и не сольют до конца запроса.
-    await ensureProductBrandMutationLock(res, productionBrands);
-    const resolution = await productionBrands.resolveReferences([{
-      fieldName: "productName",
-      label: submission.sampleName,
-    }]);
-    if (!resolution.ok) return undefined;
-    return {
-      target: "verification",
-      productName: resolution.references[0]?.label ?? submission.sampleName,
-    };
+    const productName = await rawMaterialNomenclature.resolveLabel(submission.sampleName);
+    // Лаборант должен узнать, почему запись не появилась (задача 132).
+    if (productName === undefined) return { skipped: "unknown_raw_material" };
+    return { target: "verification", productName };
   } catch {
-    console.warn("laboratory_sample_registration.auto_transmission_brand_check_failed");
+    console.warn("laboratory_sample_registration.auto_transmission_material_check_failed");
     return undefined;
   }
+}
+
+type SampleRegistrationAutoTransmissionPlan =
+  | { target: "verification"; productName: string }
+  | { target: "formed_product_sample" }
+  | { skipped: "unknown_raw_material" }
+  | undefined;
+
+/**
+ * Создаёт запись целевого журнала по плану трансляции внутри текущей
+ * транзакции (первичная регистрация и исправление). Проба занимается через
+ * `claimTransmission` репозитория журнала: уже использованная проба даёт
+ * `LaboratorySampleRegistrationTransmissionUnavailableError`.
+ */
+async function createSampleRegistrationTransmittedRecord({
+  plan,
+  registration,
+  submittedBy,
+  actor,
+  audit,
+  verificationJournal,
+  formedProductJournal,
+}: {
+  plan: SampleRegistrationAutoTransmissionPlan;
+  registration: LaboratorySampleRegistrationJournalRecord;
+  submittedBy: { submittedByUserId: string; submittedByAccountId: string };
+  actor: AuditEventDraft["actor"];
+  audit: AuditRepository;
+  verificationJournal: LaboratoryVerificationJournalRepository | undefined;
+  formedProductJournal: LaboratoryFormedProductSampleJournalRepository | undefined;
+}): Promise<"verification" | "formed_product_sample" | undefined> {
+  if (plan === undefined || !("target" in plan)) return undefined;
+  if (plan.target === "verification" && verificationJournal !== undefined) {
+    const target = await verificationJournal.create({
+      record: {
+        verificationDate: registration.samplingDate,
+        productName: plan.productName,
+        samplingLocation: registration.samplingLocation,
+        sampleCode: registration.laboratorySampleCode,
+        sourceSampleRegistrationId: registration.id,
+      },
+      ...submittedBy,
+    });
+    await audit.record({
+      actor,
+      category: "form_submission",
+      action: "laboratory_verification.submit",
+      summary: "Добавлена запись журнала верификаций по трансляции из регистрации проб",
+      details: [
+        { label: "Дата", value: target.verificationDate },
+        { label: "Наименование продукции", value: target.productName },
+        { label: "Место отбора пробы", value: target.samplingLocation },
+        { label: "Код пробы", value: target.sampleCode },
+      ],
+      targetType: "laboratory_verification",
+      targetId: target.id,
+    });
+    return "verification";
+  }
+  if (plan.target === "formed_product_sample" && formedProductJournal !== undefined) {
+    const target = await formedProductJournal.create({
+      record: {
+        sortingDate: registration.samplingDate,
+        sampleCode: registration.laboratorySampleCode,
+        productBrand: registration.sampleName,
+        sourceSampleRegistrationId: registration.id,
+      },
+      ...submittedBy,
+    });
+    await audit.record({
+      actor,
+      category: "form_submission",
+      action: "laboratory_formed_product_sample.submit",
+      summary: "Добавлена запись журнала регистрации проб формованной продукции по трансляции из регистрации проб",
+      details: [
+        { label: "Дата сортировки", value: target.sortingDate },
+        { label: "Код пробы", value: target.sampleCode ?? "—" },
+        { label: "Марка изделия", value: target.productBrand },
+      ],
+      targetType: "laboratory_formed_product_sample",
+      targetId: target.id,
+    });
+    return "formed_product_sample";
+  }
+  return undefined;
 }
 
 async function runAuditedMutation<T>({
@@ -15032,7 +15142,9 @@ function applyCors(
   res.setHeader("access-control-allow-methods", "GET,POST,PATCH,DELETE,OPTIONS");
   res.setHeader(
     "access-control-allow-headers",
-    "Accept,Content-Type,If-None-Match,X-SMB-Account-Id,X-SMB-Dev-Session",
+    // Предпросмотр администратора шлёт свой заголовок: без него браузер на другом
+    // origin (локальный dev, отдельный домен API) не откроет выбранный аккаунт.
+    "Accept,Content-Type,If-None-Match,X-SMB-Account-Id,X-SMB-Dev-Session,X-SMB-Account-Preview",
   );
   res.setHeader("access-control-expose-headers", "ETag");
 }

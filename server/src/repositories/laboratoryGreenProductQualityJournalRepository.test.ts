@@ -593,7 +593,7 @@ test("green product quality repository corrects a stable row and stores wagon-aw
     "laboratory-user",
     "laboratory-account",
     "Иванова Анна",
-    "2026-08-05T10:15:00.000Z",
+    "2026-08-05 10:15:00.000",
   ]);
   const rawControlUpdate = queries.find(
     ({ sql }) => /update refractory_wagons wagon/u.test(sql),

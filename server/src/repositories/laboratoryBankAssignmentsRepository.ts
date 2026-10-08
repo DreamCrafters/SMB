@@ -6,6 +6,7 @@ import type {
   BankBulkDensitySource,
   BankNumber,
 } from "../domain/bankMeasurement.js";
+import { toSqlDateTime } from "../db/sqlDateTime.js";
 
 export type LaboratoryBankAssignment = BankAssignmentSnapshot & {
   assignedByDisplayName: string;
@@ -88,7 +89,7 @@ export function createLaboratoryBankAssignmentsRepository(
           input.assignedByUserId,
           input.assignedByAccountId,
           assignment.assignedByDisplayName,
-          assignment.assignedAt,
+          toSqlDateTime(assignment.assignedAt),
         ],
       );
 

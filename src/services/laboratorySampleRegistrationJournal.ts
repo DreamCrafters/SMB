@@ -57,6 +57,8 @@ export type LaboratorySampleRegistrationJournalSaveResult =
       record: LaboratorySampleRegistrationJournalRecord;
       /** Журнал, в котором сервер сразу создал запись по трансляции (задача 132). */
       transmittedTo?: LaboratorySampleRegistrationTransmissionTarget;
+      /** Запись в «Верификациях» не создана: наименования нет в Номенклатуре → Сырьё. */
+      transmissionSkippedReason?: "unknown_raw_material";
     }
   | ErrorResult;
 export type LaboratorySampleRegistrationPendingTransmissionsResult =
@@ -228,10 +230,12 @@ function readJournalSaveResult(
   const transmittedTo = laboratorySampleRegistrationTransmissionTargets.find(
     ({ value }) => value === (result.payload as Record<string, unknown>).transmittedTo,
   )?.value;
+  const skipped = (result.payload as Record<string, unknown>).transmissionSkippedReason === "unknown_raw_material";
   return {
     status: "ready",
     record: result.payload.record,
     ...(transmittedTo === undefined ? {} : { transmittedTo }),
+    ...(skipped ? { transmissionSkippedReason: "unknown_raw_material" as const } : {}),
   };
 }
 

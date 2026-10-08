@@ -69,7 +69,7 @@ test("formed product sample repository resolves the wagon and stores the record"
     null,
     "laboratory-user",
     "laboratory-account",
-    "2026-08-05T08:30:00.000Z",
+    "2026-08-05 08:30:00.000",
   ]);
 });
 
@@ -128,7 +128,7 @@ test("formed product sample repository claims the transmitted sample and stores 
     "reg-42",
     "laboratory-user",
     "laboratory-account",
-    "2026-08-05T08:30:00.000Z",
+    "2026-08-05 08:30:00.000",
   ]);
 });
 
@@ -266,7 +266,7 @@ test("formed product sample repository corrects a stable row and stores revision
     "laboratory-user",
     "laboratory-account",
     "Иванова Анна",
-    "2026-08-05T09:15:00.000Z",
+    "2026-08-05 09:15:00.000",
   ]);
 });
 

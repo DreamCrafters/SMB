@@ -9,6 +9,7 @@ import type {
 } from "../contracts/laboratoryRawMaterialWarehouse.js";
 import type { DatabasePool } from "../db/pool.js";
 import { escapeLikePattern } from "./laboratoryResultsRepository.js";
+import { toSqlDateTime } from "../db/sqlDateTime.js";
 
 export class LaboratoryRawMaterialWarehouseAlreadyReviewedError extends Error {
   constructor() {
@@ -168,7 +169,7 @@ export function createLaboratoryRawMaterialWarehouseRepository(
           input.submittedByUserId,
           input.submittedByAccountId,
           input.submittedByDisplayName,
-          submittedAt,
+          toSqlDateTime(submittedAt),
         ],
       );
       return {
@@ -242,7 +243,7 @@ export function createLaboratoryRawMaterialWarehouseRepository(
           input.reviewerUserId,
           input.reviewerAccountId,
           input.reviewerDisplayName,
-          reviewedAt,
+          toSqlDateTime(reviewedAt),
         ],
       );
       return {

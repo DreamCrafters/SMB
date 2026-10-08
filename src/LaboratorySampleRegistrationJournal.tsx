@@ -302,6 +302,13 @@ export function LaboratorySampleRegistrationJournal({
         : `${result.record.sampleNumber} · ${result.record.laboratorySampleCode}. Запись добавлена в журнал «${laboratorySampleRegistrationTransmissionTargetLabels[result.transmittedTo]}».`,
       "success",
     );
+    if (result.transmissionSkippedReason === "unknown_raw_material") {
+      onShowToast(
+        "Запись в «Верификациях» не создана",
+        `Наименования «${result.record.sampleName}» нет в Номенклатура → Сырьё. Добавьте сырьё или заполните запись в журнале вручную.`,
+        "suggestion",
+      );
+    }
   }
 
   function editRecord(record: LaboratorySampleRegistrationJournalRecord) {

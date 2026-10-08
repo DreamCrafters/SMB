@@ -170,7 +170,7 @@ test("an open stage writes its fields and stamps the ladder", async () => {
     85000,
     "3 000 руб.",
     "ПГК",
-    stamp,
+    sqlStamp,
     "order-1",
   ]);
 });
@@ -335,7 +335,7 @@ test("approving an approval stamps the ladder and drops the earlier reason", asy
     /update railway_wagon_orders set/u.test(sql));
   assert.match(update?.sql ?? "", /logistics_approved_at = \?/u);
   assert.match(update?.sql ?? "", /decline_comment = null/u);
-  assert.deepEqual(update?.parameters, [stamp, "order-1"]);
+  assert.deepEqual(update?.parameters, [sqlStamp, "order-1"]);
 });
 
 test("an approval stage without a decision and a plain stage with one are refused", async () => {
@@ -430,6 +430,7 @@ test("carrier options accumulate from the orders themselves", async () => {
 type Query = { sql: string; parameters?: unknown[] };
 
 const stamp = "2026-09-07T08:00:00.000Z";
+const sqlStamp = "2026-09-07 08:00:00.000";
 
 const actor = {
   userId: "user-1",

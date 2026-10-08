@@ -49,7 +49,7 @@ test("stock report import inserts a new report with its balances", async () => {
     "1С:Предприятие",
     "2026-08-23T06:29:00.000Z",
     1,
-    "2026-08-23T06:30:00.000Z",
+    "2026-08-23 06:30:00.000",
   ]);
   assert.match(queries[2]?.sql ?? "", /insert into warehouse_1c_stock_balances/u);
   // Пустой остаток хранится как NULL, а не как ноль; склад и количество рядом.
@@ -173,7 +173,7 @@ test("upload journal keeps the file and the refusal reason", async () => {
   assert.match(queries[0]?.sql ?? "", /insert into warehouse_1c_uploads/u);
   assert.deepEqual(queries[0]?.parameters, [
     "id-1",
-    "2026-09-08T09:20:00.000Z",
+    "2026-09-08 09:20:00.000",
     "rejected",
     422,
     "report_20260908.xlsx",

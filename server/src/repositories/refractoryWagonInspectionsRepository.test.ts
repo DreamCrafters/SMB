@@ -99,7 +99,7 @@ test("wagon inspection stores the verdict and writes it into the wagon", async (
     "В-17",
     "refractory-user",
     "refractory-account",
-    "2026-08-12T09:00:00.000Z",
+    "2026-08-12 09:00:00.000",
   ]);
 });
 

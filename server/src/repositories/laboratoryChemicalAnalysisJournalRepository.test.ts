@@ -211,7 +211,7 @@ test("chemical analysis repository stores linked append-only record", async () =
     null,
     "laboratory-user",
     "laboratory-account",
-    "2026-07-30T08:30:00.000Z",
+    "2026-07-30 08:30:00.000",
   ]);
   const claim = queries.find((query) =>
     /insert into laboratory_chemical_analysis_sample_claims/u.test(query.sql)
@@ -628,7 +628,7 @@ test("chemical analysis repository corrects a stable analysis and stores a revis
     "laboratory-user",
     "laboratory-account",
     "Иванова Анна",
-    "2026-08-04T10:30:00.000Z",
+    "2026-08-04 10:30:00.000",
   ]);
 });
 

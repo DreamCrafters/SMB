@@ -60,6 +60,7 @@ const migrationsAfterRefractoryWagonLifecycle = [
   "097_collegium_effect_groups",
   "098_assignments_tab_for_registry_tabs",
   "099_refractory_quality_sample_registration_link",
+  "100_auto_transmit_pending_sample_registrations",
 ] as const;
 
 test("laboratory migration creates results storage and the system position", async () => {
@@ -3547,6 +3548,35 @@ test("registry tabs migration adds «Поручения» without touching capab
   assert.match(statements[2], /^update account_accesses accesses set navigation_items = json_array_append/u);
   assert.doesNotMatch(statements.slice(0, 3).join("\n"), /set capabilities|json_remove/u);
   assert.match(statements[3], /insert into schema_migrations/u);
+});
+
+test("transmission backfill migration locks candidates, claims samples and audits each record once", async () => {
+  const statements: string[] = [];
+  const migration = "100_auto_transmit_pending_sample_registrations";
+  const pool = {
+    async query(sql: string, parameters?: unknown[]) {
+      return [sql.includes("select id from schema_migrations") && parameters?.[0] !== migration ? [{ id: parameters?.[0] }] : [], []];
+    },
+    async getConnection() { return {
+      async beginTransaction() {}, async commit() {}, async rollback() {}, release() {},
+      async query(sql: string) { statements.push(normalizeSql(sql)); return [[], []]; },
+    }; },
+  } as unknown as DatabasePool;
+  await runMigrations(pool);
+  assert.equal(statements.length, 8);
+  // Candidates are locked first: the previous backend still serves lab assistants during deploy.
+  assert.match(statements[0], /for update;?$/u);
+  // Verification names come from the raw material nomenclature, matched exactly.
+  assert.match(statements[1], /join laboratory_raw_material_nomenclature materials on materials\.normalized_name = lower\(registrations\.sample_name\) collate utf8mb4_bin/u);
+  assert.doesNotMatch(statements[1], /product_brands/u);
+  for (const statement of statements.slice(1, 3)) {
+    assert.match(statement, /transmitted_record_id is null/u);
+    assert.match(statement, /system-task-132-transmission-backfill/u);
+  }
+  assert.match(statements[3], /set registrations\.transmitted_record_id = records\.id/u);
+  assert.match(statements[5], /insert into user_audit_events/u);
+  assert.match(statements[5], /and not exists/u);
+  assert.match(statements[7], /insert into schema_migrations/u);
 });
 
 test("root authority migration preserves the previous identity once without changing assigned access", async () => {

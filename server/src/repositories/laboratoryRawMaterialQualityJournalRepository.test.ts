@@ -96,7 +96,7 @@ test("raw material quality repository stores every section with the session auth
     null,
     "laboratory-user",
     "laboratory-account",
-    "2026-08-05T08:30:00.000Z",
+    "2026-08-05 08:30:00.000",
   ]);
 });
 
@@ -347,7 +347,7 @@ test("raw material quality repository corrects a stable row and stores a revisio
     "laboratory-user",
     "laboratory-account",
     "Иванова Анна",
-    "2026-08-05T10:15:00.000Z",
+    "2026-08-05 10:15:00.000",
   ]);
 });
 

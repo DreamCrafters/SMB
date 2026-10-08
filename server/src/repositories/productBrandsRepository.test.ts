@@ -61,8 +61,8 @@ test("product brand repository creates and lists detailed journal records", asyn
     "20 Н/мм²",
     "laboratory-user",
     "laboratory-account",
-    "2026-08-07T08:00:00.000Z",
-    "2026-08-07T08:00:00.000Z",
+    "2026-08-07 08:00:00.000",
+    "2026-08-07 08:00:00.000",
   ]);
 
   assert.deepEqual(await repository.listRecords({ query: "ША_8%" }), [{

@@ -5,6 +5,7 @@ import type {
   RefractoryWagonSubmission,
 } from "../contracts/refractoryWagons.js";
 import type { DatabasePool } from "../db/pool.js";
+import { toSqlDateTime } from "../db/sqlDateTime.js";
 
 export class RefractoryWagonNumberAlreadyExistsError extends Error {
   constructor() {
@@ -139,7 +140,7 @@ export function createRefractoryWagonsRepository(
             input.wagon.number,
             input.submittedByUserId,
             input.submittedByAccountId,
-            createdAt,
+            toSqlDateTime(createdAt),
           ],
         );
       } catch (error) {
@@ -179,7 +180,7 @@ export function createRefractoryWagonsRepository(
           input.wagon.pressOperator,
           input.submittedByUserId,
           input.submittedByAccountId,
-          createdAt,
+          toSqlDateTime(createdAt),
         ],
       );
 
@@ -448,7 +449,7 @@ export function createRefractoryWagonsRepository(
           input.correctedByUserId,
           input.correctedByAccountId,
           input.correctedByDisplayName,
-          now().toISOString(),
+          toSqlDateTime(now()),
         ],
       );
 

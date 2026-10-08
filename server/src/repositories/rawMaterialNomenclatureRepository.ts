@@ -8,6 +8,8 @@ import type {
 } from "../contracts/rawMaterialNomenclature.js";
 import type { DatabasePool } from "../db/pool.js";
 import type { ValidatedRawMaterialNomenclatureSubmission } from "../domain/rawMaterialNomenclature.js";
+import { toSqlDateTime } from "../db/sqlDateTime.js";
+import { normalizeProductionBrandLookupLabel } from "../domain/productionBrand.js";
 
 export class RawMaterialNomenclatureNameAlreadyExistsError extends Error {
   constructor() {
@@ -19,6 +21,11 @@ export class RawMaterialNomenclatureNameAlreadyExistsError extends Error {
 export type RawMaterialNomenclatureRepository = {
   /** Наименования для выпадающих списков журналов. */
   listLabels: () => Promise<string[]>;
+  /**
+   * Каноническое наименование сырья по введённому: та же нормализация, что при
+   * создании записи, и точное сравнение, как у Журнала марок. Нет — undefined.
+   */
+  resolveLabel: (label: string) => Promise<string | undefined>;
   listRecords: (
     filters?: RawMaterialNomenclatureFilters,
   ) => Promise<RawMaterialNomenclatureRecord[]>;
@@ -77,6 +84,16 @@ export function createRawMaterialNomenclatureRepository(
         `select name from laboratory_raw_material_nomenclature order by name asc`,
       );
       return rows.map((row) => row.name);
+    },
+
+    async resolveLabel(label) {
+      const [rows] = await pool.query<RawMaterialRow[]>(
+        `select name from laboratory_raw_material_nomenclature
+        where normalized_name = ? collate utf8mb4_bin
+        limit 1`,
+        [normalizeProductionBrandLookupLabel(label)],
+      );
+      return rows[0]?.name;
     },
 
     async listRecords(filters = {}) {
@@ -139,8 +156,8 @@ export function createRawMaterialNomenclatureRepository(
             nullable(record.fe2o3),
             input.submittedByUserId,
             input.submittedByAccountId,
-            timestamp,
-            timestamp,
+            toSqlDateTime(timestamp),
+            toSqlDateTime(timestamp),
           ],
         );
       } catch (error) {
@@ -195,7 +212,7 @@ export function createRawMaterialNomenclatureRepository(
             nullable(next.normativeDocument),
             nullable(next.al2o3),
             nullable(next.fe2o3),
-            updatedAt,
+            toSqlDateTime(updatedAt),
             input.id,
           ],
         );
@@ -231,7 +248,7 @@ export function createRawMaterialNomenclatureRepository(
           input.correctedByUserId,
           input.correctedByAccountId,
           input.correctedByDisplayName,
-          updatedAt,
+          toSqlDateTime(updatedAt),
         ],
       );
       return { before, record };

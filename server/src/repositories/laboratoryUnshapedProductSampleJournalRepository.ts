@@ -17,6 +17,7 @@ import {
   LaboratorySampleRegistrationTransmissionUnavailableError,
   type ClaimSampleRegistrationTransmission,
 } from "./laboratorySampleRegistrationJournalRepository.js";
+import { toSqlDateTime } from "../db/sqlDateTime.js";
 
 type RepositoryFilters = LaboratoryUnshapedProductSampleFilters & {
   limit?: number;
@@ -154,7 +155,7 @@ export function createLaboratoryUnshapedProductSampleJournalRepository(
           record.sourceSampleRegistrationId ?? null,
           input.submittedByUserId,
           input.submittedByAccountId,
-          createdAt,
+          toSqlDateTime(createdAt),
         ],
       );
 
@@ -257,7 +258,7 @@ export function createLaboratoryUnshapedProductSampleJournalRepository(
           input.correctedByUserId,
           input.correctedByAccountId,
           input.correctedByDisplayName,
-          correctedAt,
+          toSqlDateTime(correctedAt),
         ],
       );
 

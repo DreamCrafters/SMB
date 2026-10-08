@@ -8,6 +8,7 @@ import type {
   Warehouse1cUploadOutcome,
 } from "../contracts/warehouse1c.js";
 import type { DatabasePool } from "../db/pool.js";
+import { toSqlDateTime } from "../db/sqlDateTime.js";
 
 export type Warehouse1cStockReportImport = {
   accountCode: string;
@@ -281,7 +282,7 @@ export function createWarehouse1cRepository(
             emptyToNull(input.source ?? ""),
             emptyToNull(input.sentAt ?? ""),
             input.balances.length,
-            importedAt,
+            toSqlDateTime(importedAt),
           ],
         );
       } else {
@@ -308,7 +309,7 @@ export function createWarehouse1cRepository(
             emptyToNull(input.source ?? ""),
             emptyToNull(input.sentAt ?? ""),
             input.balances.length,
-            importedAt,
+            toSqlDateTime(importedAt),
             reportId,
           ],
         );
@@ -389,7 +390,7 @@ export function createWarehouse1cRepository(
         ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           createId(),
-          now().toISOString(),
+          toSqlDateTime(now()),
           input.outcome,
           input.statusCode,
           emptyToNull(input.fileName),

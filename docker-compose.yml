@@ -3,6 +3,10 @@ services:
     image: mariadb:10.11
     container_name: smb-monitor-mariadb
     restart: unless-stopped
+    # sql_mode как на production (Jino): иначе локальная проверка падает там, где
+    # production принимает значение, и наоборот. npm run db:pull-production
+    # дополнительно выставляет текущий режим сервера при каждом копировании.
+    command: ["--sql-mode=ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION"]
     environment:
       MARIADB_DATABASE: smb_monitor
       MARIADB_USER: smb_monitor

@@ -216,6 +216,55 @@ export const initialProductBrandNames = [
   "ШТ-1.3 √5",
 ] as const;
 
+/** Автор записей и audit миграции 100: системный, как в 025/050. */
+const transmissionBackfillActor = "system-task-132-transmission-backfill";
+
+/** Миграция 100: проба занимается созданной ею записью (как `claimTransmission`). */
+function claimBackfilledTransmission(
+  target: "verification" | "formed_product_sample",
+  table: string,
+) {
+  return `
+    update laboratory_sample_registration_journal registrations
+    join ${table} records
+      on records.source_sample_registration_id = registrations.id
+      and records.submitted_by_user_id = '${transmissionBackfillActor}'
+    set registrations.transmitted_record_id = records.id
+    where registrations.transmit_to_journal = '${target}'
+      and registrations.transmitted_record_id is null;
+  `;
+}
+
+/** Миграция 100: audit каждой созданной записи, повторный прогон без дублей. */
+function auditBackfilledTransmission({ table, action, targetType, summary, details }: {
+  table: string;
+  action: string;
+  targetType: string;
+  summary: string;
+  details: string;
+}) {
+  return `
+    insert into user_audit_events (
+      id, actor_user_id, actor_account_id, actor_display_name,
+      actor_position_display_name, category, action, outcome, summary, details,
+      target_type, target_id
+    )
+    select
+      uuid(), '${transmissionBackfillActor}', '${transmissionBackfillActor}',
+      'Трансляция регистрации проб', 'Системная миграция', 'data_change',
+      '${action}', 'success', '${summary}', json_array(${details}),
+      '${targetType}', records.id
+    from ${table} records
+    where records.submitted_by_user_id = '${transmissionBackfillActor}'
+      and not exists (
+        select 1 from user_audit_events events
+        where events.action = '${action}'
+          and events.target_type = '${targetType}'
+          and events.target_id = records.id
+      );
+  `;
+}
+
 const migrations: Migration[] = [
   {
     id: "001_dispatcher_submissions_mysql",
@@ -4854,6 +4903,96 @@ const migrations: Migration[] = [
             )
           );
       `,
+    ],
+  },
+  {
+    /**
+     * Задача 132: пробы, помеченные трансляцией в «Верификации» или журнал
+     * кирпича до автоматического создания записей, получают запись по тем же
+     * правилам, что и новая регистрация: «Верификации» — только если
+     * наименование есть в Номенклатуре → Сырьё (точное совпадение
+     * нормализованного имени), кирпич — с наименованием пробы как маркой.
+     * Автор записей и audit — системный. Первое выражение блокирует кандидатов:
+     * deploy применяет миграции, пока прежний backend ещё обслуживает лаборантов.
+     */
+    id: "100_auto_transmit_pending_sample_registrations",
+    statements: [
+      `
+      select count(*)
+      from laboratory_sample_registration_journal
+      where transmit_to_journal in ('verification', 'formed_product_sample')
+        and transmitted_record_id is null
+      for update;
+      `,
+      `
+      insert into laboratory_verification_journal (
+        id, verification_date, product_name, sampling_location, sample_code,
+        source_sample_registration_id, submitted_by_user_id, submitted_by_account_id
+      )
+      select
+        uuid(), registrations.sampling_date, materials.name,
+        registrations.sampling_location, registrations.laboratory_sample_code,
+        registrations.id, '${transmissionBackfillActor}', '${transmissionBackfillActor}'
+      from laboratory_sample_registration_journal registrations
+      join laboratory_raw_material_nomenclature materials
+        on materials.normalized_name =
+          lower(registrations.sample_name) collate utf8mb4_bin
+      where registrations.transmit_to_journal = 'verification'
+        and registrations.transmitted_record_id is null
+        and not exists (
+          select 1 from laboratory_verification_journal existing
+          where existing.source_sample_registration_id = registrations.id
+        )
+      order by registrations.sampling_date, registrations.created_at, registrations.id;
+      `,
+      `
+      insert into laboratory_formed_product_sample_journal (
+        id, sorting_date, wagon_number, sample_code, product_brand, molding_date,
+        source_sample_registration_id, submitted_by_user_id, submitted_by_account_id
+      )
+      select
+        uuid(), registrations.sampling_date, null,
+        registrations.laboratory_sample_code, registrations.sample_name, null,
+        registrations.id, '${transmissionBackfillActor}', '${transmissionBackfillActor}'
+      from laboratory_sample_registration_journal registrations
+      where registrations.transmit_to_journal = 'formed_product_sample'
+        and registrations.transmitted_record_id is null
+        and not exists (
+          select 1 from laboratory_formed_product_sample_journal existing
+          where existing.source_sample_registration_id = registrations.id
+        )
+      order by registrations.sampling_date, registrations.created_at, registrations.id;
+      `,
+      claimBackfilledTransmission("verification", "laboratory_verification_journal"),
+      claimBackfilledTransmission(
+        "formed_product_sample",
+        "laboratory_formed_product_sample_journal",
+      ),
+      auditBackfilledTransmission({
+        table: "laboratory_verification_journal",
+        action: "laboratory_verification.submit",
+        targetType: "laboratory_verification",
+        summary:
+          "Добавлена запись журнала верификаций по трансляции пробы, помеченной до автоматического создания записей",
+        details: `
+          json_object('label', 'Дата', 'value', date_format(records.verification_date, '%Y-%m-%d')),
+          json_object('label', 'Наименование продукции', 'value', records.product_name),
+          json_object('label', 'Место отбора пробы', 'value', records.sampling_location),
+          json_object('label', 'Код пробы', 'value', records.sample_code)
+        `,
+      }),
+      auditBackfilledTransmission({
+        table: "laboratory_formed_product_sample_journal",
+        action: "laboratory_formed_product_sample.submit",
+        targetType: "laboratory_formed_product_sample",
+        summary:
+          "Добавлена запись журнала регистрации проб формованной продукции по трансляции пробы, помеченной до автоматического создания записей",
+        details: `
+          json_object('label', 'Дата сортировки', 'value', date_format(records.sorting_date, '%Y-%m-%d')),
+          json_object('label', 'Код пробы', 'value', records.sample_code),
+          json_object('label', 'Марка изделия', 'value', records.product_brand)
+        `,
+      }),
     ],
   },
 ];

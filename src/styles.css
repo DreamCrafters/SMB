@@ -1052,7 +1052,8 @@ p {
   white-space: nowrap;
 }
 
-@media (max-width: 720px) {
+/* Содержимое раздела уже 720px (с учётом левого меню). */
+@media (max-width: 720px), (min-width: 821px) and (max-width: 950px) {
   .owner-overview-banks {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -2911,7 +2912,8 @@ p {
   font-weight: 850;
 }
 
-@media (max-width: 680px) {
+/* Содержимое раздела уже 680px (с учётом левого меню). */
+@media (max-width: 680px), (min-width: 821px) and (max-width: 910px) {
   .admin-navigation-order-row {
     grid-template-columns: 32px 24px minmax(0, 1fr);
   }
@@ -4907,7 +4909,8 @@ p {
   font-size: 0.85rem;
 }
 
-@media (max-width: 900px) {
+/* Содержимое раздела уже 900px (с учётом левого меню). */
+@media (max-width: 1130px) {
   .admin-accounts-tabs,
   .notification-admin-layout,
   .notification-admin-contacts {
@@ -5908,7 +5911,8 @@ p {
   grid-column: 1 / -1;
 }
 
-@media (max-width: 980px) {
+/* Содержимое раздела уже 980px (с учётом левого меню). */
+@media (max-width: 1256px) {
   .board-assignment-filters {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -5919,7 +5923,8 @@ p {
   }
 }
 
-@media (max-width: 680px) {
+/* Содержимое раздела уже 680px (с учётом левого меню). */
+@media (max-width: 680px), (min-width: 821px) and (max-width: 910px) {
   .board-assignments-heading,
   .board-assignment-dialog-heading,
   .board-assignment-create-overview,
@@ -6867,7 +6872,8 @@ p {
   padding: 7px 10px;
 }
 
-@media (max-width: 720px) {
+/* Содержимое раздела уже 720px (с учётом левого меню). */
+@media (max-width: 720px), (min-width: 821px) and (max-width: 950px) {
   .raw-material-warehouse-totals {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -6935,7 +6941,8 @@ p {
   white-space: nowrap;
 }
 
-@media (max-width: 720px) {
+/* Содержимое раздела уже 720px (с учётом левого меню). */
+@media (max-width: 720px), (min-width: 821px) and (max-width: 950px) {
   .laboratory-section-tabs,
   .laboratory-form-grid,
   .laboratory-indicator-grid,
@@ -7224,7 +7231,8 @@ p {
   font-weight: 800;
 }
 
-@media (max-width: 900px) {
+/* Содержимое раздела уже 900px (с учётом левого меню). */
+@media (max-width: 1130px) {
   .admin-audit-filters {
     grid-template-columns: 1fr 1fr;
   }
@@ -7238,7 +7246,8 @@ p {
   }
 }
 
-@media (max-width: 620px) {
+/* Содержимое раздела уже 620px (с учётом левого меню). */
+@media (max-width: 620px), (min-width: 821px) and (max-width: 850px) {
   .admin-audit-header,
   .admin-audit-pagination {
     display: grid;
@@ -7770,7 +7779,8 @@ p {
   background: color-mix(in srgb, var(--blue-gray) 8%, var(--surface));
 }
 
-@media (max-width: 760px) {
+/* Содержимое раздела уже 760px (с учётом левого меню). */
+@media (max-width: 760px), (min-width: 821px) and (max-width: 990px) {
   .production-plan-header,
   .production-plan-form {
     grid-template-columns: 1fr;
@@ -8703,7 +8713,8 @@ p {
   margin-top: 12px;
 }
 
-@media (max-width: 900px) {
+/* Содержимое раздела уже 900px (с учётом левого меню). */
+@media (max-width: 1130px) {
   .refractory-header {
     display: grid;
   }
@@ -9222,7 +9233,8 @@ p {
   font-size: 12px;
 }
 
-@media (max-width: 900px) {
+/* Содержимое раздела уже 900px (с учётом левого меню). */
+@media (max-width: 1130px) {
   .railway-field-grid {
     grid-template-columns: 1fr;
   }
@@ -9482,10 +9494,12 @@ p {
 .director-assignment-detail .board-assignment-dialog-actions > button,
 .director-assignment-detail .director-assignment-actions > button { min-width: 0; white-space: normal; overflow-wrap: anywhere; }
 .director-assignment-detail .board-assignment-details { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-@media (max-width: 1100px) {
+/* Содержимое раздела уже 1100px (с учётом левого меню). */
+@media (max-width: 1376px) {
   .director-assignment-detail .board-assignment-details { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
-@media (max-width: 700px) {
+/* Содержимое раздела уже 700px (с учётом левого меню). */
+@media (max-width: 700px), (min-width: 821px) and (max-width: 930px) {
   .director-assignment-detail .board-assignment-details { grid-template-columns: minmax(0, 1fr); }
 }
 .director-assignment-detail .board-assignment-details > div { min-width: 0; overflow-wrap: anywhere; }
@@ -9522,7 +9536,8 @@ p {
 .director-more-filters .director-assignment-filters { grid-template-columns: repeat(auto-fit, minmax(min(100%, 200px), 1fr)); }
 .director-columns-toggle { display: flex; align-items: center; gap: 8px; margin: 12px 0; }
 .director-empty { border: 1px dashed var(--line-strong); border-radius: var(--radius); margin-bottom: 0; padding: 24px; font-size: 14px; color: var(--muted); }
-@media (max-width: 680px) {
+/* Содержимое раздела уже 680px (с учётом левого меню). */
+@media (max-width: 680px), (min-width: 821px) and (max-width: 910px) {
   .director-compose-fields, .director-compose-extra > div, .director-register > .director-assignment-filters { grid-template-columns: minmax(0, 1fr); }
   .director-assignment-actions > button { flex: 1 1 auto; }
 }
@@ -9905,7 +9920,8 @@ p {
   background: var(--emerald-soft);
 }
 
-@media (max-width: 720px) {
+/* Содержимое раздела уже 720px (с учётом левого меню). */
+@media (max-width: 720px), (min-width: 821px) and (max-width: 950px) {
   .collegium-diff-row {
     grid-template-columns: minmax(0, 1fr);
   }

@@ -11,6 +11,7 @@ import type {
 } from "../contracts/laboratoryChemicalAnalysisJournal.js";
 import type { DatabasePool } from "../db/pool.js";
 import { escapeLikePattern } from "./laboratoryResultsRepository.js";
+import { toSqlDateTime } from "../db/sqlDateTime.js";
 
 type RepositoryFilters = LaboratoryChemicalAnalysisJournalFilters & {
   limit?: number;
@@ -249,7 +250,7 @@ export function createLaboratoryChemicalAnalysisJournalRepository(
             analysis.notes ?? null,
             input.submittedByUserId,
             input.submittedByAccountId,
-            createdAt,
+            toSqlDateTime(createdAt),
           ],
         );
         await writeSampleClaim(pool, analysis, id);
@@ -456,7 +457,7 @@ export function createLaboratoryChemicalAnalysisJournalRepository(
           input.correctedByUserId,
           input.correctedByAccountId,
           input.correctedByDisplayName,
-          correctedAt,
+          toSqlDateTime(correctedAt),
         ],
       );
 

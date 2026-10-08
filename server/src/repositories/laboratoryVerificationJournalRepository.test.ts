@@ -48,7 +48,7 @@ test("verification repository stores the record and session author", async () =>
     null,
     "laboratory-user",
     "laboratory-account",
-    "2026-08-05T08:30:00.000Z",
+    "2026-08-05 08:30:00.000",
   ]);
 });
 
@@ -174,7 +174,7 @@ test("verification repository corrects a stable row and stores revision", async 
     "laboratory-user",
     "laboratory-account",
     "Иванова Анна",
-    "2026-08-05T09:15:00.000Z",
+    "2026-08-05 09:15:00.000",
   ]);
 });
 
