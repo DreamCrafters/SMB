@@ -9,7 +9,7 @@ export class ProtectedPositionMutationError extends Error {
 
 export class AdministratorPositionProtectionError extends Error {
   constructor() {
-    super("Права админа системной должности нельзя отключить.");
+    super("Админские разделы системной должности не меняются.");
     this.name = "AdministratorPositionProtectionError";
   }
 }

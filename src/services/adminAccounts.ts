@@ -14,8 +14,8 @@ import type {
   SetAdminAccountLoginEnabledResponse,
   SetAdminAccountProtectedRequest,
   SetAdminAccountProtectedResponse,
-  SetAdminPositionProtectedRequest,
-  SetAdminPositionProtectedResponse,
+  SetAdminPositionAdminNavigationRequest,
+  SetAdminPositionAdminNavigationResponse,
   SetAdminPositionNavigationAccessRequest,
   SetAdminAccountPositionRequest,
   SetAdminAccountPositionResponse,
@@ -103,12 +103,8 @@ export type SaveAdminPositionResult =
 export type DeleteAdminPositionResult =
   | { status: "ready" }
   | AdminAccountsErrorState;
-export type SetAdminPositionProtectedResult =
-  | {
-      status: "ready";
-      id: string;
-      isProtected: boolean;
-    }
+export type SetAdminPositionAdminNavigationResult =
+  | ({ status: "ready" } & SetAdminPositionAdminNavigationResponse)
   | AdminAccountsErrorState;
 
 export function canDeleteAdminPosition(position: AdminPositionSummary) {
@@ -275,10 +271,10 @@ export async function deleteAdminPosition(
   }
 }
 
-export async function setAdminPositionProtected(
-  value: SetAdminPositionProtectedRequest,
+export async function setAdminPositionAdminNavigation(
+  value: SetAdminPositionAdminNavigationRequest,
   { baseUrl, signal }: AdminAccountsRequestOptions = {},
-): Promise<SetAdminPositionProtectedResult> {
+): Promise<SetAdminPositionAdminNavigationResult> {
   const path = `${ADMIN_POSITIONS_PATH}/${encodeURIComponent(value.id)}/protection`;
   const endpoint = resolveApiEndpoint(path, path, { baseUrl });
   try {
@@ -290,32 +286,32 @@ export async function setAdminPositionProtected(
       }),
       credentials: "include",
       signal,
-      body: JSON.stringify({ isProtected: value.isProtected }),
+      body: JSON.stringify({ adminNavigationItems: value.adminNavigationItems }),
     });
     const payload = await readJson(response);
     if (!response.ok) {
       return readRemoteError(
         payload,
         response.status,
-        "Не удалось изменить права админа.",
+        "Не удалось изменить права администратора.",
       );
     }
-    if (isSetAdminPositionProtectedResponse(payload)) {
+    if (isSetAdminPositionAdminNavigationResponse(payload)) {
       return { status: "ready", ...payload };
     }
     return {
       status: "error",
-      message: "Сервер вернул права админа в неподдерживаемом формате.",
+      message: "Сервер вернул права администратора в неподдерживаемом формате.",
       code: "invalid_response",
     };
   } catch (error) {
     if (isAbortError(error)) {
-      return { status: "error", message: "Изменение прав админа отменено." };
+      return { status: "error", message: "Изменение прав администратора отменено." };
     }
     return {
       status: "error",
       message: describeRemoteNetworkFailure(
-        "Не удалось изменить права админа.",
+        "Не удалось изменить права администратора.",
         { baseUrl },
       ),
       code: "network_error",
@@ -886,18 +882,22 @@ function isAdminPositionSummary(value: unknown): value is AdminPositionSummary {
     typeof value.showOverviewVisitors === "boolean" &&
     typeof value.isProtected === "boolean" &&
     typeof value.hasAdminRights === "boolean" &&
+    (value.adminNavigationItems === undefined ||
+      (Array.isArray(value.adminNavigationItems) &&
+        value.adminNavigationItems.every((item) => typeof item === "string"))) &&
     typeof value.usageCount === "number" &&
     typeof value.createdAt === "string"
   );
 }
 
-function isSetAdminPositionProtectedResponse(
+function isSetAdminPositionAdminNavigationResponse(
   value: unknown,
-): value is SetAdminPositionProtectedResponse {
+): value is SetAdminPositionAdminNavigationResponse {
   return (
     isRecord(value) &&
     typeof value.id === "string" &&
-    typeof value.isProtected === "boolean"
+    Array.isArray(value.adminNavigationItems) &&
+    value.adminNavigationItems.every((item) => typeof item === "string")
   );
 }
 

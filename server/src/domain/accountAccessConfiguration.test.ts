@@ -13,6 +13,9 @@ import {
   resolveCapabilitiesForNavigationLevel,
   resolveMaximumCapabilitiesForNavigation,
   resolveNavigationForPosition,
+  delegableAdminNavigationItems,
+  readAdminNavigationItems,
+  validateAdminNavigationItems,
   validatePositionNavigationItems,
 } from "./accountAccessConfiguration.js";
 import { isRailwayWagonAccess } from "../contracts/railwayWagons.js";
@@ -111,7 +114,7 @@ test("a position keeps every railway role alongside board access when recomputed
     "position-mixed", [...navigationItems], "none", {
       collegiumInitiativeAccess: "none",
       boardAssignmentAccess: "create",
-      hasAdminRights: false,
+      adminNavigationItems: [],
       showOverviewVisitors: false,
       canReviewRawMaterialWarehouse: false,
       railwayWagonAccess: railwayAccess,
@@ -135,7 +138,7 @@ test("railway access accepts legacy levels and only nonempty unique role sets", 
   assert.deepEqual(resolveCapabilitiesForPosition("custom", [], "none", {
     collegiumInitiativeAccess: "none",
     boardAssignmentAccess: "none",
-    hasAdminRights: false,
+    adminNavigationItems: [],
     showOverviewVisitors: false,
     railwayWagonAccess: ["sales", "carrier"],
   }), []);
@@ -205,9 +208,9 @@ test("positions accept only working navigation selected by an administrator", ()
   );
 });
 
-test("position admin rights grant account management without root admin panels", () => {
+test("position admin sections grant exactly the sections chosen by the root admin", () => {
   assert.deepEqual(
-    resolveNavigationForPosition(["business.overview"], true),
+    resolveNavigationForPosition(["business.overview"], ["admin.accounts"]),
     ["business.overview", "admin.accounts"],
   );
   assert.deepEqual(
@@ -215,7 +218,7 @@ test("position admin rights grant account management without root admin panels",
       "position-delegated-admin",
       ["business.overview"],
       "none",
-      { collegiumInitiativeAccess: "none", boardAssignmentAccess: "none", hasAdminRights: true },
+      { collegiumInitiativeAccess: "none", boardAssignmentAccess: "none", adminNavigationItems: ["admin.accounts"] },
     ),
     [
       "business.view_all_statistics",
@@ -227,13 +230,39 @@ test("position admin rights grant account management without root admin panels",
       "business.view_overview_visitors",
     ],
   );
+  // Admin items in the working set are dropped: only the root-owned set grants sections.
   assert.deepEqual(
     resolveNavigationForPosition(
       ["business.overview", "admin.database", "admin.user_actions"],
-      true,
+      ["admin.accounts"],
     ),
     ["business.overview", "admin.accounts"],
   );
+  assert.deepEqual(
+    resolveNavigationForPosition(["business.overview"], ["admin.database", "admin.account_preview"]),
+    ["business.overview", "admin.account_preview", "admin.database"],
+  );
+  assert.deepEqual(
+    resolveCapabilitiesForPosition(
+      "position-delegated-admin",
+      [],
+      "none",
+      { collegiumInitiativeAccess: "none", boardAssignmentAccess: "none", adminNavigationItems: ["admin.database", "admin.user_actions"] },
+    ),
+    ["platform.view_audit", "platform.manage_analytics_database"],
+  );
+});
+
+test("admin section sets from storage or requests accept only known sections", () => {
+  assert.deepEqual(readAdminNavigationItems('["admin.navigation","admin.accounts","business.overview"]'), [
+    "admin.accounts",
+    "admin.navigation",
+  ]);
+  assert.deepEqual(readAdminNavigationItems("not json"), []);
+  assert.deepEqual(validateAdminNavigationItems(["admin.database"]), ["admin.database"]);
+  assert.equal(validateAdminNavigationItems(["admin.database", "admin.database"]), undefined);
+  assert.equal(validateAdminNavigationItems(["business.overview"]), undefined);
+  assert.equal(validateAdminNavigationItems("admin.database"), undefined);
 });
 
 test("system administrator keeps every navigation-derived root capability when recomputed", () => {
@@ -242,7 +271,7 @@ test("system administrator keeps every navigation-derived root capability when r
       "administrator",
       navigationItemsByAccountType.admin,
       "none",
-      { collegiumInitiativeAccess: "none", boardAssignmentAccess: "none", hasAdminRights: true },
+      { collegiumInitiativeAccess: "none", boardAssignmentAccess: "none", adminNavigationItems: [...delegableAdminNavigationItems] },
     ),
     [
       "platform.manage_users",
@@ -299,7 +328,7 @@ test("raw material warehouse review is a stable capability without general labor
       {
         collegiumInitiativeAccess: "none",
         boardAssignmentAccess: "none",
-        hasAdminRights: false,
+        adminNavigationItems: [],
         showOverviewVisitors: false,
         canReviewRawMaterialWarehouse: true,
       },

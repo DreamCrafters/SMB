@@ -244,22 +244,19 @@ test("delegated account manager cannot change protected account controls", async
       ".admin-positions-table tbody tr",
     );
     assert.ok(positionRow);
-    const positionProtection = positionRow.querySelector(
-      'input[aria-label="Права админа для должности Администратор подразделения"]',
-    );
+    // The column names the sections a root admin granted; nobody toggles them from the list.
     assert.equal(
       rootElement.querySelector(".admin-positions-table th:nth-child(3)")?.textContent,
-      "Права админа",
+      "Права администратора",
     );
+    assert.equal(positionRow.querySelector("td:nth-child(3)")?.textContent, "Учётные записи");
+    assert.equal(positionRow.querySelector('input[aria-label^="Права админа"]'), null);
     const editPosition = Array.from(positionRow.querySelectorAll("button")).find(
       (button) => button.textContent?.trim() === "Изменить",
     );
     const removePosition = Array.from(positionRow.querySelectorAll("button")).find(
       (button) => button.textContent?.trim() === "Удалить",
     );
-    assert.ok(positionProtection);
-    assert.equal(positionProtection.checked, true);
-    assert.equal(positionProtection.disabled, true);
     assert.equal(editPosition?.disabled, true);
     assert.equal(removePosition?.disabled, true);
 
@@ -364,6 +361,7 @@ function buildPosition() {
     showOverviewVisitors: true,
     isProtected: false,
     hasAdminRights: true,
+    adminNavigationItems: ["admin.accounts"],
     usageCount: 0,
     createdAt: "2026-08-03T08:00:00.000Z",
   };

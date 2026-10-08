@@ -94,6 +94,8 @@ export type ProductionSnapshotStatusResponse = {
   available: boolean;
   inProgress: boolean;
   confirmationPhrase: string;
+  /** Заменить test-БД может только главный администратор (раздел «БД» выдаётся и делегатам). */
+  canReplace?: boolean;
 };
 
 export type ProductionSnapshotResponse = {

@@ -124,7 +124,42 @@ export function combinePositionAccessDefinitions(
   } satisfies PositionAccessDefinition;
 }
 
-const delegatedAdminNavigationItem = "admin.accounts" as const;
+/**
+ * Админские разделы, которые главный администратор выдаёт должности отдельной
+ * группой (набор хранится в `account_positions.admin_navigation_items`).
+ */
+export const delegableAdminNavigationItems: readonly AccountNavigationItem[] = [
+  "admin.accounts",
+  "admin.user_actions",
+  "admin.account_preview",
+  "admin.database",
+  "admin.navigation",
+];
+
+/** Набор разделов из хранилища или запроса: только известные, без повторов, в каталожном порядке. */
+export function readAdminNavigationItems(value: unknown): AccountNavigationItem[] {
+  const parsed = typeof value === "string" ? safelyParseJsonArray(value) : value;
+  if (!Array.isArray(parsed)) return [];
+  return delegableAdminNavigationItems.filter((item) => parsed.includes(item));
+}
+
+/** Строгая проверка набора из запроса: массив известных разделов без повторов. */
+export function validateAdminNavigationItems(value: unknown): AccountNavigationItem[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  if (new Set(value).size !== value.length) return undefined;
+  if (!value.every((item) => delegableAdminNavigationItems.includes(item as AccountNavigationItem))) {
+    return undefined;
+  }
+  return readAdminNavigationItems(value);
+}
+
+function safelyParseJsonArray(value: string): unknown {
+  try {
+    return JSON.parse(value);
+  } catch {
+    return [];
+  }
+}
 
 const capabilitiesByNavigationItem: Record<
   AccountNavigationItem,
@@ -194,7 +229,8 @@ function resolveAssignmentInboxCapabilities(
 export type PositionAccessLevels = {
   collegiumInitiativeAccess: CollegiumInitiativeAccess;
   boardAssignmentAccess?: BoardAssignmentAccess;
-  hasAdminRights?: boolean;
+  /** Админские разделы, выданные должности главным администратором. */
+  adminNavigationItems?: readonly AccountNavigationItem[];
   showOverviewVisitors?: boolean;
   canReviewRawMaterialWarehouse?: boolean;
   railwayWagonAccess?: RailwayWagonAccess;
@@ -207,7 +243,7 @@ export function resolveCapabilitiesForPosition(
   {
     collegiumInitiativeAccess,
     boardAssignmentAccess = getDefaultBoardAssignmentAccess(position),
-    hasAdminRights = false,
+    adminNavigationItems = [],
     showOverviewVisitors = true,
     canReviewRawMaterialWarehouse = false,
     railwayWagonAccess = "view",
@@ -216,7 +252,7 @@ export function resolveCapabilitiesForPosition(
   const resolvedNavigationItems =
     position === defaultPositionByAccountType.admin
       ? Array.from(new Set(navigationItems))
-      : resolveNavigationForPosition(navigationItems, hasAdminRights);
+      : resolveNavigationForPosition(navigationItems, adminNavigationItems);
   const navigationCapabilities = resolveCapabilitiesForNavigation(
     resolvedNavigationItems,
   );
@@ -456,7 +492,7 @@ export function readOverviewVisitorsAccess(
 
 export function resolveNavigationForPosition(
   navigationItems: AccountNavigationItem[],
-  hasAdminRights: boolean,
+  adminNavigationItems: readonly AccountNavigationItem[],
 ) {
   const workingNavigationItems = navigationItems.filter((item) =>
     nonAdminNavigationItems.includes(item),
@@ -464,7 +500,7 @@ export function resolveNavigationForPosition(
 
   return Array.from(new Set([
     ...workingNavigationItems,
-    ...(hasAdminRights ? [delegatedAdminNavigationItem] : []),
+    ...readAdminNavigationItems(adminNavigationItems),
   ]));
 }
 

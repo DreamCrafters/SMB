@@ -6586,12 +6586,12 @@ const accounts: AccountsRepository = {
   async setPositionOrder() {
     return true;
   },
-  async setPositionProtected({ id, isProtected }) {
+  async setPositionAdminNavigation({ id, adminNavigationItems }) {
     return {
       id,
-      isProtected,
+      adminNavigationItems,
       displayName: "Должность",
-      previousIsProtected: !isProtected,
+      previousAdminNavigationItems: [],
     };
   },
   async setPositionNavigationAccess({ navigationItem, enabled }) {
@@ -7998,13 +7998,13 @@ test("delegated account manager cannot mutate or unprotect a protected position"
       mutationCount += 1;
       return "deleted";
     },
-    async setPositionProtected() {
+    async setPositionAdminNavigation() {
       mutationCount += 1;
       return {
         id: protectedPosition.id,
-        isProtected: false,
+        adminNavigationItems: [],
         displayName: protectedPosition.displayName,
-        previousIsProtected: true,
+        previousAdminNavigationItems: ["admin.accounts"],
       };
     },
   };
@@ -8035,7 +8035,7 @@ test("delegated account manager cannot mutate or unprotect a protected position"
       {
         method: "PATCH",
         headers,
-        body: JSON.stringify({ isProtected: false }),
+        body: JSON.stringify({ adminNavigationItems: [] }),
       },
     );
 
@@ -8189,7 +8189,42 @@ test("original admin can keep an admin-rights position without working tabs", as
   assert.equal(allowedProtectedMutation, true);
 });
 
-test("original admin can enable admin rights for a selected position", async () => {
+test("type preview never opens administrative sections or platform rights", async () => {
+  const repository: AccountsRepository = {
+    ...accounts,
+    async listPositions() {
+      return [{
+        id: "position-delegated",
+        displayName: "Делегированный админ",
+        accountType: "business_owner",
+        navigationItems: ["business.overview", "admin.database"],
+        capabilities: ["business.view_all_statistics", "platform.manage_analytics_database"],
+        boardAssignmentAccess: "none", railwayWagonAccess: "none", assignmentInboxAccess: "none", collegiumInitiativeAccess: "none", showOverviewVisitors: false,
+        isProtected: false,
+        hasAdminRights: true,
+        adminNavigationItems: ["admin.database"],
+        usageCount: 0,
+        createdAt: "2026-10-08T00:00:00.000Z",
+      }];
+    },
+  };
+
+  await withApiServer(async (baseUrl) => {
+    const sessionId = await createDevSession(baseUrl, "admin");
+    const profileFor = (target: string) => fetch(`${baseUrl}/api/access/profile`, {
+      headers: { "X-SMB-Dev-Session": sessionId, "X-SMB-Account-Preview": target },
+    });
+    // An admin tab as a preview target would hand its rights (e.g. the database) to any preview holder.
+    assert.equal((await profileFor("navigation:admin.database")).status, 403);
+    const positionPreview = await profileFor("position:position-delegated");
+    assert.equal(positionPreview.status, 200);
+    const profile = ((await positionPreview.json()) as { profile: ServerUserProfile }).profile;
+    assert.deepEqual(profile.activeAccess.navigationItems, ["business.overview"]);
+    assert.deepEqual(profile.activeAccess.capabilities, ["business.view_all_statistics"]);
+  }, dispatcherSubmissions, emptyReferenceDataSource, undefined, undefined, adminDatabase, config, undefined, repository);
+});
+
+test("original admin grants a chosen set of admin sections to a selected position", async () => {
   const position = {
     id: "position-selected",
     displayName: "Выбранная должность",
@@ -8202,8 +8237,8 @@ test("original admin can enable admin rights for a selected position", async () 
     usageCount: 0,
     createdAt: "2026-08-07T00:00:00.000Z",
   };
-  let protectionInput:
-    | Parameters<AccountsRepository["setPositionProtected"]>[0]
+  let adminInput:
+    | Parameters<AccountsRepository["setPositionAdminNavigation"]>
     | undefined;
   const recorded: Parameters<AuditRepository["record"]>[0][] = [];
   const repository: AccountsRepository = {
@@ -8211,12 +8246,12 @@ test("original admin can enable admin rights for a selected position", async () 
     async listPositions() {
       return [position];
     },
-    async setPositionProtected(input) {
-      protectionInput = input;
+    async setPositionAdminNavigation(...input) {
+      adminInput = input;
       return {
-        ...input,
+        ...input[0],
         displayName: position.displayName,
-        previousIsProtected: false,
+        previousAdminNavigationItems: ["admin.accounts"],
       };
     },
   };
@@ -8227,7 +8262,7 @@ test("original admin can enable admin rights for a selected position", async () 
 
   await withApiServer(async (baseUrl) => {
     const sessionId = await createDevSession(baseUrl, "admin");
-    const response = await fetch(
+    const send = (body: unknown) => fetch(
       `${baseUrl}/api/admin/positions/${position.id}/protection`,
       {
         method: "PATCH",
@@ -8235,34 +8270,33 @@ test("original admin can enable admin rights for a selected position", async () 
           "Content-Type": "application/json",
           "X-SMB-Dev-Session": sessionId,
         },
-        body: JSON.stringify({ isProtected: true }),
+        body: JSON.stringify(body),
       },
     );
+    // Unknown sections, repeats and business tabs are refused before any change.
+    assert.equal((await send({ adminNavigationItems: ["business.overview"] })).status, 400);
+    assert.equal((await send({ adminNavigationItems: ["admin.database", "admin.database"] })).status, 400);
+    assert.equal((await send({ isProtected: true })).status, 400);
 
+    const response = await send({ adminNavigationItems: ["admin.database", "admin.accounts", "admin.account_preview"] });
     assert.equal(response.status, 200);
     assert.deepEqual(await response.json(), {
       id: position.id,
-      isProtected: true,
+      adminNavigationItems: ["admin.accounts", "admin.account_preview", "admin.database"],
     });
   }, dispatcherSubmissions, emptyReferenceDataSource, undefined, undefined, adminDatabase, config, undefined, repository, undefined, auditRepository);
 
-  assert.deepEqual(protectionInput, {
+  assert.deepEqual(adminInput?.[0], {
     id: position.id,
-    isProtected: true,
+    adminNavigationItems: ["admin.accounts", "admin.account_preview", "admin.database"],
   });
-  assert.deepEqual(
-    recorded
-      .filter((event) => event.category === "administration")
-      .map((event) => event.action),
-    ["admin.position_admin_rights_enable"],
-  );
-  const protectionAudit = recorded.find(
-    (event) => event.action === "admin.position_admin_rights_enable",
-  );
-  assert.deepEqual(protectionAudit?.details, [
+  // The repository re-checks the trusted actor under lock.
+  assert.equal(adminInput?.[1].isDevRootAdmin, true);
+  const adminAudit = recorded.filter((event) => event.action === "admin.position_admin_navigation_update");
+  assert.equal(adminAudit.length, 1);
+  assert.deepEqual(adminAudit[0]?.details, [
     { label: "Должность", value: position.displayName },
-    { label: "Прежние права админа", value: "Отключены" },
-    { label: "Новые права админа", value: "Включены" },
+    { label: "Права администратора", value: "Учётные записи → Учётные записи, Предпросмотр, БД" },
   ]);
 });
 
@@ -16552,8 +16586,23 @@ test("concrete account preview uses live target identity, permissions and admini
     assert.equal((await fetch(`${url}/api/access/profile`, { headers })).status, 403);
     target.userStatus = "active";
     assert.equal((await fetch(`${url}/api/access/profile`, { headers: { ...headers, "X-SMB-Account-Preview": "account:missing" } })).status, 403);
+    // A delegated «Предпросмотр» (not root) may act as an unprotected account,
+    // without the target's administrative sections or platform capabilities...
     rootAccount.isRootAdmin = false;
+    target.navigationItems = ["business.assignments", "admin.database"];
+    target.capabilities = ["business.view_director_assignments", "platform.manage_analytics_database"];
+    const delegated = await fetch(`${url}/api/access/profile`, { headers });
+    assert.equal(delegated.status, 200);
+    const delegatedProfile = ((await delegated.json()) as { profile: ServerUserProfile }).profile;
+    assert.deepEqual(delegatedProfile.activeAccess.navigationItems, ["business.assignments"]);
+    assert.deepEqual(delegatedProfile.activeAccess.capabilities, ["business.view_director_assignments"]);
+    // ...but never as a protected account or the root admin.
+    target.isProtected = true;
     assert.equal((await fetch(`${url}/api/access/profile`, { headers })).status, 403);
+    target.isProtected = false;
+    target.isRootAdmin = true;
+    assert.equal((await fetch(`${url}/api/access/profile`, { headers })).status, 403);
+    target.isRootAdmin = false;
     rootAccount.isRootAdmin = true;
     actor.activeAccess.navigationItems = ["business.director_assignments"];
     assert.equal((await fetch(`${url}/api/access/profile`, { headers })).status, 403);

@@ -4995,6 +4995,30 @@ const migrations: Migration[] = [
       }),
     ],
   },
+  {
+    /**
+     * Права администратора должности — набор админских разделов, который
+     * выдаёт главный администратор. Прежняя отметка «Права админа» давала
+     * только «Учётные записи», поэтому эффективные права, доступы и сессии не
+     * меняются. Системная должность администратора владеет всеми разделами.
+     */
+    id: "101_position_admin_navigation_items",
+    statements: [
+      `alter table account_positions
+         add column admin_navigation_items json null after navigation_items;`,
+      `update account_positions
+       set admin_navigation_items = case
+         when account_type = 'admin' then json_array(
+           'admin.accounts', 'admin.user_actions', 'admin.account_preview',
+           'admin.database', 'admin.navigation'
+         )
+         when is_admin_protected = 1 then json_array('admin.accounts')
+         else json_array()
+       end
+       where admin_navigation_items is null;`,
+      `alter table account_positions modify admin_navigation_items json not null;`,
+    ],
+  },
 ];
 
 function removePositionJsonValue(

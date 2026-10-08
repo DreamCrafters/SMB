@@ -8,7 +8,7 @@ import {
   assertProtectedAccountMutationAllowed,
 } from "../domain/adminAccountProtection.js";
 import {
-  assertAdministratorPositionProtectionAllowed,
+  AdministratorPositionProtectionError,
   assertProtectedPositionMutationAllowed,
 } from "../domain/adminPositionProtection.js";
 import {
@@ -21,6 +21,8 @@ import {
   readRailwayWagonAccess,
   resolveCapabilitiesForPosition,
   resolveNavigationForPosition,
+  delegableAdminNavigationItems,
+  readAdminNavigationItems,
   type BoardAssignmentAccess,
   type NavigationAccessLevel,
 } from "../domain/accountAccessConfiguration.js";
@@ -76,6 +78,8 @@ export type AdminPositionSummary = {
   showOverviewVisitors: boolean;
   isProtected: boolean;
   hasAdminRights?: boolean;
+  /** Админские разделы, выданные главным администратором (нет поля или пусто — нет). */
+  adminNavigationItems?: AccountNavigationItem[];
   usageCount: number;
   createdAt: string;
 };
@@ -93,9 +97,9 @@ export type UpdatePositionInput = {
   capabilities: AccountCapability[];
 };
 
-export type SetPositionProtectedInput = {
+export type SetPositionAdminNavigationInput = {
   id: string;
-  isProtected: boolean;
+  adminNavigationItems: AccountNavigationItem[];
 };
 
 export type SetPositionNavigationAccessInput = {
@@ -119,9 +123,9 @@ export type PositionNavigationAccessChange = {
   positions: Array<{ id: string; displayName: string }>;
 };
 
-export type PositionProtection = SetPositionProtectedInput & {
+export type PositionAdminNavigationChange = SetPositionAdminNavigationInput & {
   displayName: string;
-  previousIsProtected: boolean;
+  previousAdminNavigationItems: AccountNavigationItem[];
 };
 
 export type CreateAccountInput = {
@@ -222,9 +226,10 @@ export type AccountsRepository = {
     positionIds: string[],
     allowProtected?: boolean,
   ) => Promise<boolean>;
-  setPositionProtected: (
-    input: SetPositionProtectedInput,
-  ) => Promise<PositionProtection | undefined>;
+  setPositionAdminNavigation: (
+    input: SetPositionAdminNavigationInput,
+    actor: PositionNavigationAccessActor,
+  ) => Promise<PositionAdminNavigationChange | undefined>;
   setPositionNavigationAccess: (
     input: SetPositionNavigationAccessInput,
     actor: PositionNavigationAccessActor,
@@ -286,6 +291,7 @@ type PositionRow = RowDataPacket & {
   capabilities: unknown;
   is_protected: number | boolean;
   is_admin_protected: number | boolean;
+  admin_navigation_items?: unknown;
   can_review_raw_material_warehouse: number | boolean;
   created_at: Date | string;
   usage_count: number | string;
@@ -331,6 +337,7 @@ type PositionProtectionRow = RowDataPacket & {
   navigation_items: unknown;
   capabilities: unknown;
   is_admin_protected: number | boolean;
+  admin_navigation_items: unknown;
   can_review_raw_material_warehouse: number | boolean;
 };
 
@@ -367,7 +374,8 @@ const adminRightsAccessProtectionExpression = `
   )
 `;
 
-const effectiveAccountProtectionExpression = `
+/** Эффективная защита аккаунта (`users` — алиас `app_users`): root, явная или через должность с админ-разделами. */
+export const effectiveAccountProtectionExpression = `
   greatest(users.is_root_admin, users.is_admin_protected, ${adminRightsAccessProtectionExpression})
 `;
 
@@ -420,7 +428,7 @@ export function createAccountsRepository(
     const [rows] = await pool.query<PositionRow[]>(`
       select positions.id, positions.display_name, positions.account_type,
         positions.navigation_items, positions.capabilities, positions.is_protected,
-        positions.is_admin_protected,
+        positions.is_admin_protected, positions.admin_navigation_items,
         positions.can_review_raw_material_warehouse,
         positions.created_at,
         (select count(*) from account_accesses accesses
@@ -439,10 +447,10 @@ export function createAccountsRepository(
     const accountType = "business_owner" as const;
     await pool.query(
       `insert into account_positions (
-        id, display_name, account_type, navigation_items, capabilities,
-        is_protected, sort_order
+        id, display_name, account_type, navigation_items, admin_navigation_items,
+        capabilities, is_protected, sort_order
       )
-      select ?, ?, ?, ?, ?, 0, coalesce(max(sort_order), -1) + 1
+      select ?, ?, ?, ?, json_array(), ?, 0, coalesce(max(sort_order), -1) + 1
       from account_positions`,
       [id, input.displayName, accountType,
         JSON.stringify(input.navigationItems), JSON.stringify(input.capabilities)],
@@ -464,6 +472,7 @@ export function createAccountsRepository(
       showOverviewVisitors: readOverviewVisitorsAccess(input.capabilities),
       isProtected: false,
       hasAdminRights: false,
+      adminNavigationItems: [],
       usageCount: 0,
       createdAt: new Date().toISOString(),
     };
@@ -479,7 +488,7 @@ export function createAccountsRepository(
       const [rows] = await connection.query<PositionRow[]>(`
         select positions.id, positions.display_name, positions.account_type,
           positions.navigation_items, positions.capabilities, positions.is_protected,
-          positions.is_admin_protected,
+          positions.is_admin_protected, positions.admin_navigation_items,
           positions.can_review_raw_material_warehouse,
           positions.created_at,
           (select count(*) from account_accesses accesses
@@ -500,9 +509,8 @@ export function createAccountsRepository(
           current.is_admin_protected === 1,
         allowProtected,
       });
-      const hasAdminRights =
-        current.is_admin_protected === true ||
-        current.is_admin_protected === 1;
+      // Набор админских разделов меняет только главный админ отдельным действием.
+      const adminNavigationItems = readAdminNavigationItems(current.admin_navigation_items);
       const boardAssignmentAccess = readBoardAssignmentAccess(
         input.capabilities,
         input.navigationItems,
@@ -516,7 +524,7 @@ export function createAccountsRepository(
       );
       const navigationItems = resolveNavigationForPosition(
         input.navigationItems,
-        hasAdminRights,
+        adminNavigationItems,
       );
       const capabilities = resolveCapabilitiesForPosition(
         input.id,
@@ -528,7 +536,7 @@ export function createAccountsRepository(
             input.navigationItems,
           ),
           boardAssignmentAccess,
-          hasAdminRights,
+          adminNavigationItems,
           showOverviewVisitors,
           canReviewRawMaterialWarehouse:
             current.can_review_raw_material_warehouse === true ||
@@ -595,7 +603,7 @@ export function createAccountsRepository(
     try {
       await connection.beginTransaction();
       const [rows] = await connection.query<DeletePositionRow[]>(
-        `select positions.account_type, positions.is_admin_protected,
+        `select positions.account_type, positions.is_admin_protected, positions.admin_navigation_items,
           (select count(*) from account_accesses accesses
             where json_contains(
               coalesce(accesses.position_codes, json_array(accesses.position_code)),
@@ -710,13 +718,40 @@ export function createAccountsRepository(
     }
   }
 
-  async function setPositionProtected(input: SetPositionProtectedInput) {
+  /**
+   * Набор админских разделов должности меняет только главный админ: признак
+   * root перепроверяется под блокировкой в той же транзакции. Защита должности
+   * (`is_admin_protected`) выводится из набора: любой раздел защищает должность
+   * и её аккаунты от других администраторов.
+   */
+  async function setPositionAdminNavigation(
+    input: SetPositionAdminNavigationInput,
+    actor: PositionNavigationAccessActor,
+  ) {
     const connection = await pool.getConnection();
     try {
       await connection.beginTransaction();
+      if (!actor.isDevRootAdmin) {
+        const [actorRows] = await connection.query<RootAdminMutationActorRow[]>(
+          `select is_root_admin, status
+           from app_users
+           where id = ?
+           limit 1
+           for update`,
+          [actor.userId],
+        );
+        const storedActor = actorRows[0];
+        if (
+          storedActor === undefined ||
+          storedActor.status !== "active" ||
+          !(storedActor.is_root_admin === true || storedActor.is_root_admin === 1)
+        ) {
+          throw new RootAdminMutationRequiredError();
+        }
+      }
       const [rows] = await connection.query<PositionProtectionRow[]>(
         `select id, display_name, account_type, navigation_items,
-          capabilities, is_admin_protected,
+          capabilities, is_admin_protected, admin_navigation_items,
           can_review_raw_material_warehouse
          from account_positions
          where id = ?
@@ -729,59 +764,54 @@ export function createAccountsRepository(
         await connection.rollback();
         return undefined;
       }
-      assertAdministratorPositionProtectionAllowed({
-        accountType: position.account_type,
-        isProtected: input.isProtected,
-      });
       const accountType = position.account_type as AccountType;
+      const previousAdminNavigationItems = readAdminNavigationItems(position.admin_navigation_items);
+      const adminNavigationItems = readAdminNavigationItems(input.adminNavigationItems);
+      // Системный администратор владеет всеми разделами, его набор не меняется.
+      if (accountType === "admin") {
+        throw new AdministratorPositionProtectionError();
+      }
       const storedNavigationItems = readNavigationItems(
         position.navigation_items,
         accountType,
       );
       const storedCapabilities = readCapabilities(position.capabilities);
-      const boardAssignmentAccess = readBoardAssignmentAccess(
-        storedCapabilities,
+      const navigationItems = resolveNavigationForPosition(
         storedNavigationItems,
+        adminNavigationItems,
       );
-      const railwayWagonAccess = readRailwayWagonAccess(
-        storedCapabilities,
-        storedNavigationItems,
-      );
-      const showOverviewVisitors = readOverviewVisitorsAccess(
-        storedCapabilities,
-      );
-      const navigationItems = accountType === "admin"
-        ? storedNavigationItems
-        : resolveNavigationForPosition(
+      const capabilities = resolveCapabilitiesForPosition(
+        position.id,
+        navigationItems,
+        readAssignmentInboxAccess(storedCapabilities, storedNavigationItems),
+        {
+          collegiumInitiativeAccess: readCollegiumInitiativeAccess(
+            storedCapabilities,
             storedNavigationItems,
-            input.isProtected,
-          );
-      const capabilities = accountType === "admin"
-        ? storedCapabilities
-        : resolveCapabilitiesForPosition(
-            position.id,
-            navigationItems,
-            readAssignmentInboxAccess(storedCapabilities, storedNavigationItems),
-            {
-              collegiumInitiativeAccess: readCollegiumInitiativeAccess(
-                storedCapabilities,
-                storedNavigationItems,
-              ),
-              boardAssignmentAccess,
-              hasAdminRights: input.isProtected,
-              showOverviewVisitors,
-              canReviewRawMaterialWarehouse:
-                position.can_review_raw_material_warehouse === true ||
-                position.can_review_raw_material_warehouse === 1,
-              railwayWagonAccess,
-            },
-          );
+          ),
+          boardAssignmentAccess: readBoardAssignmentAccess(
+            storedCapabilities,
+            storedNavigationItems,
+          ),
+          adminNavigationItems,
+          showOverviewVisitors: readOverviewVisitorsAccess(storedCapabilities),
+          canReviewRawMaterialWarehouse:
+            position.can_review_raw_material_warehouse === true ||
+            position.can_review_raw_material_warehouse === 1,
+          railwayWagonAccess: readRailwayWagonAccess(
+            storedCapabilities,
+            storedNavigationItems,
+          ),
+        },
+      );
       await connection.query(
         `update account_positions
-         set is_admin_protected = ?, navigation_items = ?, capabilities = ?
+         set admin_navigation_items = ?, is_admin_protected = ?,
+           navigation_items = ?, capabilities = ?
          where id = ?`,
         [
-          input.isProtected ? 1 : 0,
+          JSON.stringify(adminNavigationItems),
+          adminNavigationItems.length > 0 ? 1 : 0,
           JSON.stringify(navigationItems),
           JSON.stringify(capabilities),
           input.id,
@@ -806,11 +836,10 @@ export function createAccountsRepository(
       );
       await connection.commit();
       return {
-        ...input,
+        id: input.id,
         displayName: position.display_name,
-        previousIsProtected:
-          position.is_admin_protected === true ||
-          position.is_admin_protected === 1,
+        adminNavigationItems,
+        previousAdminNavigationItems,
       };
     } catch (error) {
       await connection.rollback();
@@ -862,7 +891,7 @@ export function createAccountsRepository(
       const [rows] = await connection.query<PositionRow[]>(
         `select positions.id, positions.display_name, positions.account_type,
           positions.navigation_items, positions.capabilities,
-          positions.is_protected, positions.is_admin_protected,
+          positions.is_protected, positions.is_admin_protected, positions.admin_navigation_items,
           positions.can_review_raw_material_warehouse,
           positions.created_at,
           (select count(*) from account_accesses accesses
@@ -891,18 +920,17 @@ export function createAccountsRepository(
           row.navigation_items,
           accountType,
         );
-        const hasAdminRights =
-          row.is_admin_protected === true || row.is_admin_protected === 1;
+        const adminNavigationItems = readAdminNavigationItems(row.admin_navigation_items);
         const workingNavigationItems = resolveNavigationForPosition(
           currentNavigationItems,
-          false,
+          [],
         );
         const nextWorkingNavigationItems = enabled
           ? Array.from(new Set([...workingNavigationItems, navigationItem]))
           : workingNavigationItems.filter((item) => item !== navigationItem);
         const navigationItems = resolveNavigationForPosition(
           nextWorkingNavigationItems,
-          hasAdminRights,
+          adminNavigationItems,
         );
         const storedCapabilities = readCapabilities(row.capabilities);
         const storedBoardAssignmentAccess = readBoardAssignmentAccess(
@@ -940,7 +968,7 @@ export function createAccountsRepository(
                 ? accessLevel as CollegiumInitiativeAccess
                 : storedCollegiumInitiativeAccess,
             boardAssignmentAccess: nextBoardAssignmentAccess,
-            hasAdminRights,
+            adminNavigationItems,
             showOverviewVisitors: readOverviewVisitorsAccess(storedCapabilities),
             canReviewRawMaterialWarehouse:
               row.can_review_raw_material_warehouse === true ||
@@ -1034,7 +1062,7 @@ export function createAccountsRepository(
       const [positionRows] = await connection.query<PositionRow[]>(
         `select positions.id, positions.display_name, positions.account_type,
           positions.navigation_items, positions.capabilities,
-          positions.is_protected, positions.is_admin_protected,
+          positions.is_protected, positions.is_admin_protected, positions.admin_navigation_items,
           positions.can_review_raw_material_warehouse,
           positions.created_at,
           (select count(*) from account_accesses accesses
@@ -1472,7 +1500,7 @@ export function createAccountsRepository(
       const [positionRows] = await connection.query<PositionRow[]>(
         `select positions.id, positions.display_name, positions.account_type,
           positions.navigation_items, positions.capabilities,
-          positions.is_protected, positions.is_admin_protected,
+          positions.is_protected, positions.is_admin_protected, positions.admin_navigation_items,
           positions.can_review_raw_material_warehouse,
           positions.created_at,
           (select count(*) from account_accesses accesses
@@ -1578,7 +1606,7 @@ export function createAccountsRepository(
     updatePosition,
     deletePosition,
     setPositionOrder,
-    setPositionProtected,
+    setPositionAdminNavigation,
     setPositionNavigationAccess,
   };
 }
@@ -1641,7 +1669,7 @@ async function refreshCombinedAccessesForPosition(
     const [positionRows] = await connection.query<PositionRow[]>(
       `select positions.id, positions.display_name, positions.account_type,
         positions.navigation_items, positions.capabilities,
-        positions.is_protected, positions.is_admin_protected,
+        positions.is_protected, positions.is_admin_protected, positions.admin_navigation_items,
         positions.can_review_raw_material_warehouse,
         positions.created_at, 0 as usage_count
        from account_positions positions
@@ -1750,6 +1778,10 @@ function mapPositionRow(row: PositionRow): AdminPositionSummary {
     isProtected: row.is_protected === true || row.is_protected === 1,
     hasAdminRights:
       row.is_admin_protected === true || row.is_admin_protected === 1,
+    // Системный администратор владеет всеми разделами без отдельной выдачи.
+    adminNavigationItems: accountType === "admin"
+      ? [...delegableAdminNavigationItems]
+      : readAdminNavigationItems(row.admin_navigation_items),
     usageCount: Number(row.usage_count ?? 0),
     createdAt: toDate(row.created_at).toISOString(),
   };

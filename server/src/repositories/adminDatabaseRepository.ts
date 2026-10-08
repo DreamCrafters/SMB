@@ -1,6 +1,7 @@
 import type { ResultSetHeader, RowDataPacket } from "mysql2/promise";
 import type { DatabasePool } from "../db/pool.js";
 import { assertProtectedAccountMutationAllowed } from "../domain/adminAccountProtection.js";
+import { effectiveAccountProtectionExpression } from "./accountsRepository.js";
 import {
   getDispatcherFormDefinition,
   isDispatcherFormId,
@@ -572,8 +573,10 @@ async function assertUserIsEditable(
     status: string;
     is_admin_protected: number | boolean;
   }>>(
-    `select status, greatest(is_admin_protected, is_root_admin) as is_admin_protected
-     from app_users where id = ? limit 1 for update`,
+    // Та же эффективная защита, что в учётных записях: должность с любым
+    // админским разделом защищает и аккаунт (раздел «БД» выдаётся делегатам).
+    `select users.status, ${effectiveAccountProtectionExpression} as is_admin_protected
+     from app_users users where users.id = ? limit 1 for update`,
     [id],
   );
   const status = rows[0]?.status;

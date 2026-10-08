@@ -1,6 +1,5 @@
 import { dispatcherForms, type DispatcherFormId } from "./dispatcherForms.js";
 import {
-  hasProfileCapability,
   type AccountNavigationItem,
   type ServerUserProfile,
 } from "./auth.js";
@@ -213,10 +212,11 @@ export function canProfileViewAuditScreen(
     return true;
   }
 
+  // Раздел «Предпросмотр» выдаётся и отдельно от «Учётных записей»: открытия
+  // экранов в нём тоже попадают в журнал.
   return (
     adminPreviewScreenIds.has(screen.id) &&
-    profile.activeAccess.navigationItems.includes("admin.account_preview") &&
-    hasProfileCapability(profile, "platform.manage_users")
+    profile.activeAccess.navigationItems.includes("admin.account_preview")
   );
 }
 

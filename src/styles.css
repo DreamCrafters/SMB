@@ -3293,6 +3293,18 @@ p {
   font-weight: 700;
 }
 
+/* Права администратора — отдельная группа, выдаёт только главный администратор. */
+.admin-position-admin-rights {
+  border-color: var(--amber);
+  background: color-mix(in srgb, var(--amber-soft) 45%, transparent);
+}
+
+.admin-position-admin-rights-note {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
 .admin-account-navigation-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

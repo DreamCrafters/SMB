@@ -99,6 +99,7 @@ export const auditEventActions = [
   "admin.position_update",
   "admin.position_protection_enable",
   "admin.position_protection_disable",
+  "admin.position_admin_navigation_update",
   "admin.position_admin_rights_enable",
   "admin.position_admin_rights_disable",
   "admin.position_order_update",

@@ -53,6 +53,7 @@ import {
   resolveCapabilitiesForPosition,
   resolveMaximumCapabilitiesForNavigation,
   validatePositionNavigationItems,
+  validateAdminNavigationItems,
   type NavigationAccessLevel,
 } from "../domain/accountAccessConfiguration.js";
 import {
@@ -9884,12 +9885,14 @@ async function handleProductionSnapshotRequest({
   config,
   devSessions,
   productionSnapshot,
+  canReplace,
 }: {
   req: IncomingMessage;
   res: ServerResponse;
   config: ServerConfig;
   devSessions: Map<string, DevAccessSession>;
   productionSnapshot: ProductionDatabaseSnapshotService | undefined;
+  canReplace: boolean;
 }) {
   if (config.appEnv !== "test") {
     sendJson(res, 404, {
@@ -9906,6 +9909,7 @@ async function handleProductionSnapshotRequest({
       available: productionSnapshot !== undefined,
       inProgress: productionSnapshot?.isRunning() ?? false,
       confirmationPhrase: productionSnapshotConfirmation,
+      canReplace,
     });
     return;
   }
@@ -9915,6 +9919,16 @@ async function handleProductionSnapshotRequest({
       error: {
         code: "access_denied",
         message: "Only GET and POST are supported for production snapshots.",
+      },
+    });
+    return;
+  }
+
+  if (!canReplace) {
+    sendJson(res, 403, {
+      error: {
+        code: "access_denied",
+        message: "Заменить test-БД копией production может только главный администратор.",
       },
     });
     return;
@@ -12106,6 +12120,15 @@ async function handleAdminDatabaseRequest({
       config,
       devSessions,
       productionSnapshot,
+      // Раздел «БД» выдаётся и делегатам; замена всей test-БД — только главному админу.
+      canReplace: access.source === "dev"
+        ? canUseRootDevAccess(access.profile, access.source, config.devAccessEnabled)
+        : accounts !== undefined && await readCanAssignAdminNavigation({
+            profile: access.profile,
+            accounts,
+            source: access.source,
+            devAccessEnabled: config.devAccessEnabled,
+          }),
     });
     return;
   }
@@ -12759,58 +12782,56 @@ async function handleAdminAccountsRequest({
       return;
     }
     try {
-      const protection = await runAuditedMutation({
+      const change = await runAuditedMutation({
         transaction: databaseTransaction,
         audit,
-        mutate: () => accounts.setPositionProtected(validation.value),
-        buildEvent: (updatedProtection) =>
-          updatedProtection === undefined ||
-            updatedProtection.previousIsProtected ===
-              updatedProtection.isProtected
-            ? undefined
-            : {
-                actor: buildAuditActor(access.profile),
-                category: "administration",
-                action: updatedProtection.isProtected
-                  ? "admin.position_admin_rights_enable"
-                  : "admin.position_admin_rights_disable",
-                summary: `${updatedProtection.isProtected ? "Включены" : "Отключены"} права админа для должности «${updatedProtection.displayName}»`,
-                details: [
-                  {
-                    label: "Должность",
-                    value: updatedProtection.displayName,
-                  },
-                  {
-                    label: "Прежние права админа",
-                    value: updatedProtection.previousIsProtected
-                      ? "Включены"
-                      : "Отключены",
-                  },
-                  {
-                    label: "Новые права админа",
-                    value: updatedProtection.isProtected
-                      ? "Включены"
-                      : "Отключены",
-                  },
-                ],
-                targetType: "account_position",
-                targetId: positionProtectionId,
-              },
+        mutate: () => accounts.setPositionAdminNavigation(validation.value, {
+          userId: access.profile.userId,
+          isDevRootAdmin: canUseRootDevAccess(access.profile, access.source, config.devAccessEnabled),
+        }),
+        buildEvent: (updated) => {
+          if (updated === undefined) return undefined;
+          const describe = (items: readonly AccountNavigationItem[]) =>
+            items.length === 0
+              ? "Нет"
+              : items.map((item) => adminNavigationItemLabels[item] ?? item).join(", ");
+          const before = describe(updated.previousAdminNavigationItems);
+          const after = describe(updated.adminNavigationItems);
+          if (before === after) return undefined;
+          return {
+            actor: buildAuditActor(access.profile),
+            category: "administration",
+            action: "admin.position_admin_navigation_update",
+            summary: `Изменены права администратора должности «${updated.displayName}»`,
+            details: [
+              { label: "Должность", value: updated.displayName },
+              { label: "Права администратора", value: `${before} → ${after}` },
+            ],
+            targetType: "account_position",
+            targetId: positionProtectionId,
+          };
+        },
       });
-      if (protection === undefined) {
+      if (change === undefined) {
         sendJson(res, 404, {
           error: { code: "not_found", message: "Должность не найдена." },
         });
         return;
       }
       sendJson(res, 200, {
-        id: protection.id,
-        isProtected: protection.isProtected,
+        id: change.id,
+        adminNavigationItems: change.adminNavigationItems,
       });
     } catch (error) {
       if (error instanceof AdministratorPositionProtectionError) {
         sendJson(res, 409, {
           error: { code: "invalid_response", message: error.message },
+        });
+        return;
+      }
+      if (error instanceof RootAdminMutationRequiredError) {
+        sendJson(res, 403, {
+          error: { code: "access_denied", message: error.message },
         });
         return;
       }
@@ -13923,7 +13944,7 @@ function validateCreatePositionRequest(input: unknown):
             ? collegiumInitiativeAccess
             : "none",
           boardAssignmentAccess: validatedBoardAssignmentAccess,
-          hasAdminRights: false,
+          adminNavigationItems: [],
           showOverviewVisitors: showOverviewVisitors === true,
           canReviewRawMaterialWarehouse: false,
           railwayWagonAccess: validatedRailwayWagonAccess,
@@ -14233,22 +14254,29 @@ function validateSetAccountProtectionRequest(
   };
 }
 
+/** Подписи админских разделов для аудита выдачи главным администратором. */
+const adminNavigationItemLabels: Partial<Record<AccountNavigationItem, string>> = {
+  "admin.accounts": "Учётные записи",
+  "admin.user_actions": "Действия пользователей",
+  "admin.account_preview": "Предпросмотр",
+  "admin.database": "БД",
+  "admin.navigation": "Вкладки",
+};
+
 function validateSetPositionProtectionRequest(
   input: unknown,
   id: string,
 ):
-  | { ok: true; value: { id: string; isProtected: boolean } }
+  | { ok: true; value: { id: string; adminNavigationItems: AccountNavigationItem[] } }
   | { ok: false; errors: string[] } {
   if (!isRecord(input) || Array.isArray(input)) {
     return { ok: false, errors: ["Payload must be a JSON object."] };
   }
-  if (typeof input.isProtected !== "boolean") {
-    return { ok: false, errors: ["isProtected must be a boolean."] };
+  const adminNavigationItems = validateAdminNavigationItems(input.adminNavigationItems);
+  if (adminNavigationItems === undefined) {
+    return { ok: false, errors: ["Выберите админские разделы из списка без повторов."] };
   }
-  return {
-    ok: true,
-    value: { id, isProtected: input.isProtected },
-  };
+  return { ok: true, value: { id, adminNavigationItems } };
 }
 
 function validateSetAccountPositionRequest(input: unknown):
@@ -15513,18 +15541,26 @@ async function applyAccountPreview(
   if (target?.kind === "account") {
     if (!accounts || !canPreviewAccounts(access.profile)) throw new AccountPreviewError();
     const available = await accounts.listAccounts();
-    const canImpersonate = access.source === "dev" ? canUseRootDevAccess(access.profile, access.source, devAccessEnabled)
+    const isRoot = access.source === "dev" ? canUseRootDevAccess(access.profile, access.source, devAccessEnabled)
       : available.some(account => account.userId === access.profile.userId && account.isRootAdmin === true && account.userStatus === "active");
-    if (!canImpersonate) throw new AccountPreviewError();
     const account = available.find(item => item.accessId === target.accessId && item.userStatus === "active");
     if (!account) throw new AccountPreviewError();
-    const profile = buildConcreteAccountPreview(account);
+    // Делегированный «Предпросмотр»: только незащищённые, не главный админ и не
+    // свой аккаунт; административные права цели не передаются (сервер, каждый запрос).
+    if (!isRoot && (account.isRootAdmin === true || account.isProtected || account.userId === access.profile.userId)) {
+      throw new AccountPreviewError();
+    }
+    const concrete = buildConcreteAccountPreview(account);
+    const profile = isRoot ? concrete : withoutAdministrativeAccess(concrete);
     setAccountPreviewActor(buildAuditActor(access.profile), buildAuditActor(profile, account.login));
     return { ...access, profile, previewPositionDisplayName: account.positionDisplayName };
   }
   if (target === undefined || !canPreviewAccounts(access.profile)) return access;
 
   if (target.kind === "navigation") {
+    // Типовой предпросмотр показывает только рабочие вкладки: админская вкладка
+    // как цель дала бы её права (например, БД) любому держателю «Предпросмотра».
+    if (target.navigationItem.startsWith("admin.")) throw new AccountPreviewError();
     const label = target.level === undefined
       ? readNavigationItemLabel(target.navigationItem)
       : `${readNavigationItemLabel(target.navigationItem)} — ${readNavigationAccessLevelLabel(target.navigationItem, target.level as NavigationAccessLevel)}`;
@@ -15556,13 +15592,25 @@ async function applyAccountPreview(
 
   return {
     ...access,
-    profile: applyAccountPreviewAccess(access.profile, {
+    profile: withoutAdministrativeAccess(applyAccountPreviewAccess(access.profile, {
       position: position.id,
       positionDisplayName: position.displayName,
       navigationItems: position.navigationItems,
       capabilities: position.capabilities,
-    }),
+    })),
     previewPositionDisplayName: position.displayName,
+  };
+}
+
+/** Предпросмотр должности или чужого аккаунта не открывает админские разделы и права. */
+function withoutAdministrativeAccess(profile: ServerUserProfile): ServerUserProfile {
+  return {
+    ...profile,
+    activeAccess: {
+      ...profile.activeAccess,
+      navigationItems: profile.activeAccess.navigationItems.filter((item) => !item.startsWith("admin.")),
+      capabilities: profile.activeAccess.capabilities.filter((capability) => !capability.startsWith("platform.")),
+    },
   };
 }
 

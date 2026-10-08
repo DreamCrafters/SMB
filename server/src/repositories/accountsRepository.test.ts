@@ -6,6 +6,7 @@ import {
   ProtectedAccountMutationError,
 } from "../domain/adminAccountProtection.js";
 import {
+  AdministratorPositionProtectionError,
   ProtectedPositionMutationError,
 } from "../domain/adminPositionProtection.js";
 import {
@@ -510,7 +511,9 @@ test("setPositionNavigationAccess rechecks the original admin under lock", async
   assert.equal(didRollback, true);
 });
 
-test("setPositionProtected atomically grants delegated admin access and revokes linked sessions", async () => {
+const rootActor = { userId: "root-user", isDevRootAdmin: true };
+
+test("setPositionAdminNavigation atomically grants the chosen admin sections and revokes linked sessions", async () => {
   const queries: Array<{ sql: string; params?: unknown[] }> = [];
   let didCommit = false;
   const connection = {
@@ -527,6 +530,7 @@ test("setPositionProtected atomically grants delegated admin access and revokes 
           display_name: "Выбранная должность",
           account_type: "business_owner",
           is_admin_protected: 0,
+          admin_navigation_items: JSON.stringify([]),
           navigation_items: JSON.stringify(["business.overview"]),
           capabilities: JSON.stringify([
             "business.view_all_statistics",
@@ -542,26 +546,27 @@ test("setPositionProtected atomically grants delegated admin access and revokes 
     async getConnection() { return connection; },
   } as unknown as DatabasePool;
 
-  const result = await createAccountsRepository(pool).setPositionProtected({
+  const result = await createAccountsRepository(pool).setPositionAdminNavigation({
     id: "position-selected",
-    isProtected: true,
-  });
+    adminNavigationItems: ["admin.database", "admin.accounts"],
+  }, rootActor);
 
   assert.deepEqual(result, {
     id: "position-selected",
-    isProtected: true,
     displayName: "Выбранная должность",
-    previousIsProtected: false,
+    adminNavigationItems: ["admin.accounts", "admin.database"],
+    previousAdminNavigationItems: [],
   });
   assert.equal(didCommit, true);
   assert.match(queries[0]?.sql ?? "", /for update$/u);
   assert.deepEqual(
     queries.find((query) =>
-      query.sql.startsWith("update account_positions set is_admin_protected")
+      query.sql.startsWith("update account_positions set admin_navigation_items")
     )?.params,
     [
+      JSON.stringify(["admin.accounts", "admin.database"]),
       1,
-      JSON.stringify(["business.overview", "admin.accounts"]),
+      JSON.stringify(["business.overview", "admin.accounts", "admin.database"]),
       JSON.stringify([
         "business.view_all_statistics",
         "business.view_notifications",
@@ -569,6 +574,7 @@ test("setPositionProtected atomically grants delegated admin access and revokes 
         "platform.manage_users",
         "platform.manage_access",
         "platform.manage_table_layouts",
+        "platform.manage_analytics_database",
       ]),
       "position-selected",
     ],
@@ -588,41 +594,20 @@ test("setPositionProtected atomically grants delegated admin access and revokes 
   );
 });
 
-test("setPositionProtected keeps root panels for the system administrator", async () => {
-  const queries: Array<{ sql: string; params?: unknown[] }> = [];
+test("setPositionAdminNavigation re-checks the root admin under lock and rolls back otherwise", async () => {
+  let didReadPosition = false;
+  let didRollback = false;
   const connection = {
     async beginTransaction() {},
     async commit() {},
-    async rollback() {},
+    async rollback() { didRollback = true; },
     release() {},
-    async query(sql: string, params?: unknown[]) {
+    async query(sql: string) {
       const normalized = sql.replace(/\s+/g, " ").trim();
-      queries.push({ sql: normalized, params });
-      if (normalized.startsWith("select id, display_name, account_type, navigation_items")) {
-        return [[{
-          id: "administrator",
-          display_name: "Администратор",
-          account_type: "admin",
-          is_admin_protected: 1,
-          navigation_items: JSON.stringify([
-            "admin.account_preview",
-            "admin.accounts",
-            "admin.database",
-            "admin.user_actions",
-          ]),
-          capabilities: JSON.stringify([
-            "platform.manage_users",
-            "platform.manage_access",
-            "platform.manage_table_layouts",
-            "platform.manage_analytics_database",
-            "platform.manage_integrations",
-            "platform.view_audit",
-            "platform.view_logs",
-            "platform.use_debug_tools",
-            "business.view_all_statistics",
-          ]),
-        }], []];
+      if (normalized.startsWith("select is_root_admin, status from app_users")) {
+        return [[{ is_root_admin: 0, status: "active" }], []];
       }
+      didReadPosition = true;
       return [[], []];
     },
   };
@@ -630,40 +615,56 @@ test("setPositionProtected keeps root panels for the system administrator", asyn
     async getConnection() { return connection; },
   } as unknown as DatabasePool;
 
-  await createAccountsRepository(pool).setPositionProtected({
-    id: "administrator",
-    isProtected: true,
-  });
-
-  assert.deepEqual(
-    queries.find((query) =>
-      query.sql.startsWith("update account_positions set is_admin_protected")
-    )?.params,
-    [
-      1,
-      JSON.stringify([
-        "admin.account_preview",
-        "admin.accounts",
-        "admin.database",
-        "admin.user_actions",
-      ]),
-      JSON.stringify([
-        "platform.manage_users",
-        "platform.manage_access",
-        "platform.manage_table_layouts",
-        "platform.manage_analytics_database",
-        "platform.manage_integrations",
-        "platform.view_audit",
-        "platform.view_logs",
-        "platform.use_debug_tools",
-        "business.view_all_statistics",
-      ]),
-      "administrator",
-    ],
+  await assert.rejects(
+    createAccountsRepository(pool).setPositionAdminNavigation(
+      { id: "position-selected", adminNavigationItems: ["admin.database"] },
+      { userId: "delegated-user", isDevRootAdmin: false },
+    ),
+    RootAdminMutationRequiredError,
   );
+  assert.equal(didReadPosition, false);
+  assert.equal(didRollback, true);
 });
 
-test("setPositionProtected removes admin rights from a position without working tabs", async () => {
+test("setPositionAdminNavigation never changes the system administrator position", async () => {
+  const updates: string[] = [];
+  const connection = {
+    async beginTransaction() {},
+    async commit() {},
+    async rollback() {},
+    release() {},
+    async query(sql: string) {
+      const normalized = sql.replace(/\s+/g, " ").trim();
+      if (normalized.startsWith("select id, display_name, account_type, navigation_items")) {
+        return [[{
+          id: "administrator",
+          display_name: "Администратор",
+          account_type: "admin",
+          is_admin_protected: 1,
+          admin_navigation_items: JSON.stringify(["admin.accounts"]),
+          navigation_items: JSON.stringify(["admin.accounts", "admin.database"]),
+          capabilities: JSON.stringify(["platform.manage_users"]),
+        }], []];
+      }
+      if (normalized.startsWith("update")) updates.push(normalized);
+      return [[], []];
+    },
+  };
+  const pool = {
+    async getConnection() { return connection; },
+  } as unknown as DatabasePool;
+
+  await assert.rejects(
+    createAccountsRepository(pool).setPositionAdminNavigation(
+      { id: "administrator", adminNavigationItems: [] },
+      rootActor,
+    ),
+    AdministratorPositionProtectionError,
+  );
+  assert.deepEqual(updates, []);
+});
+
+test("setPositionAdminNavigation removes every section from a position without working tabs", async () => {
   const updates: unknown[][] = [];
   const connection = {
     async beginTransaction() {},
@@ -678,6 +679,7 @@ test("setPositionProtected removes admin rights from a position without working 
           display_name: "Делегированный администратор сайта",
           account_type: "business_owner",
           is_admin_protected: 1,
+          admin_navigation_items: JSON.stringify(["admin.accounts"]),
           navigation_items: JSON.stringify(["admin.accounts"]),
           capabilities: JSON.stringify([
             "platform.manage_users",
@@ -696,13 +698,14 @@ test("setPositionProtected removes admin rights from a position without working 
     async getConnection() { return connection; },
   } as unknown as DatabasePool;
 
-  const result = await createAccountsRepository(pool).setPositionProtected({
+  const result = await createAccountsRepository(pool).setPositionAdminNavigation({
     id: "delegated_administrator",
-    isProtected: false,
-  });
+    adminNavigationItems: [],
+  }, rootActor);
 
-  assert.equal(result?.previousIsProtected, true);
+  assert.deepEqual(result?.previousAdminNavigationItems, ["admin.accounts"]);
   assert.deepEqual(updates, [[
+    JSON.stringify([]),
     0,
     JSON.stringify([]),
     JSON.stringify([]),
@@ -872,6 +875,7 @@ test("updatePosition preserves delegated admin access when original admin edits 
           ]),
           is_protected: 0,
           is_admin_protected: 1,
+          admin_navigation_items: JSON.stringify(["admin.accounts"]),
           created_at: "2026-08-10T00:00:00.000Z",
           usage_count: 1,
         }], []];
@@ -2440,7 +2444,7 @@ test("setPositionNavigationAccess grants the railway tab as view only", async ()
   )));
 });
 
-test("setPositionProtected keeps combined railway roles when admin rights change", async () => {
+test("setPositionAdminNavigation keeps combined railway roles when admin sections change", async () => {
   let navigationItems = ["business.railway_wagons"];
   let capabilities = [
     "business.view_railway_wagons",
@@ -2465,9 +2469,9 @@ test("setPositionProtected keeps combined railway roles when admin rights change
           can_review_raw_material_warehouse: 0,
         }], []];
       }
-      if (normalized.startsWith("update account_positions set is_admin_protected")) {
-        navigationItems = JSON.parse(String(params?.[1]));
-        capabilities = JSON.parse(String(params?.[2]));
+      if (normalized.startsWith("update account_positions set admin_navigation_items")) {
+        navigationItems = JSON.parse(String(params?.[2]));
+        capabilities = JSON.parse(String(params?.[3]));
       }
       return [[], []];
     },
@@ -2476,10 +2480,10 @@ test("setPositionProtected keeps combined railway roles when admin rights change
     async getConnection() { return connection; },
   } as unknown as DatabasePool;
 
-  await createAccountsRepository(pool).setPositionProtected({
+  await createAccountsRepository(pool).setPositionAdminNavigation({
     id: "sales-manager",
-    isProtected: true,
-  });
+    adminNavigationItems: ["admin.accounts"],
+  }, rootActor);
 
   assert.ok(navigationItems.includes("business.railway_wagons"));
   assert.ok(capabilities.includes("business.manage_railway_wagon_orders"));
@@ -2684,9 +2688,9 @@ test("collegium chair level survives admin rights and other tab toggles", async 
           usage_count: 1,
         }], []];
       }
-      if (normalized.startsWith("update account_positions set is_admin_protected")) {
-        navigationItems = JSON.parse(String(params?.[1]));
-        capabilities = JSON.parse(String(params?.[2]));
+      if (normalized.startsWith("update account_positions set admin_navigation_items")) {
+        navigationItems = JSON.parse(String(params?.[2]));
+        capabilities = JSON.parse(String(params?.[3]));
       }
       if (normalized.startsWith("update account_positions set navigation_items")) {
         navigationItems = JSON.parse(String(params?.[0]));
@@ -2700,7 +2704,10 @@ test("collegium chair level survives admin rights and other tab toggles", async 
   } as unknown as DatabasePool;
   const repository = createAccountsRepository(pool);
 
-  await repository.setPositionProtected({ id: "collegium-chair", isProtected: true });
+  await repository.setPositionAdminNavigation(
+    { id: "collegium-chair", adminNavigationItems: ["admin.accounts"] },
+    { userId: "root-admin-user", isDevRootAdmin: false },
+  );
   assert.deepEqual(
     chairCapabilities.filter((capability) => !capabilities.includes(capability)),
     [],

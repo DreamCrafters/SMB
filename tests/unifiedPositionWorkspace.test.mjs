@@ -59,8 +59,11 @@ test("position form edits working tabs while admin rights are managed separately
   assert.match(appSource, /readPositionLevelPatch\(item\.id, isChecked, current\)/u);
   assert.equal(appSource.includes(">Админ<"), false);
   assert.equal(appSource.includes("Административные вкладки"), false);
-  assert.match(appSource, /<TableHeader>Права админа<\/TableHeader>/u);
-  assert.match(appSource, /aria-label=\{`Права админа для должности/u);
+  // Admin sections are a separate group of the form, shown only to the root admin.
+  assert.match(appSource, /<TableHeader>Права администратора<\/TableHeader>/u);
+  assert.match(appSource, /\{canAssignAdminNavigation \? \(\s*<fieldset className="admin-account-navigation-fieldset admin-position-admin-rights">\s*<legend>Права администратора<\/legend>/u);
+  assert.match(appSource, /applyNavigationLabels\(navigationItemsByAccountType\.admin, navigationLabels\)/u);
+  assert.match(positionFormSource ?? "", /adminNavigationItems: AccountNavigationItem\[\]/u);
   assert.doesNotMatch(appSource, /positionForm\.navigationItems\.length === 0/u);
   assert.doesNotMatch(
     appSource,

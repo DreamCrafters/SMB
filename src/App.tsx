@@ -210,7 +210,7 @@ import {
   setAdminAccountLoginEnabled,
   setAdminAccountProtected,
   setAdminAccountPosition,
-  setAdminPositionProtected,
+  setAdminPositionAdminNavigation,
   updateAdminPosition,
   type AdminAccountsListResult,
   type AdminPositionsResult,
@@ -8915,6 +8915,7 @@ function AdminWorkspace({
 
   return (
     <AdminAccountPreviewWorkspace
+      currentUserId={profile.userId}
       navigationLabels={navigationLabels}
       onSelectAccountView={onSelectAccountView}
     />
@@ -9429,9 +9430,11 @@ function formatAuditEventCount(value: number) {
 type AdminAccountPreviewSection = "types" | "accounts" | "navigation";
 
 function AdminAccountPreviewWorkspace({
+  currentUserId,
   navigationLabels,
   onSelectAccountView,
 }: {
+  currentUserId: string;
   navigationLabels: NavigationLabels;
   onSelectAccountView: (account: AdminAccountSummary) => void;
 }) {
@@ -9456,9 +9459,16 @@ function AdminAccountPreviewWorkspace({
     return () => controller.abort();
   }, []);
 
+  // Делегированный «Предпросмотр» открывает только тех, кого разрешит сервер:
+  // без защищённых аккаунтов, главного администратора и себя.
   const accounts =
     accountsState.status === "ready"
-      ? accountsState.accounts
+      ? accountsState.canManageProtectedAccounts
+        ? accountsState.accounts
+        : accountsState.accounts.filter((account) =>
+            !account.isProtected &&
+            account.isRootAdmin !== true &&
+            account.userId !== currentUserId)
       : [];
   const accountTypePreviews = positionsState.status === "ready"
     ? positionsState.positions.map(buildAdminPreviewAccountForDefinition)
@@ -10282,6 +10292,10 @@ function AdminProductionSnapshotPanel({
     );
     onSynchronized();
     setRefreshVersion((version) => version + 1);
+  }
+
+  if (status.status === "ready" && status.canReplace === false) {
+    return null;
   }
 
   return (
@@ -11398,6 +11412,8 @@ type AdminPositionFormState = {
   railwayWagonAccess: RailwayWagonAccess;
   collegiumInitiativeAccess: CollegiumInitiativeAccess;
   showOverviewVisitors: boolean;
+  /** Админские разделы; меняет только главный администратор отдельным запросом. */
+  adminNavigationItems: AccountNavigationItem[];
 };
 
 // Новая должность стартует только с «Настройками»: остальные вкладки и уровни
@@ -11410,10 +11426,11 @@ const emptyAdminPositionForm: AdminPositionFormState = {
   railwayWagonAccess: "none",
   collegiumInitiativeAccess: "none",
   showOverviewVisitors: false,
+  adminNavigationItems: [],
 };
 
 // Доступы формы без названия: их же использует копирование в новую должность.
-// Права админа сюда не входят — их выдаёт только корневой аккаунт отдельной отметкой.
+// Админские разделы копирует и сохраняет только главный администратор.
 function readPositionFormAccess(
   position: AdminPositionSummary,
 ): Omit<AdminPositionFormState, "id" | "displayName"> {
@@ -11426,7 +11443,16 @@ function readPositionFormAccess(
     railwayWagonAccess: position.railwayWagonAccess,
     collegiumInitiativeAccess: position.collegiumInitiativeAccess,
     showOverviewVisitors: position.showOverviewVisitors,
+    adminNavigationItems: [...(position.adminNavigationItems ?? [])],
   };
+}
+
+/** Одинаковые наборы разделов без учёта порядка. */
+function hasSameNavigationItems(
+  left: readonly AccountNavigationItem[],
+  right: readonly AccountNavigationItem[],
+) {
+  return left.length === right.length && left.every((item) => right.includes(item));
 }
 
 const adminAccountPositionOptions: AccountPosition[] = [
@@ -11696,7 +11722,6 @@ function AdminAccountsWorkspace({
     undefined,
   );
   const [protectingUserId, setProtectingUserId] = useState<string>();
-  const [protectingPositionId, setProtectingPositionId] = useState<string>();
   const [isPositionNavigationAccessModalOpen, setIsPositionNavigationAccessModalOpen] =
     useState(false);
   const [selectedPositionNavigationItem, setSelectedPositionNavigationItem] =
@@ -12022,11 +12047,32 @@ function AdminAccountsWorkspace({
     const result = positionForm.id === undefined
       ? await createAdminPosition(value)
       : await updateAdminPosition(positionForm.id, value);
-    setIsSubmitting(false);
     if (result.status !== "ready") {
+      setIsSubmitting(false);
       setPositionFormStatus(result.message);
       return;
     }
+    // Админские разделы — отдельное действие главного администратора с аудитом.
+    const savedAdminNavigationItems = result.position.adminNavigationItems ?? [];
+    if (
+      canAssignAdminNavigation &&
+      !hasSameNavigationItems(savedAdminNavigationItems, positionForm.adminNavigationItems)
+    ) {
+      const adminResult = await setAdminPositionAdminNavigation({
+        id: result.position.id,
+        adminNavigationItems: positionForm.adminNavigationItems,
+      });
+      if (adminResult.status !== "ready") {
+        setIsSubmitting(false);
+        setPositionForm((current) => ({ ...current, id: result.position.id }));
+        setPositionFormStatus(
+          `Должность сохранена, но права администратора не изменены: ${adminResult.message}`,
+        );
+        setRefreshVersion((version) => version + 1);
+        return;
+      }
+    }
+    setIsSubmitting(false);
     setIsPositionModalOpen(false);
     setWorkspaceStatus("");
     onShowToast(
@@ -12070,7 +12116,7 @@ function AdminAccountsWorkspace({
 
   function handleMovePosition(from: number, to: number) {
     if (positionsState.status !== "ready" || positionSaveInFlight.current ||
-      !canManageAccess || deletingPositionId !== undefined || isSubmitting || protectingPositionId !== undefined) return;
+      !canManageAccess || deletingPositionId !== undefined || isSubmitting) return;
     const current = positionsState.positions;
     if (!canManageProtectedPositions && current.slice(Math.min(from, to), Math.max(from, to) + 1)
       .some((position) => position.hasAdminRights)) return;
@@ -12101,38 +12147,6 @@ function AdminAccountsWorkspace({
     onShowToast(
       "Порядок сохранён",
       "Списки должностей и учётных записей обновлены.",
-      "success",
-    );
-    setRefreshVersion((version) => version + 1);
-  }
-
-  async function handleSetPositionProtected(
-    position: AdminPositionSummary,
-    isProtected: boolean,
-  ) {
-    if (
-      !canManageProtectedPositions ||
-      protectingPositionId !== undefined ||
-      (position.accountType === "admin" && !isProtected)
-    ) {
-      return;
-    }
-    setProtectingPositionId(position.id);
-    setWorkspaceStatus("");
-    const result = await setAdminPositionProtected({
-      id: position.id,
-      isProtected,
-    });
-    setProtectingPositionId(undefined);
-    if (result.status !== "ready") {
-      setWorkspaceStatus(result.message);
-      return;
-    }
-    onShowToast(
-      "Права админа изменены",
-      isProtected
-        ? `Для должности «${position.displayName}» включены права админа.`
-        : `Для должности «${position.displayName}» отключены права админа.`,
       "success",
     );
     setRefreshVersion((version) => version + 1);
@@ -12928,7 +12942,7 @@ function AdminAccountsWorkspace({
                 <tr>
                   <TableHeader>Порядок</TableHeader>
                   <TableHeader>Должность</TableHeader>
-                  <TableHeader>Права админа</TableHeader>
+                  <TableHeader>Права администратора</TableHeader>
                   <TableHeader>Вкладки слева</TableHeader>
                   <TableHeader>Аккаунты</TableHeader>
                   <TableHeader />
@@ -12945,7 +12959,7 @@ function AdminAccountsWorkspace({
                       <div className="admin-position-order-cell">
                         <RowDragHandle label={`должность «${position.displayName}»`}
                           disabled={!canManageAccess || isProtectedMutationRestricted || isSavingPositionOrder ||
-                            deletingPositionId !== undefined || isSubmitting || protectingPositionId !== undefined}
+                            deletingPositionId !== undefined || isSubmitting}
                           onMove={handleMovePosition} />
                         <span aria-label={`Позиция ${index + 1}`}>
                           {index + 1}
@@ -12954,41 +12968,14 @@ function AdminAccountsWorkspace({
                     </TableCell>
                     <TableCell>{position.displayName}</TableCell>
                     <TableCell>
-                      <label
-                        className="admin-account-protection-control"
-                        title={
-                          position.accountType === "admin"
-                            ? "Права админа для системной должности нельзя отключить."
-                            : !canManageProtectedPositions
-                              ? "Права админа может изменять только главный аккаунт admin."
-                              : undefined
-                        }
-                      >
-                        <input
-                          aria-label={`Права админа для должности ${position.displayName}`}
-                          type="checkbox"
-                          checked={position.hasAdminRights}
-                          disabled={
-                            !canManageProtectedPositions ||
-                            position.accountType === "admin" ||
-                            protectingPositionId !== undefined
-                          }
-                          onChange={(event) => {
-                            const isProtected = event.currentTarget.checked;
-                            void handleSetPositionProtected(
-                              position,
-                              isProtected,
-                            );
-                          }}
-                        />
-                        <span>
-                          {protectingPositionId === position.id
-                            ? "Сохраняем…"
-                            : position.hasAdminRights
-                              ? "Включены"
-                              : "Нет"}
-                        </span>
-                      </label>
+                      {position.accountType === "admin"
+                        ? "Все"
+                        : (position.adminNavigationItems ?? []).length === 0
+                          ? "Нет"
+                          : applyNavigationLabels(navigationItemsByAccountType.admin, navigationLabels)
+                            .filter((item) => position.adminNavigationItems?.includes(item.id))
+                            .map((item) => item.label)
+                            .join(", ")}
                     </TableCell>
                     <TableCell>{position.navigationItems
                       .map((id) => formatPositionNavigationItem(position, id))
@@ -13240,7 +13227,11 @@ function AdminAccountsWorkspace({
                               navigationItems: [...emptyAdminPositionForm.navigationItems],
                               displayName: current.displayName,
                             }
-                          : readPositionFormAccess(source)),
+                          : {
+                              ...readPositionFormAccess(source),
+                              // Админские разделы переносит только главный администратор.
+                              ...(canAssignAdminNavigation ? {} : { adminNavigationItems: [] }),
+                            }),
                       }));
                     }}
                   >
@@ -13253,7 +13244,10 @@ function AdminAccountsWorkspace({
                         </option>
                       ))}
                   </select>
-                  <small>Вкладки и уровни можно изменить после копирования. Права админа не копируются.</small>
+                  <small>
+                    Вкладки и уровни можно изменить после копирования.
+                    {canAssignAdminNavigation ? " Права администратора тоже копируются." : " Права администратора не копируются."}
+                  </small>
                 </label>
               ) : null}
               <fieldset className="admin-account-navigation-fieldset">
@@ -13315,6 +13309,39 @@ function AdminAccountsWorkspace({
                   </div>
                 </div>
               </fieldset>
+              {canAssignAdminNavigation ? (
+                <fieldset className="admin-account-navigation-fieldset admin-position-admin-rights">
+                  <legend>Права администратора</legend>
+                  <p className="admin-position-admin-rights-note">
+                    Выдаёт только главный администратор. Должность с любым разделом и её
+                    аккаунты становятся защищёнными: другие администраторы не смогут их менять.
+                  </p>
+                  <div className="admin-account-navigation-grid">
+                    {applyNavigationLabels(navigationItemsByAccountType.admin, navigationLabels)
+                      .map((item) => (
+                        <div key={item.id} className="admin-account-navigation-row">
+                          <label className="admin-account-navigation-option">
+                            <input
+                              type="checkbox"
+                              disabled={isSubmitting}
+                              checked={positionForm.adminNavigationItems.includes(item.id)}
+                              onChange={(event) => {
+                                const isChecked = event.currentTarget.checked;
+                                setPositionForm((current) => ({
+                                  ...current,
+                                  adminNavigationItems: isChecked
+                                    ? [...current.adminNavigationItems, item.id]
+                                    : current.adminNavigationItems.filter((id) => id !== item.id),
+                                }));
+                              }}
+                            />
+                            <span>{formatNavigationItemLabel(item)}</span>
+                          </label>
+                        </div>
+                      ))}
+                  </div>
+                </fieldset>
+              ) : null}
               <div className="form-actions">
                 <button className="primary-button" type="submit" disabled={isSubmitting}>
                   {isSubmitting ? (

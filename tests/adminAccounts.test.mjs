@@ -14,7 +14,7 @@ import {
   setAdminAccountPosition,
   setAdminAccountLoginEnabled,
   setAdminAccountProtected,
-  setAdminPositionProtected,
+  setAdminPositionAdminNavigation,
   setAdminPositionNavigationAccess,
   setAdminAccountNavigation,
   updateAdminPosition,
@@ -436,29 +436,29 @@ test("admin accounts service protects an account", async () => {
   assert.deepEqual(JSON.parse(calls[0].init.body), { isProtected: true });
 });
 
-test("admin positions service protects a selected position", async () => {
+test("admin positions service sends the chosen admin sections of a position", async () => {
   const calls = [];
   globalThis.fetch = async (url, init) => {
     calls.push({ url: String(url), init });
-    return jsonResponse({ id: "position-id", isProtected: true });
+    return jsonResponse({ id: "position-id", adminNavigationItems: ["admin.accounts", "admin.database"] });
   };
 
-  const result = await setAdminPositionProtected(
-    { id: "position-id", isProtected: true },
+  const result = await setAdminPositionAdminNavigation(
+    { id: "position-id", adminNavigationItems: ["admin.database", "admin.accounts"] },
     { baseUrl: "http://api.test" },
   );
 
   assert.deepEqual(result, {
     status: "ready",
     id: "position-id",
-    isProtected: true,
+    adminNavigationItems: ["admin.accounts", "admin.database"],
   });
   assert.equal(
     calls[0].url,
     "http://api.test/api/admin/positions/position-id/protection",
   );
   assert.equal(calls[0].init.method, "PATCH");
-  assert.deepEqual(JSON.parse(calls[0].init.body), { isProtected: true });
+  assert.deepEqual(JSON.parse(calls[0].init.body), { adminNavigationItems: ["admin.database", "admin.accounts"] });
 });
 
 test("admin accounts service assigns a new position to an existing access", async () => {

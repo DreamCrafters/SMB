@@ -61,6 +61,7 @@ const migrationsAfterRefractoryWagonLifecycle = [
   "098_assignments_tab_for_registry_tabs",
   "099_refractory_quality_sample_registration_link",
   "100_auto_transmit_pending_sample_registrations",
+  "101_position_admin_navigation_items",
 ] as const;
 
 test("laboratory migration creates results storage and the system position", async () => {

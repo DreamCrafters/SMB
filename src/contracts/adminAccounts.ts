@@ -71,6 +71,8 @@ export type AdminPositionSummary = {
   showOverviewVisitors: boolean;
   isProtected: boolean;
   hasAdminRights: boolean;
+  /** Админские разделы, выданные главным администратором; нет поля — нет разделов. */
+  adminNavigationItems?: AccountNavigationItem[];
   usageCount: number;
   createdAt: string;
 };
@@ -100,13 +102,14 @@ export type SetAdminPositionNavigationAccessRequest = {
   accessLevel?: BoardAssignmentAccess | RailwayWagonAccess | AssignmentInboxAccess | CollegiumInitiativeAccess;
 };
 
-export type SetAdminPositionProtectedRequest = {
+/** Набор админских разделов должности; меняет только главный администратор. */
+export type SetAdminPositionAdminNavigationRequest = {
   id: AccountPosition;
-  isProtected: boolean;
+  adminNavigationItems: AccountNavigationItem[];
 };
 
-export type SetAdminPositionProtectedResponse =
-  SetAdminPositionProtectedRequest;
+export type SetAdminPositionAdminNavigationResponse =
+  SetAdminPositionAdminNavigationRequest;
 
 export type SetAdminAccountNavigationRequest = {
   accessId: string;
