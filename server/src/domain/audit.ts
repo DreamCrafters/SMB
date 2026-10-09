@@ -10,6 +10,7 @@ import {
   type AuditEventOutcome,
   type AuditTargetType,
 } from "../contracts/audit.js";
+import { readSectionNavigationItems } from "../contracts/directorAssignments.js";
 
 export {
   auditEventActions,
@@ -205,9 +206,12 @@ export function canProfileViewAuditScreen(
 ) {
   const requiredNavigation = requiredNavigationByScreenId.get(screen.id);
 
+  // Registry tabs open «Поручения» without the tab itself; their own screens stay
+  // readable for clients that still record them.
   if (
     requiredNavigation !== undefined &&
-    profile.activeAccess.navigationItems.includes(requiredNavigation)
+    (profile.activeAccess.navigationItems.includes(requiredNavigation) ||
+      readSectionNavigationItems(profile.activeAccess.navigationItems).includes(requiredNavigation))
   ) {
     return true;
   }

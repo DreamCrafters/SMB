@@ -83,7 +83,7 @@ export async function downloadDirectorAssignmentsPdf(registryId: AssignmentRegis
   downloadBlob(blob, mode === "register" ? "Журнал поручений.pdf" : `Поручение ${entries[0].number}.pdf`);
 }
 
-/** Read-only part of a card shared by the registry tab and «Поручения». */
+/** Read-only part of a card shared by the registry sub-tabs and «Поручения мне». */
 function DirectorAssignmentCardBody({ registryId, assignment }: { registryId: AssignmentRegistryId; assignment: DirectorAssignment }) {
   const columns = registryColumns(assignmentRegistries[registryId]);
   return <>
@@ -178,10 +178,10 @@ export function DirectorAssignmentExecutionCard({ registryId, assignment, canExe
   </section>;
 }
 
-/** Registry tab: sending and control only. Own assignments are executed in «Поручения». */
 /**
- * Задача 131: the registry tab only creates assignments (`create`); the register,
- * review queue, decisions, edits, history and PDF live in «Поручения» (`control`).
+ * «Поручения → Создание» only creates assignments (`create`); the register, review
+ * queue, decisions, edits, history and PDF live in «Поручения → Просмотр» (`control`).
+ * Own assignments are executed in «Поручения мне».
  */
 export type DirectorAssignmentsMode = "create" | "control";
 
@@ -261,7 +261,7 @@ export function DirectorAssignmentsWorkspace({ onShowToast, registryId = "direct
   const canManage = data.permissions.canManage;
   const isCreateMode = mode === "create";
   // Same decision rule as the board: only a controller decides, and only on a submitted result.
-  // The create tab lists the register read-only: decisions and edits live in «Поручения».
+  // «Создание» lists the register read-only: decisions and edits live in «Просмотр».
   const canControl = canManage && !isCreateMode;
   const canDecideSelected = !history && canControl && selected?.status === "under_review";
   const rows = history ? history.map(item => item.assignment) : data.assignments;
@@ -274,10 +274,10 @@ export function DirectorAssignmentsWorkspace({ onShowToast, registryId = "direct
   });
   const visibleColumns = showAllColumns ? columns : defaultColumns;
   return <section ref={workspaceRef} className="board-assignments-workspace director-assignments">
-    <header className="director-assignment-heading"><div><span className="eyebrow">{isCreateMode ? "Создание поручений" : "Контроль исполнения"}</span><h2>{registry.title}</h2>{!isCreateMode && <p>Проверяйте результат исполнения, принимайте работу или возвращайте её на доработку. Новые поручения создаются во вкладке «{registry.title}».</p>}</div></header>
+    <header className="director-assignment-heading"><div><span className="eyebrow">{isCreateMode ? "Создание поручений" : "Контроль исполнения"}</span><h2>{registry.title}</h2>{!isCreateMode && <p>Проверяйте результат исполнения, принимайте работу или возвращайте её на доработку. Новые поручения создаются во вкладке «Создание».</p>}</div></header>
     {error && <p role="alert">{error}</p>}
     {isCreateMode && !history && <AssignmentCreateOverview canCreate={canManage} count={visible.length}
-      text="Поставьте задачу сотруднику и укажите срок. Принимать и править поручения можно во вкладке «Поручения»."
+      text="Поставьте задачу сотруднику и укажите срок. Принимать и править поручения можно во вкладке «Просмотр»."
       onCreate={() => { setSelected(undefined); setForm(createDirectorAssignmentInput(data.today, registryId)); setComment(""); setContentOpenCount(count => count + 1); }} />}
     {canManage && <div className="form-actions director-assignment-actions">
       <button type="button" onClick={() => { setHistory(null); setSelected(undefined); setForm(undefined); }}>Текущие поручения</button>

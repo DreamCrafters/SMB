@@ -1,6 +1,6 @@
 /**
- * Задача 131: the top of every creation tab (board, director, collegium): one
- * create button above the register with statuses.
+ * The top of every «Создание» sub-tab (board, director, collegium): one create
+ * button above the register with statuses.
  */
 export function AssignmentCreateOverview({ canCreate, count, text, onCreate }: {
   canCreate: boolean;

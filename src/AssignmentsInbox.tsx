@@ -207,6 +207,8 @@ export function AssignmentsInboxWorkspace({ profile, onShowToast }: { profile: S
 }
 
 export type AssignmentsSectionId = "mine" | "director" | "collegium" | "board";
+export type AssignmentCreateSectionId = Exclude<AssignmentsSectionId, "mine">;
+type AssignmentsMode = "view" | "create";
 
 const sectionLabels: Record<AssignmentsSectionId, string> = {
   mine: "Поручения мне",
@@ -214,14 +216,17 @@ const sectionLabels: Record<AssignmentsSectionId, string> = {
   collegium: "Поручения Коллегии",
   board: "Поручения Совета директоров",
 };
+const modeLabels: Record<AssignmentsMode, string> = { view: "Просмотр", create: "Создание" };
+
+const hasCapability = (profile: ServerUserProfile, capability: string) => profile.activeAccess.capabilities.includes(capability as never);
 
 /**
- * Sub-tabs of «Поручения» the profile may open. Capabilities only pick the views;
+ * «Просмотр» sub-tabs the profile may open. Capabilities only pick the views;
  * every registry API re-checks access. Board execution alone narrows the board
  * register to active assignments, which «Поручения мне» already lists.
  */
 export function readAssignmentsSections(profile: ServerUserProfile): AssignmentsSectionId[] {
-  const has = (capability: string) => profile.activeAccess.capabilities.includes(capability as never);
+  const has = (capability: string) => hasCapability(profile, capability);
   const executorOnly = has("business.execute_board_assignments") && !has("business.create_board_assignments") && !has("business.review_board_assignments");
   return [
     ...(assignmentInboxSources.some(source => has(assignmentInboxSourceCapabilities[source][1])) ? ["mine" as const] : []),
@@ -231,19 +236,57 @@ export function readAssignmentsSections(profile: ServerUserProfile): Assignments
   ];
 }
 
-/** «Поручения»: one tab to view all assignments — own ones and every register the account controls. */
+/** «Создание» sub-tabs: registries the profile may send to. Viewing the board register alone stays in «Просмотр». */
+export function readAssignmentCreateSections(profile: ServerUserProfile): AssignmentCreateSectionId[] {
+  const has = (capability: string) => hasCapability(profile, capability);
+  return [
+    ...(has(assignmentRegistries.director.manageCapability) ? ["director" as const] : []),
+    ...(has(assignmentRegistries.collegium.manageCapability) ? ["collegium" as const] : []),
+    ...(has("business.create_board_assignments") ? ["board" as const] : []),
+  ];
+}
+
+function SectionTabs<Id extends string>({ ids, active, labels, label, className, onChange }: {
+  ids: readonly Id[]; active: Id; labels: Record<Id, string>; label: string; className: string; onChange: (id: Id) => void;
+}) {
+  return <div className={className} role="tablist" aria-label={label}>
+    {ids.map(id => <button key={id} type="button" role="tab" aria-selected={active === id} className={active === id ? "is-active" : undefined} onClick={() => onChange(id)}>{labels[id]}</button>)}
+  </div>;
+}
+
+/**
+ * «Поручения»: «Просмотр» for everyone with the section — own assignments and every
+ * register the account controls — and «Создание» only where the account may send.
+ */
 export function AssignmentsSection({ profile, onShowToast, requestedSection }: { profile: ServerUserProfile; onShowToast: ShowToast; requestedSection?: AssignmentsSectionId }) {
-  const sections = readAssignmentsSections(profile);
-  const [chosen, setChosen] = useState<AssignmentsSectionId | undefined>(requestedSection);
-  useEffect(() => { if (requestedSection) setChosen(requestedSection); }, [requestedSection]);
-  const section = chosen !== undefined && sections.includes(chosen) ? chosen : sections[0];
-  if (section === undefined) return <section className="workspace-panel"><p className="director-empty">Для должности не выбраны реестры поручений.</p></section>;
+  const viewSections = readAssignmentsSections(profile);
+  const createSections = readAssignmentCreateSections(profile);
+  const [chosenMode, setChosenMode] = useState<AssignmentsMode>("view");
+  const [chosenView, setChosenView] = useState<AssignmentsSectionId | undefined>(requestedSection);
+  const [chosenCreate, setChosenCreate] = useState<AssignmentCreateSectionId>();
+  useEffect(() => {
+    if (!requestedSection) return;
+    setChosenMode("view");
+    setChosenView(requestedSection);
+  }, [requestedSection]);
+  const mode = chosenMode === "create" && createSections.length ? "create" : "view";
+  const viewSection = chosenView !== undefined && viewSections.includes(chosenView) ? chosenView : viewSections[0];
+  const createSection = chosenCreate !== undefined && createSections.includes(chosenCreate) ? chosenCreate : createSections[0];
+  const empty = <section className="workspace-panel"><p className="director-empty">Для должности не выбраны реестры поручений.</p></section>;
   return <section className="assignments-section">
-    {sections.length > 1 && <div className="collegium-section-tabs assignments-section-tabs" role="tablist" aria-label="Разделы поручений">
-      {sections.map(id => <button key={id} type="button" role="tab" aria-selected={section === id} className={section === id ? "is-active" : undefined} onClick={() => setChosen(id)}>{sectionLabels[id]}</button>)}
-    </div>}
-    {section === "mine" ? <AssignmentsInboxWorkspace profile={profile} onShowToast={onShowToast} />
-      : section === "board" ? <BoardAssignmentsWorkspace key="board" onShowToast={onShowToast} />
-        : <DirectorAssignmentsWorkspace key={section} registryId={section} onShowToast={onShowToast} />}
+    {createSections.length > 0 && <SectionTabs ids={["view", "create"] as const} active={mode} labels={modeLabels} label="Поручения"
+      className="admin-accounts-tabs assignments-mode-tabs" onChange={setChosenMode} />}
+    {mode === "create" && createSection !== undefined ? <>
+      {createSections.length > 1 && <SectionTabs ids={createSections} active={createSection} labels={sectionLabels} label="Создание поручений"
+        className="collegium-section-tabs assignments-section-tabs" onChange={setChosenCreate} />}
+      {createSection === "board" ? <BoardAssignmentsWorkspace key="create-board" mode="create" onShowToast={onShowToast} />
+        : <DirectorAssignmentsWorkspace key={`create-${createSection}`} registryId={createSection} mode="create" onShowToast={onShowToast} />}
+    </> : viewSection === undefined ? empty : <>
+      {viewSections.length > 1 && <SectionTabs ids={viewSections} active={viewSection} labels={sectionLabels} label="Просмотр поручений"
+        className="collegium-section-tabs assignments-section-tabs" onChange={setChosenView} />}
+      {viewSection === "mine" ? <AssignmentsInboxWorkspace profile={profile} onShowToast={onShowToast} />
+        : viewSection === "board" ? <BoardAssignmentsWorkspace key="board" onShowToast={onShowToast} />
+          : <DirectorAssignmentsWorkspace key={viewSection} registryId={viewSection} onShowToast={onShowToast} />}
+    </>}
   </section>;
 }

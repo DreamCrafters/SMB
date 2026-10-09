@@ -3,6 +3,7 @@ import type {
   AccountNavigationItem,
   ServerUserProfile,
 } from "../contracts";
+import { readSectionNavigationItems } from "../../server/src/contracts/directorAssignments.js";
 
 export function hasCapability(
   profile: ServerUserProfile,
@@ -57,16 +58,19 @@ export function resolveAllowedWorkspaceKind(
   return hasAdminNavigation ? "admin" : undefined;
 }
 
+/** Screens follow the menu sections, so registry rights open «Поручения». */
 export function resolveAllowedNavigationTab<Tab extends string>(
   requestedTab: Tab,
   navigationByTab: Readonly<Record<Tab, AccountNavigationItem>>,
   allowedNavigationItems: readonly AccountNavigationItem[],
 ): Tab | undefined {
-  if (allowedNavigationItems.includes(navigationByTab[requestedTab])) {
+  const sections = readSectionNavigationItems(allowedNavigationItems);
+
+  if (sections.includes(navigationByTab[requestedTab])) {
     return requestedTab;
   }
 
   return (Object.keys(navigationByTab) as Tab[]).find((tab) =>
-    allowedNavigationItems.includes(navigationByTab[tab]),
+    sections.includes(navigationByTab[tab]),
   );
 }

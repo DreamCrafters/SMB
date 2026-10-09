@@ -118,8 +118,8 @@ type CompletionDetailState =
   | { status: "error"; message: string };
 
 /**
- * Задача 131: the board tab only creates assignments (`create`); the register,
- * review queue, decisions, edits, history and PDF live in «Поручения» (`control`).
+ * «Поручения → Создание» only creates assignments (`create`); the register, review
+ * queue, decisions, edits, history and PDF live in «Поручения → Просмотр» (`control`).
  */
 export function BoardAssignmentsWorkspace({
   onShowToast,
@@ -381,7 +381,7 @@ export function BoardAssignmentsWorkspace({
       onShowToast(
         "Поручение создано",
         mode === "create"
-          ? `Поля сохранены, но не все документы загружены: ${documentError} Добавьте их через редактирование во вкладке «Поручения».`
+          ? `Поля сохранены, но не все документы загружены: ${documentError} Добавьте их через редактирование во вкладке «Просмотр».`
           : `Поля сохранены, но не все документы загружены: ${documentError} Добавьте их через редактирование.`,
         "warning",
       );
@@ -618,7 +618,7 @@ export function BoardAssignmentsWorkspace({
   ) : null;
 
   const isCreateMode = mode === "create";
-  // The create tab lists the register read-only: decisions and edits live in «Поручения».
+  // «Создание» lists the register read-only: decisions and edits live in «Просмотр».
   const detailPermissions = isCreateMode
     ? { ...permissions, canCreate: false, canExecute: false, canReview: false }
     : { ...permissions, canExecute: false };
@@ -688,7 +688,7 @@ export function BoardAssignmentsWorkspace({
         <AssignmentCreateOverview
           canCreate={canCreate}
           count={visibleAssignments.length}
-          text="Зафиксируйте решение Совета директоров, срок и ответственных. Принимать и править поручения можно во вкладке «Поручения»."
+          text="Зафиксируйте решение Совета директоров, срок и ответственных. Принимать и править поручения можно во вкладке «Просмотр»."
           onCreate={openCreateDialog}
         />
       ) : accessMode === "create" ? (
@@ -701,7 +701,7 @@ export function BoardAssignmentsWorkspace({
             <h2>Поручения Совета директоров</h2>
             <p>
               Реестр поручений Совета директоров. Новые поручения создаются во
-              вкладке «Поручения Совета директоров».
+              вкладке «Создание».
             </p>
           </div>
           <div className="board-assignment-create-count">
@@ -1153,7 +1153,7 @@ export function BoardAssignmentExecutionCard({ assignmentId, isOverdue, onClose,
       isOverdue={isOverdue}
       isMaterialOpening={isMaterialOpening}
       isSaving={isSaving}
-      // «Поручения» only executes: creating and reviewing stay on the board tab.
+      // «Поручения мне» only executes: creating and reviewing stay in the board sub-tabs.
       permissions={{ ...permissions, canCreate: false, canReview: false }}
       onCommentChange={setActionComment}
       onCancel={onClose}

@@ -1,7 +1,7 @@
 import { AssignmentInboxSourcePicker } from "./AssignmentInboxSourcePicker";
 import { RowDragHandle } from "./RowDragHandle";
 import type { AssignmentsSectionId } from "./AssignmentsInbox";
-import { assignmentInboxSourceOptions, type AssignmentInboxAccess } from "../server/src/contracts/directorAssignments.js";
+import { assignmentInboxSourceOptions, hasAssignmentsSection, isAssignmentRegistryNavigationItem, readSectionNavigationItems, type AssignmentInboxAccess } from "../server/src/contracts/directorAssignments.js";
 import { WorkspaceBoundary } from "./WorkspaceBoundary";
 import { TableLayoutProvider } from "./TableLayoutProvider";
 import { RailwayWagonAccessPicker } from "./RailwayWagonAccessPicker";
@@ -287,9 +287,6 @@ import {
 } from "./services/refractoryReports";
 import { requestLoginNotifications } from "./services/notificationSettings";
 
-const DirectorAssignmentsWorkspace = lazy(() =>
-  import("./DirectorAssignments").then((module) => ({ default: module.DirectorAssignmentsWorkspace })),
-);
 const AssignmentsSection = lazy(() =>
   import("./AssignmentsInbox").then((module) => ({ default: module.AssignmentsSection })),
 );
@@ -301,9 +298,6 @@ const LaboratoryResultsWorkspace = lazy(() =>
 );
 const LaboratoryReviewWorkspace = lazy(() =>
   import("./LaboratoryReview").then((module) => ({ default: module.LaboratoryReviewWorkspace })),
-);
-const BoardAssignmentsWorkspace = lazy(() =>
-  import("./BoardAssignments").then((module) => ({ default: module.BoardAssignmentsWorkspace })),
 );
 const Warehouse1cWorkspace = lazy(() =>
   import("./Warehouse1c").then((module) => ({ default: module.Warehouse1cWorkspace })),
@@ -330,11 +324,8 @@ type BusinessTab =
   | "laboratory_results"
   | "laboratory_review"
   | "assignments"
-  | "director_assignments"
-  | "collegium_assignments"
   | "collegium_initiatives"
   | "personnel"
-  | "board_assignments"
   | "warehouse_1c"
   | "railway_wagons"
   | "settings"
@@ -356,11 +347,8 @@ const navigationByBusinessTab: Record<BusinessTab, AccountNavigationItem> = {
   laboratory_results: "business.laboratory_results",
   laboratory_review: "business.laboratory_review",
   assignments: "business.assignments",
-  director_assignments: "business.director_assignments",
-  collegium_assignments: "business.collegium_assignments",
   collegium_initiatives: "business.collegium_initiatives",
   personnel: "business.personnel",
-  board_assignments: "business.board_assignments",
   warehouse_1c: "business.warehouse_1c",
   railway_wagons: "business.railway_wagons",
   settings: "business.settings",
@@ -601,11 +589,13 @@ function buildVisibleNavigationItems(
     navigationOrder.map((item, index) => [item, index]),
   );
 
+  const sections = readSectionNavigationItems(allowedNavigationItems);
+
   return applyNavigationLabels(
     [...nonAdminNavigationItems, ...navigationItemsByAccountType.admin],
     navigationLabels,
   )
-    .filter((item) => allowedNavigationItems.includes(item.id))
+    .filter((item) => sections.includes(item.id))
     .sort(
       (left, right) =>
         (orderById.get(left.id) ?? Number.MAX_SAFE_INTEGER) -
@@ -675,12 +665,8 @@ function getBusinessTabForNavigationItem(item: NavigationItem): BusinessTab | un
     case "business.laboratory_review":
       return "laboratory_review";
     case "business.assignments": return "assignments";
-    case "business.director_assignments": return "director_assignments";
-    case "business.collegium_assignments": return "collegium_assignments";
     case "business.collegium_initiatives": return "collegium_initiatives";
     case "business.personnel": return "personnel";
-    case "business.board_assignments":
-      return "board_assignments";
     case "business.warehouse_1c":
       return "warehouse_1c";
     case "business.railway_wagons":
@@ -3231,20 +3217,10 @@ function RoleWorkspace({
       />
     );
   }
+  // Viewing and creating every registry live in «Поручения»; registry tabs only carry the rights.
   if (effectiveOwnerTab === "assignments") return <AssignmentsSection profile={profile} onShowToast={onShowToast} requestedSection={requestedAssignmentsSection} />;
-  // Задача 131: registry tabs only create; viewing and control live in «Поручения».
-  if (effectiveOwnerTab === "director_assignments") return <DirectorAssignmentsWorkspace key="director" registryId="director" mode="create" onShowToast={onShowToast} />;
-  if (effectiveOwnerTab === "collegium_assignments") return <DirectorAssignmentsWorkspace key="collegium" registryId="collegium" mode="create" onShowToast={onShowToast} />;
   if (effectiveOwnerTab === "collegium_initiatives") return <CollegiumInitiativesWorkspace profile={profile} onShowToast={onShowToast} />;
   if (effectiveOwnerTab === "personnel") return <PersonnelWorkspace onShowToast={onShowToast} />;
-  if (effectiveOwnerTab === "board_assignments") {
-    return (
-      <BoardAssignmentsWorkspace
-        mode="create"
-        onShowToast={onShowToast}
-      />
-    );
-  }
   if (effectiveOwnerTab === "warehouse_1c") {
     return <Warehouse1cWorkspace />;
   }
@@ -3307,8 +3283,8 @@ function RoleWorkspace({
       onDispatcherFeedFiltersChange={onDispatcherFeedFiltersChange}
       onNavigateToDispatcherGroup={onOverviewNavigateToDispatcherGroup}
       onNavigateToLaboratoryReview={onOverviewNavigateToLaboratoryReview}
-      // The tiles open the register inside «Поручения», so they need that tab.
-      onNavigateToAssignments={profile.activeAccess.navigationItems.includes("business.assignments")
+      // The tiles open the register inside «Поручения», so they need that section.
+      onNavigateToAssignments={hasAssignmentsSection(profile.activeAccess.navigationItems)
         ? onOverviewNavigateToAssignments
         : undefined}
       canViewVisitors={hasCapability(
@@ -9058,7 +9034,11 @@ function NavigationOrderWorkspace({
                       />
                     </label>
                     <small>
-                      {id.startsWith("admin.") ? "Административная" : "Рабочая"}
+                      {id.startsWith("admin.")
+                        ? "Административная"
+                        : isAssignmentRegistryNavigationItem(id)
+                          ? "Права внутри «Поручений», в меню не показывается"
+                          : "Рабочая"}
                       {" · "}
                       {item.description}
                       {" · "}
@@ -9581,10 +9561,11 @@ function AdminAccountPreviewWorkspace({
           aria-labelledby="admin-preview-tab-navigation"
         >
           <div className="admin-account-switcher" aria-label="Вкладки">
+            {/* Права реестров поручений — не пункты меню: их просмотр и создание видны в «Поручениях». */}
             {applyNavigationLabels(
               nonAdminNavigationItems,
               navigationLabels,
-            ).map((navigationItem) => (
+            ).filter((navigationItem) => !isAssignmentRegistryNavigationItem(navigationItem.id)).map((navigationItem) => (
               <AdminAccountPreviewButton
                 account={buildAdminPreviewAccountForNavigationItem(navigationItem)}
                 description={navigationItem.description}
@@ -13467,14 +13448,15 @@ function AdminAccountsWorkspace({
             selectedPositionNavigationItem === "business.collegium_assignments" ||
             selectedPositionNavigationItem === "business.board_assignments" ? (
               <p className="admin-position-navigation-access-hint">
-                Вкладка реестра даёт только создание поручений. Просмотр,
-                приёмка и правка — во вкладке «Поручения»: включите её этим
-                должностям отдельно.
+                Отдельного пункта меню у реестра нет: его права работают в
+                разделе «Поручения» — создание во вкладке «Создание», приёмка и
+                правка во вкладке «Просмотр». Раздел появляется в меню сам.
               </p>
             ) : selectedPositionNavigationItem === "business.assignments" ? (
               <p className="admin-position-navigation-access-hint">
-                Вкладка показывает реестры, которые должность контролирует.
-                Реестры получения добавляют подраздел «Поручения мне».
+                «Просмотр» показывает реестры, которые должность контролирует;
+                реестры получения добавляют «Поручения мне». «Создание» видно
+                должностям с правом создания в реестре ГД, Коллегии или СД.
               </p>
             ) : null}
             <div className="admin-db-table-scroll admin-position-navigation-access-table-scroll">

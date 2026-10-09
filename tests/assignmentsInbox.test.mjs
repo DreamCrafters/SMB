@@ -362,7 +362,7 @@ function restoreDomGlobals(previous) {
   }
 }
 
-test("«Поручения» opens own assignments and every register the profile controls (задача 131)", async () => {
+test("«Поручения → Просмотр» opens own assignments and every register the profile controls", async () => {
   const { readAssignmentsSections } = await vite.ssrLoadModule("/src/AssignmentsInbox.tsx");
   const sections = (...capabilities) => readAssignmentsSections({ activeAccess: { capabilities } });
   assert.deepEqual(sections(), []);
@@ -373,4 +373,82 @@ test("«Поручения» opens own assignments and every register the profil
   assert.deepEqual(sections("business.view_board_assignments", "business.execute_board_assignments"), ["mine"]);
   assert.deepEqual(sections("business.view_board_assignments"), ["board"]);
   assert.deepEqual(sections("business.view_board_assignments", "business.execute_board_assignments", "business.review_board_assignments"), ["mine", "board"]);
+});
+
+test("«Поручения → Создание» lists only the registries the profile may send to", async () => {
+  const { readAssignmentCreateSections } = await vite.ssrLoadModule("/src/AssignmentsInbox.tsx");
+  const sections = (...capabilities) => readAssignmentCreateSections({ activeAccess: { capabilities } });
+  assert.deepEqual(sections(), []);
+  // Receiving and viewing alone never open creation.
+  assert.deepEqual(sections("business.view_director_assignments", "business.execute_director_assignments", "business.view_board_assignments", "business.execute_board_assignments"), []);
+  assert.deepEqual(sections("business.view_board_assignments"), []);
+  assert.deepEqual(sections("business.view_board_assignments", "business.create_board_assignments"), ["board"]);
+  assert.deepEqual(sections("business.view_board_assignments", "business.create_board_assignments", "business.review_board_assignments",
+    "business.view_collegium_assignments", "business.manage_collegium_assignments",
+    "business.view_director_assignments", "business.manage_director_assignments"), ["director", "collegium", "board"]);
+});
+
+test("«Поручения» shows «Создание» next to «Просмотр» only to senders and returns to «Просмотр» from the Overview", async () => {
+  const dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>', { url: "http://127.0.0.1:5173/" });
+  const previousGlobals = captureDomGlobals();
+  const previousFetch = globalThis.fetch;
+  installDomGlobals(dom.window);
+  dom.window.HTMLElement.prototype.scrollIntoView = () => {};
+  const React = await import("react");
+  const { createRoot } = await import("react-dom/client");
+  const requests = [];
+  globalThis.fetch = async (input) => {
+    const url = new URL(String(input), "http://127.0.0.1:5173/");
+    requests.push(url.pathname);
+    if (url.pathname === "/api/director-assignments") {
+      return jsonResponse({ assignments: [directorAssignment({ responsibleId: "account:other", responsible: { id: "account:other", fullName: "Сотрудник" } })], ownAssignmentIds: [], executableAssignmentIds: [], employees: [],
+        permissions: { canView: true, canManage: true, canExecute: false, canManagePersonnel: false }, today: "2026-09-15" });
+    }
+    if (url.pathname === "/api/collegium-assignments") {
+      return jsonResponse({ assignments: [], executableAssignmentIds: [], employees: [], permissions: { canView: true, canManage: false, canExecute: true, canManagePersonnel: false }, today: "2026-09-15" });
+    }
+    throw new Error(`Unexpected request: ${url.pathname}`);
+  };
+  const rootElement = dom.window.document.getElementById("root");
+  const root = createRoot(rootElement);
+  const tabs = (label) => Array.from(rootElement.querySelectorAll(`[role="tablist"][aria-label="${label}"] [role="tab"]`), tab => `${tab.getAttribute("aria-selected") === "true" ? "*" : ""}${tab.textContent}`);
+
+  try {
+    const { AssignmentsSection } = await vite.ssrLoadModule("/src/AssignmentsInbox.tsx");
+    const sender = profileWith(["business.view_director_assignments", "business.manage_director_assignments",
+      "business.view_collegium_assignments", "business.execute_collegium_assignments"]);
+    const render = (props) => React.act(async () => root.render(React.createElement(AssignmentsSection, { profile: sender, onShowToast() {}, ...props })));
+    await render({});
+    assert.deepEqual(tabs("Поручения"), ["*Просмотр", "Создание"]);
+    assert.deepEqual(tabs("Просмотр поручений"), ["*Поручения мне", "Поручения генерального директора"]);
+    await waitFor(React, () => /Поручения мне/u.test(rootElement.querySelector(".director-assignment-heading")?.textContent ?? ""));
+
+    await React.act(async () => buttonByText(rootElement, "Создание").click());
+    await waitFor(React, () => rootElement.querySelector(".board-assignment-create-overview") !== null);
+    assert.deepEqual(tabs("Поручения"), ["Просмотр", "*Создание"]);
+    // One registry to send to: no sub-tab row, the creation register opens directly.
+    assert.deepEqual(tabs("Создание поручений"), []);
+    assert.match(rootElement.querySelector(".director-assignment-heading").textContent, /Создание поручений.*Поручения генерального директора/su);
+    assert.ok(buttonByText(rootElement, "Добавить поручение"));
+    assert.equal(requests.at(-1), "/api/director-assignments");
+
+    // An Overview tile asks for a register: the section switches back to «Просмотр».
+    await render({ requestedSection: "director" });
+    assert.deepEqual(tabs("Поручения"), ["*Просмотр", "Создание"]);
+    assert.deepEqual(tabs("Просмотр поручений"), ["Поручения мне", "*Поручения генерального директора"]);
+    await waitFor(React, () => /Контроль исполнения/u.test(rootElement.querySelector(".director-assignment-heading")?.textContent ?? ""));
+
+    // A pure executor views everything but never sees «Создание».
+    await React.act(async () => root.render(React.createElement(AssignmentsSection, {
+      profile: profileWith(["business.view_collegium_assignments", "business.execute_collegium_assignments"]), onShowToast() {},
+    })));
+    assert.deepEqual(tabs("Поручения"), []);
+    assert.equal(Array.from(rootElement.querySelectorAll("button")).some(button => button.textContent === "Создание"), false);
+    await waitFor(React, () => /Поручения мне/u.test(rootElement.querySelector(".director-assignment-heading")?.textContent ?? ""));
+    await React.act(async () => root.unmount());
+  } finally {
+    globalThis.fetch = previousFetch;
+    restoreDomGlobals(previousGlobals);
+    dom.window.close();
+  }
 });

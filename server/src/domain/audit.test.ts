@@ -119,6 +119,19 @@ test("screen views must be available to the active account or its admin preview"
   assert.equal(canProfileViewAuditScreen(admin, adminDatabase), false);
 });
 
+test("registry rights open the «Поручения» screen without the tab itself", () => {
+  const assignments = readAuditScreen("business.assignments");
+  const directorRegistry = readAuditScreen("business.director_assignments");
+  const sender = buildProfile({ navigationItems: ["business.director_assignments"], capabilities: [] });
+  const outsider = buildProfile({ navigationItems: ["business.overview"], capabilities: [] });
+
+  assert.ok(assignments !== undefined);
+  assert.ok(directorRegistry !== undefined);
+  assert.equal(canProfileViewAuditScreen(sender, assignments), true);
+  assert.equal(canProfileViewAuditScreen(sender, directorRegistry), true);
+  assert.equal(canProfileViewAuditScreen(outsider, assignments), false);
+});
+
 function buildProfile({
   navigationItems,
   capabilities,

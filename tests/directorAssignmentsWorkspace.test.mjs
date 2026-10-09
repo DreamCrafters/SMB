@@ -47,7 +47,7 @@ for (const mode of ["send", "send-linked", "send-unlinked", "both"]) {
     };
     try {
       const { DirectorAssignmentsWorkspace } = await vite.ssrLoadModule("/src/DirectorAssignments.tsx");
-      // Задача 131: the registry tab only creates; the register is controlled inside «Поручения».
+      // «Поручения → Создание» only creates; the register is controlled in «Просмотр».
       const workspaceMode = mode === "send" ? "create" : "control";
       await React.act(async () => root.render(React.createElement(DirectorAssignmentsWorkspace, { mode: workspaceMode, onShowToast() {} })));
       assert.match(rootElement.textContent, workspaceMode === "create" ? /Создание поручений/u : /Контроль исполнения/u);
@@ -61,7 +61,7 @@ for (const mode of ["send", "send-linked", "send-unlinked", "both"]) {
         await React.act(async () => [...rootElement.querySelectorAll("button")].find(button => button.textContent === "Добавить поручение").click());
       }
       if (mode === "both") {
-        // Own assignments are executed in «Поручения»: the registry tab shows the whole register only.
+        // Own assignments are executed in «Поручения мне»: the registry sub-tab shows the whole register only.
         const numbers = () => [...rootElement.querySelectorAll("tbody tr")].map(row => row.querySelector("td").textContent);
         assert.equal(rootElement.querySelector(".director-assignment-view-switch"), null);
         assert.deepEqual(numbers(), ["ГД-1", "ГД-2", "ГД-3"]);
@@ -184,7 +184,7 @@ for (const mode of ["send", "send-linked", "send-unlinked", "both"]) {
   });
 }
 
-// Execution moved to «Поручения» (tests/assignmentsInbox.test.mjs); the registry tab only decides.
+// Execution lives in «Поручения мне» (tests/assignmentsInbox.test.mjs); the registry sub-tab only decides.
 for (const canManage of [true]) {
   test(`review cycle ${canManage ? "controller accepts a submitted result" : "executor submits the result for review"} with a comment and revision`, async () => {
     const dom = new JSDOM('<div id="root"></div>', { url: "http://127.0.0.1:5173/" });
@@ -323,7 +323,7 @@ test("collegium workspace uses its own API, title and protocol fields without a 
   }
 });
 
-test("director creation tab lists the register read-only: decisions and edits stay in «Поручения»", async () => {
+test("«Создание» lists the director register read-only: decisions and edits stay in «Просмотр»", async () => {
   const dom = new JSDOM('<div id="root"></div>', { url: "http://127.0.0.1:5173/" });
   const descriptors = new Map(globalNames.map(name => [name, Object.getOwnPropertyDescriptor(globalThis, name)]));
   const oldFetch = globalThis.fetch;

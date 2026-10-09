@@ -2,7 +2,7 @@ import type { BoardAssignmentRecurrence, BoardAssignmentStatus } from "./assignm
 
 /**
  * The «Поручения» tab collects everything the account executes. Each source grants the
- * registry's view and execute rights; sending and control stay on the registry's own tab.
+ * registry's view and execute rights; sending and control come from the registry's own tab.
  */
 export const assignmentInboxNavigationItem = "business.assignments";
 export const assignmentInboxSources = ["director", "collegium", "board"] as const;
@@ -23,6 +23,28 @@ export const assignmentInboxSourceCapabilities = {
 export function isAssignmentInboxAccess(value: unknown): value is AssignmentInboxAccess {
   return value === "none" || (Array.isArray(value) && value.length > 0 && value.length <= assignmentInboxSources.length
     && value.every(source => assignmentInboxSources.includes(source)) && new Set(value).size === value.length);
+}
+
+/**
+ * Registry tabs of a position carry the creation and control rights but are not menu
+ * sections: their work opens inside «Поручения», which any of them brings into the menu.
+ */
+export const assignmentRegistryNavigationItems = ["business.director_assignments", "business.collegium_assignments", "business.board_assignments"] as const;
+
+export function isAssignmentRegistryNavigationItem(item: string) {
+  return (assignmentRegistryNavigationItems as readonly string[]).includes(item);
+}
+
+export function hasAssignmentsSection(navigation: readonly string[]) {
+  return navigation.includes(assignmentInboxNavigationItem) || navigation.some(isAssignmentRegistryNavigationItem);
+}
+
+/** Menu sections of a profile: registry tabs give way to «Поручения». */
+export function readSectionNavigationItems<Item extends string>(navigation: readonly Item[]): Item[] {
+  const sections = navigation.filter(item => !isAssignmentRegistryNavigationItem(item));
+  return hasAssignmentsSection(navigation) && !sections.includes(assignmentInboxNavigationItem as Item)
+    ? [...sections, assignmentInboxNavigationItem as Item]
+    : sections;
 }
 
 /** Sources are read back from the execute capabilities; the view right alone is not a source. */

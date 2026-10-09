@@ -67,11 +67,11 @@ test("board assignment creation offers one-time and recurring schedule choices",
     await waitFor(React, () =>
       rootElement.querySelector(".board-assignment-create-overview") !== null
     );
-    // Задача 131: the create button above the register; decisions live in «Поручения».
+    // «Создание»: the create button above the register; decisions live in «Просмотр».
     assert.match(
       rootElement.querySelector(".board-assignment-create-overview")
           ?.textContent ?? "",
-      /Создать новое поручение.*«Поручения».*0.*в реестре/su,
+      /Создать новое поручение.*«Просмотр».*0.*в реестре/su,
     );
     assert.ok(rootElement.querySelector(".board-assignment-register"));
     assert.equal(rootElement.querySelector(".board-assignment-review-queue"), null);

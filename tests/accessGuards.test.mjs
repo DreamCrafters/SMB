@@ -94,6 +94,26 @@ test("workspace falls back to the first allowed tab", () => {
   );
 });
 
+test("registry rights open «Поручения» instead of their own screens", () => {
+  const navigationByTab = {
+    overview: "business.overview",
+    assignments: "business.assignments",
+  };
+
+  assert.equal(
+    resolveAllowedNavigationTab("assignments", navigationByTab, ["business.overview", "business.board_assignments"]),
+    "assignments",
+  );
+  assert.equal(
+    resolveAllowedNavigationTab("overview", navigationByTab, ["business.director_assignments"]),
+    "assignments",
+  );
+  assert.equal(
+    resolveAllowedNavigationTab("assignments", navigationByTab, ["business.overview"]),
+    "overview",
+  );
+});
+
 test("hybrid workspace switches between business and admin navigation", () => {
   const hybridNavigation = ["business.overview", "admin.database"];
 
