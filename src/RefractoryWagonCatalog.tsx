@@ -91,7 +91,7 @@ export function RefractoryWagonCatalog({
     setFormMessage("");
     onShowToast(
       "Вагон добавлен",
-      `${result.wagon.number} теперь доступен в журнале «Оборот вагонов».`,
+      `${result.wagon.number} теперь доступен в журнале «Оборот вагонов/Садка».`,
       "success",
     );
   }
@@ -118,7 +118,7 @@ export function RefractoryWagonCatalog({
           </div>
           <p className="laboratory-empty-note">
             Дата садки, марка и остальные поля заполняются исправлением в
-            журнале «Оборот вагонов» после регистрации номера.
+            журнале «Оборот вагонов/Садка» после регистрации номера.
           </p>
         </fieldset>
         <div className="refractory-form-actions">

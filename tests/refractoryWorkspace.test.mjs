@@ -714,7 +714,7 @@ test("refractory workspace opens shift reports and the wagon journal", async () 
     );
     assert.deepEqual(
       wagonJournalButtons,
-      ["Каталог вагонов", "Оборот вагонов", "Обжиг/Сортировка", "Осмотр вагонов"],
+      ["Каталог вагонов", "Оборот вагонов/Садка", "Обжиг/Сортировка", "Осмотр вагонов"],
     );
     const catalogRow = rootElement.querySelector(
       ".refractory-wagon-catalog-table tbody tr",
@@ -733,7 +733,7 @@ test("refractory workspace opens shift reports and the wagon journal", async () 
     );
     const turnoverButton = Array.from(
       rootElement.querySelectorAll(".refractory-wagon-journal-menu button"),
-    ).find((button) => button.textContent?.includes("Оборот вагонов"));
+    ).find((button) => button.textContent?.includes("Оборот вагонов/Садка"));
     assert.ok(turnoverButton);
     await React.act(async () => turnoverButton.click());
     await waitFor(
@@ -1382,7 +1382,7 @@ test("laboratory wagons variant opens only the wagon journals without banks", as
     assert.deepEqual(
       journalButtons.map((button) =>
         button.querySelector(".refractory-report-label")?.textContent),
-      ["Каталог вагонов", "Оборот вагонов", "Обжиг/Сортировка", "Осмотр вагонов"],
+      ["Каталог вагонов", "Оборот вагонов/Садка", "Обжиг/Сортировка", "Осмотр вагонов"],
     );
     assert.equal(journalButtons[0].classList.contains("is-active"), true);
 

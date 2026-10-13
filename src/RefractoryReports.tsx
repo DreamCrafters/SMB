@@ -58,7 +58,7 @@ import { RefractoryWagonJournal } from "./RefractoryWagonJournal";
 /** Раздел `Вагоны` открывает четыре журнала одного жизненного цикла вагона. */
 const wagonJournals = [
   { id: "catalog", label: "Каталог вагонов" },
-  { id: "turnover", label: "Оборот вагонов" },
+  { id: "turnover", label: "Оборот вагонов/Садка" },
   { id: "firing", label: "Обжиг/Сортировка" },
   { id: "inspection", label: "Осмотр вагонов" },
 ] as const;
