@@ -170,6 +170,7 @@ import {
   canManageUsers,
   canSubmitDispatcherForms,
   hasCapability,
+  isAdminNavigationItem,
   resolveAllowedNavigationTab,
   resolveAllowedWorkspaceKind,
   type WorkspaceKind,
@@ -603,6 +604,11 @@ function buildVisibleNavigationItems(
     );
 }
 
+/**
+ * `lockedNavigationItems` — разделы, которые панель показывает, но не открывает:
+ * типовой предпросмотр должности не передаёт её админских разделов, но должен
+ * показать, что они выданы.
+ */
 function buildNavigationItems(
   profile: ServerUserProfile,
   businessTab: BusinessTab,
@@ -610,9 +616,15 @@ function buildNavigationItems(
   workspaceKind: WorkspaceKind,
   navigationOrder: readonly AccountNavigationItem[],
   navigationLabels: NavigationLabels = {},
+  lockedNavigationItems: readonly AccountNavigationItem[] = [],
 ): NavigationItem[] {
+  const onlyLockedItems = new Set(
+    lockedNavigationItems.filter(
+      (item) => !profile.activeAccess.navigationItems.includes(item),
+    ),
+  );
   const navigationItems = buildVisibleNavigationItems(
-    profile.activeAccess.navigationItems,
+    [...profile.activeAccess.navigationItems, ...onlyLockedItems],
     navigationOrder,
     navigationLabels,
   );
@@ -633,6 +645,10 @@ function buildNavigationItems(
 
   return navigationItems
     .map((item) => {
+      if (onlyLockedItems.has(item.id)) {
+        return { ...item, state: "locked" };
+      }
+
       const businessTarget = getBusinessTabForNavigationItem(item);
       const adminTarget = getAdminTabForNavigationItem(item);
       const isActive = effectiveWorkspaceKind === "business"
@@ -2142,6 +2158,13 @@ export default function App() {
           setNavigationOrderRequestVersion((version) => version + 1)
         }
         onAdminTabChange={handleAdminTabNavigation}
+        lockedNavigationItems={
+          // Сервер не передаёт типовому предпросмотру админских прав, но выданные
+          // должности разделы видны в меню неактивными.
+          isAdminPreviewMode && concretePreviewProfile === undefined
+            ? adminViewedAccount?.navigationItems.filter(isAdminNavigationItem)
+            : undefined
+        }
         pendingRefractoryCount={
           pendingRefractoryReports.length
         }
@@ -2771,6 +2794,7 @@ export function SideRail({
   navigationOrderLoadState = { status: "ready" },
   onNavigationOrderRetry = () => undefined,
   onAdminTabChange,
+  lockedNavigationItems = [],
   pendingRefractoryCount,
   returnedRefractoryCount,
   returnedRefractoryShifts,
@@ -2800,6 +2824,7 @@ export function SideRail({
   navigationOrderLoadState?: NavigationOrderLoadState;
   onNavigationOrderRetry?: () => void;
   onAdminTabChange: (tab: AdminTab) => void;
+  lockedNavigationItems?: readonly AccountNavigationItem[];
   pendingRefractoryCount: number;
   returnedRefractoryCount: number;
   returnedRefractoryShifts: readonly ReturnedRefractoryShift[];
@@ -2815,6 +2840,7 @@ export function SideRail({
         workspaceKind,
         navigationOrder,
         navigationLabels,
+        lockedNavigationItems,
       )
     : [];
 
@@ -2986,6 +3012,8 @@ export function SideRail({
           {navigationItems.map((item) => {
             const ownerTarget = getBusinessTabForNavigationItem(item);
             const adminTarget = getAdminTabForNavigationItem(item);
+            const isAdminSection = isAdminNavigationItem(item.id);
+            const isLocked = item.state === "locked";
             const notificationCount =
               item.id === "business.dispatcher_form"
                 ? pendingRefractoryCount
@@ -2995,10 +3023,15 @@ export function SideRail({
 
             return (
               <button
-                className={`nav-item nav-item-${item.state}`}
+                className={`nav-item nav-item-${item.state}${
+                  isAdminSection ? " nav-item-admin" : ""
+                }`}
                 type="button"
                 aria-current={item.state === "active" ? "page" : undefined}
-                disabled={ownerTarget === undefined && adminTarget === undefined}
+                disabled={
+                  isLocked ||
+                  (ownerTarget === undefined && adminTarget === undefined)
+                }
                 key={item.id}
                 onClick={() => {
                   if (ownerTarget !== undefined) {
@@ -3020,7 +3053,12 @@ export function SideRail({
                     </b>
                   ) : null}
                 </span>
-                <small>{item.description}</small>
+                {isAdminSection ? <b className="nav-item-kind">Админ</b> : null}
+                <small>
+                  {isLocked
+                    ? "Открывается только в предпросмотре аккаунта"
+                    : item.description}
+                </small>
                 {item.id === "business.refractory_shop"
                   ? returnedRefractoryShifts.map((shift) => (
                       <small

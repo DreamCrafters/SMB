@@ -124,6 +124,11 @@ test("hybrid position switches between business and admin navigation", async () 
     );
     assert.ok(overviewButton);
     assert.ok(databaseButton);
+    // Админские разделы помечены в меню, рабочие вкладки — нет.
+    assert.ok(databaseButton.classList.contains("nav-item-admin"));
+    assert.equal(databaseButton.querySelector(".nav-item-kind")?.textContent, "Админ");
+    assert.equal(overviewButton.classList.contains("nav-item-admin"), false);
+    assert.equal(overviewButton.querySelector(".nav-item-kind"), null);
     assert.equal(rootElement.querySelectorAll('section[aria-label="Обзор"]').length, 1);
     assertSingleActiveNavigation(rootElement, "Обзор");
 

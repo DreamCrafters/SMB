@@ -13,6 +13,8 @@
   --nav: #344651;
   --nav-strong: #25353f;
   --nav-muted: #dbe3e4;
+  --nav-admin: #e3b866;
+  --nav-admin-text: #f7e2b5;
   --emerald: #21745b;
   --emerald-soft: #dcece4;
   --amber: #9b6718;
@@ -695,7 +697,29 @@ p {
 }
 
 .nav-item-locked {
+  border-style: dashed;
   opacity: 0.72;
+}
+
+/*
+ * Админские разделы отличаются от рабочих вкладок полосой слева и пометкой над
+ * названием: справа от названия она налезала на длинные слова в узком меню.
+ */
+.nav-item-admin {
+  box-shadow: inset 3px 0 0 var(--nav-admin);
+}
+
+.nav-item-admin > .nav-item-kind {
+  order: -1;
+  justify-self: start;
+  padding: 1px 7px;
+  border: 1px solid rgba(247, 226, 181, 0.55);
+  border-radius: 999px;
+  color: var(--nav-admin-text);
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 1.4;
+  text-transform: uppercase;
 }
 
 .rail-note {

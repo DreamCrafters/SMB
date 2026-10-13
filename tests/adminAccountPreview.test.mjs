@@ -79,7 +79,7 @@ test("admin preview separates account types, created accounts, and working tabs"
       }
       if (url.pathname === "/api/admin/positions" && method === "GET") {
         return jsonResponse({
-          positions: [buildPosition()],
+          positions: [buildPosition(), buildDelegatedAdminPosition()],
           canAssignAdminNavigation: true,
           canManageProtectedPositions: true,
         });
@@ -151,7 +151,11 @@ test("admin preview separates account types, created accounts, and working tabs"
     assert.equal(dom.window.sessionStorage.getItem("smb.accountPreviewTarget"), "account:created-access");
     assert.ok(ownReportTargets.includes("account:created-access"));
     assert.match(rootElement.querySelector(".admin-preview-mode-badge").title, /Созданный руководитель/u);
-    await React.act(async () => findButtonContaining(rootElement.querySelector(".side-rail"), "Учётные записи").click());
+    const createdAccountsButton = findNavigationButton(rootElement, "Учётные записи");
+    // Предпросмотр созданного аккаунта открывает его админский раздел.
+    assert.equal(createdAccountsButton?.disabled, false);
+    assert.ok(createdAccountsButton.classList.contains("nav-item-admin"));
+    await React.act(async () => createdAccountsButton.click());
     await waitFor(React, () => rootElement.querySelector('[aria-label="Учётные записи"]') !== null || rootElement.textContent.includes("Создать учётную запись"));
     assert.ok(rootElement.querySelector(".admin-preview-mode-badge"));
     assert.equal(dom.window.sessionStorage.getItem("smb.accountPreviewTarget"), "account:created-access");
@@ -159,6 +163,21 @@ test("admin preview separates account types, created accounts, and working tabs"
     await React.act(async () => findButton(rootElement, "Выйти из превью мода").click());
     await waitFor(React, () => rootElement.querySelector('[role="tablist"][aria-label="Разделы предпросмотра"]') !== null);
     assert.equal(dom.window.sessionStorage.getItem("smb.accountPreviewTarget"), null);
+
+    // Типовой предпросмотр не получает админских прав должности, но выданный
+    // раздел виден в меню неактивным и помеченным.
+    await React.act(async () => findButton(rootElement, "Типы аккаунтов")?.click());
+    await React.act(async () => findButton(rootElement, "Делегированный администратор")?.click());
+    await waitFor(React, () => rootElement.querySelector('[aria-label="Рабочие данные"]') !== null);
+    assert.equal(dom.window.sessionStorage.getItem("smb.accountPreviewTarget"), "position:delegated-admin");
+    const lockedAccountsButton = findNavigationButton(rootElement, "Учётные записи");
+    assert.equal(lockedAccountsButton?.disabled, true);
+    assert.ok(lockedAccountsButton.classList.contains("nav-item-locked"));
+    assert.ok(lockedAccountsButton.classList.contains("nav-item-admin"));
+    assert.match(lockedAccountsButton.textContent, /Открывается только в предпросмотре аккаунта/u);
+    assert.equal(findNavigationButton(rootElement, "Работа")?.disabled, false);
+    await React.act(async () => findButton(rootElement, "Выйти из превью мода").click());
+    await waitFor(React, () => rootElement.querySelector('[role="tablist"][aria-label="Разделы предпросмотра"]') !== null);
 
     await React.act(async () => {
       findButton(rootElement, "Вкладки")?.click();
@@ -274,6 +293,20 @@ function buildPosition() {
   };
 }
 
+function buildDelegatedAdminPosition() {
+  return {
+    ...buildPosition(),
+    id: "delegated-admin",
+    displayName: "Делегированный администратор",
+    navigationItems: ["business.work", "admin.accounts"],
+    capabilities: ["business.view_own_submissions", "platform.manage_users", "platform.manage_access"],
+    isProtected: true,
+    hasAdminRights: true,
+    adminNavigationItems: ["admin.accounts"],
+    usageCount: 0,
+  };
+}
+
 function buildEmptyAuditReport() {
   return {
     events: [],
@@ -291,6 +324,12 @@ function buildEmptyAuditReport() {
 function findButton(rootElement, label) {
   return Array.from(rootElement.querySelectorAll("button")).find(
     (button) => button.textContent?.trim() === label,
+  );
+}
+
+function findNavigationButton(rootElement, label) {
+  return Array.from(rootElement.querySelectorAll(".primary-nav .nav-item")).find(
+    (button) => button.querySelector("span")?.textContent === label,
   );
 }
 

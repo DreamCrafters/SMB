@@ -461,7 +461,7 @@ async function main() {
         const enterPreview = async () => {
           await navigate(`${appUrl}/`);
           const target = previewTargets.get(displayName);
-          if (!(await evaluate(clickByLabel, "rail", "ПредпросмотрАккаунты и рабочие вкладки"))) return false;
+          if (!(await evaluate(clickByLabel, "rail", "ПредпросмотрАдминАккаунты и рабочие вкладки"))) return false;
           await sleep(500);
           if (!(await evaluate(clickByLabel, "tabs", "Созданные аккаунты"))) return false;
           await sleep(500);

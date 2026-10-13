@@ -57,7 +57,8 @@ test("position form edits working tabs while admin rights are managed separately
   );
   assert.match(appSource, /renderPositionAccessControls\(item\.id, hasTab\)/u);
   assert.match(appSource, /readPositionLevelPatch\(item\.id, isChecked, current\)/u);
-  assert.equal(appSource.includes(">Админ<"), false);
+  // Прежний чекбокс «Админ» в форме должности; пометка «Админ» в меню — другое.
+  assert.equal(appSource.includes("<span>Админ</span>"), false);
   assert.equal(appSource.includes("Административные вкладки"), false);
   // Admin sections are a separate group of the form, shown only to the root admin.
   assert.match(appSource, /<TableHeader>Права администратора<\/TableHeader>/u);

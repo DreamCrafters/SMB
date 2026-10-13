@@ -33,6 +33,11 @@ export function canManageUsers(profile: ServerUserProfile) {
 
 export type WorkspaceKind = "business" | "admin";
 
+/** Административный раздел левой панели (в отличие от рабочих вкладок `business.*`). */
+export function isAdminNavigationItem(item: AccountNavigationItem) {
+  return item.startsWith("admin.");
+}
+
 export function resolveAllowedWorkspaceKind(
   requestedKind: WorkspaceKind,
   allowedNavigationItems: readonly AccountNavigationItem[],
