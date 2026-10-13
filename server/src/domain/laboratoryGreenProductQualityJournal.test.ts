@@ -23,6 +23,7 @@ const validSubmission = {
       weight: "3,4",
       mechanicalStrength: "42.5",
       density: "2,11",
+      openPorosity: "18,4",
     },
   ],
   pressOperatorRecommendations: "  Проверить   давление прессования. ",
@@ -90,6 +91,27 @@ test("green product quality submission rejects unknown presses, duplicate wagons
     "Выберите вагоны без повторов.",
     "Проверьте таблицу линейных размеров и показателей качества.",
   ]);
+});
+
+test("green product quality submission requires a numeric open porosity in every measurement", () => {
+  const { openPorosity: _openPorosity, ...withoutPorosity } =
+    validSubmission.measurements[0]!;
+  for (const measurement of [
+    withoutPorosity,
+    { ...validSubmission.measurements[0], openPorosity: "" },
+    { ...validSubmission.measurements[0], openPorosity: "18 %" },
+  ]) {
+    assert.deepEqual(
+      validateLaboratoryGreenProductQualitySubmission({
+        ...validSubmission,
+        measurements: [measurement],
+      }),
+      {
+        ok: false,
+        errors: ["Проверьте таблицу линейных размеров и показателей качества."],
+      },
+    );
+  }
 });
 
 test("green product quality submission keeps an optional source sample registration", () => {

@@ -348,6 +348,7 @@ test("laboratory review filters every journal by date and nomenclature", async (
                 weight: "3,4",
                 mechanicalStrength: "42,5",
                 density: "2,11",
+                openPorosity: "18,4",
               },
             ],
             pressOperatorRecommendations: "Проверить давление.",

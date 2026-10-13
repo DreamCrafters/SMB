@@ -2622,6 +2622,7 @@ test("green product quality journal canonicalizes brands, saves wagon links, cor
         weight: "3,4",
         mechanicalStrength: "42.5",
         density: "2,11",
+        openPorosity: "18,4",
       },
     ],
     pressOperatorRecommendations: "Проверить давление прессования.",
@@ -2822,6 +2823,12 @@ test("green product quality journal canonicalizes brands, saves wagon links, cor
       assert.equal(
         auditEvents[0]?.details?.find((detail) => detail.label === "№№ вагонов")?.value,
         "В-02; В-01",
+      );
+      assert.match(
+        auditEvents[0]?.details?.find(
+          (detail) => detail.label === "Линейные размеры и показатели качества",
+        )?.value ?? "",
+        /Плотность: 2,11, Открытая пористость: 18,4\)$/u,
       );
     },
     dispatcherSubmissions,

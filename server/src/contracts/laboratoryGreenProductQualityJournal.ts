@@ -40,6 +40,7 @@ export type LaboratoryGreenProductQualityMeasurement = {
   weight: string;
   mechanicalStrength: string;
   density: string;
+  openPorosity: string;
 };
 
 export type LaboratoryGreenProductQualitySubmission = {
@@ -114,7 +115,8 @@ export const laboratoryGreenProductQualityGeneralFields = [
 /**
  * Линейные размеры и показатели качества объединены во внутреннюю таблицу
  * замеров (задача 86): строк может быть несколько, `measurementNumber`
- * считается сервером по позиции в массиве.
+ * считается сервером по позиции в массиве. Открытая пористость стоит справа
+ * от плотности (задача 137); записи до неё читаются с пустым значением.
  */
 export const laboratoryGreenProductQualityMeasurementFields = [
   { id: "lengthFirst", label: "Длина 1", kind: "number" },
@@ -126,6 +128,7 @@ export const laboratoryGreenProductQualityMeasurementFields = [
   { id: "weight", label: "Вес", kind: "number" },
   { id: "mechanicalStrength", label: "Механическая прочность", kind: "number" },
   { id: "density", label: "Плотность", kind: "number" },
+  { id: "openPorosity", label: "Открытая пористость", kind: "number" },
 ] as const satisfies readonly {
   id: keyof Omit<LaboratoryGreenProductQualityMeasurement, "measurementNumber">;
   label: string;

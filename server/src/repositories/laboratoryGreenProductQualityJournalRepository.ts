@@ -1,13 +1,15 @@
 import { randomUUID } from "node:crypto";
 import type { RowDataPacket } from "mysql2/promise";
-import type {
-  LaboratoryGreenProductQualityFilters,
-  LaboratoryGreenProductQualityOptions,
-  LaboratoryGreenProductQualityAvailableWagon,
-  LaboratoryGreenProductQualityPressNumber,
-  LaboratoryGreenProductQualityRecord,
-  LaboratoryGreenProductQualitySubmission,
-  LaboratoryGreenProductQualityWagonOption,
+import {
+  laboratoryGreenProductQualityMeasurementFields,
+  type LaboratoryGreenProductQualityFilters,
+  type LaboratoryGreenProductQualityOptions,
+  type LaboratoryGreenProductQualityAvailableWagon,
+  type LaboratoryGreenProductQualityMeasurement,
+  type LaboratoryGreenProductQualityPressNumber,
+  type LaboratoryGreenProductQualityRecord,
+  type LaboratoryGreenProductQualitySubmission,
+  type LaboratoryGreenProductQualityWagonOption,
 } from "../contracts/laboratoryGreenProductQualityJournal.js";
 import {
   isRefractoryWagonAvailableForRawControl,
@@ -534,8 +536,7 @@ function mapJournalRow(
     pieceCount: readOptionalCount(row.piece_count),
     wagonIds: wagons.map((wagon) => wagon.id),
     wagons,
-    measurements: readJson(row.measurements) as
-      LaboratoryGreenProductQualityRecord["measurements"],
+    measurements: readMeasurements(row.measurements),
     pressOperatorRecommendations: row.press_operator_recommendations,
     ...(row.source_sample_registration_id === null
       ? {}
@@ -598,6 +599,18 @@ function readOptionalCount(value: number | string | null | undefined) {
 function readJson(value: unknown): unknown[] {
   if (typeof value === "string") return JSON.parse(value) as unknown[];
   return Array.isArray(value) ? value : [];
+}
+
+/** Строки, сохранённые до появления поля (задача 137), получают его пустым. */
+const emptyMeasurementValues = Object.fromEntries(
+  laboratoryGreenProductQualityMeasurementFields.map((field) => [field.id, ""]),
+);
+
+function readMeasurements(value: unknown): LaboratoryGreenProductQualityMeasurement[] {
+  return readJson(value).map((row) => ({
+    ...emptyMeasurementValues,
+    ...(row as LaboratoryGreenProductQualityMeasurement),
+  }));
 }
 
 async function resolveWagons(

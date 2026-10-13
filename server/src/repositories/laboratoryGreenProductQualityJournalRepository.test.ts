@@ -41,6 +41,7 @@ const record = {
       weight: "3,4",
       mechanicalStrength: "42.5",
       density: "2,11",
+      openPorosity: "18,4",
     },
   ],
   pressOperatorRecommendations: "Проверить давление прессования.",
@@ -309,6 +310,24 @@ test("green product quality repository filters and returns wagon numbers in sele
     200,
   ]);
   assert.deepEqual(queries[1]?.parameters, ["green-quality-1"]);
+});
+
+test("green product quality repository reads rows saved before open porosity with an empty value", async () => {
+  const { openPorosity: _openPorosity, ...legacyMeasurement } = record.measurements[0]!;
+  const pool = {
+    async query(sql: string) {
+      if (/select\s+link\.green_product_quality_id/u.test(sql)) return [[], []];
+      return [[{
+        ...buildJournalRow(),
+        measurements: JSON.stringify([legacyMeasurement]),
+      }], []];
+    },
+  } as unknown as DatabasePool;
+  const repository = createLaboratoryGreenProductQualityJournalRepository(pool);
+
+  const [legacy] = await repository.list();
+
+  assert.deepEqual(legacy?.measurements, [{ ...legacyMeasurement, openPorosity: "" }]);
 });
 
 test("green product quality repository claims a pending sample transmission after checking wagons", async () => {

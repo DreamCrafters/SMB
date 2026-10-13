@@ -209,6 +209,7 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
         weight: "3,4",
         mechanicalStrength: "42,5",
         density: "2,11",
+        openPorosity: "18,4",
       },
     ],
     pressOperatorRecommendations: "Проверить давление прессования.",
@@ -2920,6 +2921,7 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
         "Вес, строка 1": "3,4",
         "Механическая прочность, строка 1": "42,5",
         "Плотность, строка 1": "2,11",
+        "Открытая пористость, строка 1": "18,4",
       })) {
         fillControlByLabel(greenQualityForm, label, value);
       }
@@ -3018,6 +3020,18 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
       greenProductQualitySubmissions[0].measurements[0].lengthSecond,
       "231",
     );
+    // Задача 137: открытая пористость стоит справа от плотности.
+    assert.deepEqual(
+      Array.from(
+        greenQualityForm.querySelectorAll(".raw-material-quality-measurement-table th"),
+        (heading) => heading.textContent,
+      ).slice(-3),
+      ["Плотность", "Открытая пористость", ""],
+    );
+    assert.equal(
+      greenProductQualitySubmissions[0].measurements[0].openPorosity,
+      "18,4",
+    );
     assert.equal(
       greenProductQualitySubmissions[0].setter,
       "Садчик с вагона",
@@ -3044,6 +3058,10 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
     assert.match(
       rootElement.querySelector(".green-product-quality-table").textContent,
       /Длина 1/u,
+    );
+    assert.match(
+      rootElement.querySelector(".green-product-quality-table").textContent,
+      /Плотность.*Открытая пористость.*2,11.*18,4/u,
     );
     assert.match(
       rootElement.querySelector(".green-product-quality-table").textContent,
@@ -3075,6 +3093,10 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
     assert.equal(
       greenProductQualityCorrections[0].pressOperatorRecommendations,
       "Уменьшить давление.",
+    );
+    assert.equal(
+      greenProductQualityCorrections[0].measurements[0].openPorosity,
+      "18,4",
     );
 
     let resolveStaleSamplingLocations;

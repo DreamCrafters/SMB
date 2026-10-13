@@ -49,6 +49,7 @@ type MeasurementRowState = {
   weight: string;
   mechanicalStrength: string;
   density: string;
+  openPorosity: string;
   mirrorSecond: { length: boolean; width: boolean; height: boolean };
 };
 
@@ -796,6 +797,7 @@ function createEmptyMeasurementRow(): MeasurementRowState {
     weight: "",
     mechanicalStrength: "",
     density: "",
+    openPorosity: "",
     mirrorSecond: { length: true, width: true, height: true },
   };
 }
@@ -821,6 +823,7 @@ function measurementRowFromRecord(
     weight: measurement.weight,
     mechanicalStrength: measurement.mechanicalStrength,
     density: measurement.density,
+    openPorosity: measurement.openPorosity,
     mirrorSecond,
   };
 }
@@ -865,6 +868,7 @@ function buildSubmission({
       weight: row.weight.trim(),
       mechanicalStrength: row.mechanicalStrength.trim(),
       density: row.density.trim(),
+      openPorosity: row.openPorosity.trim(),
     }));
 
   if (
