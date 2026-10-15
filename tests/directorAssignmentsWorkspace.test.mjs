@@ -247,6 +247,8 @@ for (const canManage of [true]) {
       await React.act(async () => button(label).click());
       assert.deepEqual(submitted, { action: canManage ? "complete" : "submit_for_review", comment: "Работа выполнена", revision: 3 });
       assert.match(rootElement.querySelector('[role="alert"]').textContent, /уже изменено/u);
+      // A rejected decision is reported next to its buttons, not above the long card.
+      assert.ok(rootElement.querySelector('.board-assignment-decision [role="alert"]'));
       assert.equal(comment.value, "Работа выполнена");
       assert.equal(button(label).disabled, false);
       assert.equal(toasts.length, 0);
@@ -345,6 +347,56 @@ test("«Создание» lists the director register read-only: decisions and 
     assert.ok(rootElement.querySelector(".director-assignment-detail"));
     for (const action of ["Принять исполнение", "Вернуть на доработку", "Редактировать"]) assert.equal(buttons.includes(action), false, action);
     assert.equal(rootElement.querySelector('.director-assignment-documents input[type="file"]'), null);
+  } finally {
+    await React.act(async () => root.unmount());
+    globalThis.fetch = oldFetch;
+    for (const [name, descriptor] of descriptors) {
+      if (descriptor) Object.defineProperty(globalThis, name, descriptor);
+      else delete globalThis[name];
+    }
+    dom.window.close();
+  }
+});
+
+test("a controller responsible for a submitted assignment sees no decision on it: another controller accepts it", async () => {
+  const dom = new JSDOM('<div id="root"></div>', { url: "http://127.0.0.1:5173/" });
+  const descriptors = new Map(globalNames.map(name => [name, Object.getOwnPropertyDescriptor(globalThis, name)]));
+  const oldFetch = globalThis.fetch;
+  for (const name of globalNames) Object.defineProperty(globalThis, name, { value: name === "IS_REACT_ACT_ENVIRONMENT" ? true : dom.window[name], configurable: true, writable: true });
+  dom.window.HTMLElement.prototype.scrollIntoView = () => {};
+  const React = await import("react");
+  const { createRoot } = await import("react-dom/client");
+  const rootElement = document.getElementById("root");
+  const root = createRoot(rootElement);
+  const base = { revision: 4, assignedOn: "2026-10-05", kind: "Поручение", department: "", project: "", coExecutorIds: [], coExecutors: [], recurrence: "once", activeFrom: "2026-10-05", activeTo: "2026-10-05", currentOccurrenceDate: "2026-10-05", urgency: "", importance: "", progress: "", note: "", incomingNumber: "", completedOn: "", status: "under_review", comments: [], documents: [], source: null, sourceBoardAssignmentId: null, postponedUntil: "" };
+  const own = { ...base, id: "own", number: "К-11", summary: "Своё поручение на проверке", responsibleId: "account:me", responsible: { fullName: "Руководитель" } };
+  const foreign = { ...base, id: "foreign", number: "К-7", summary: "Чужое поручение на проверке", responsibleId: "account:other", responsible: { fullName: "Исполнитель" } };
+  const actions = [];
+  globalThis.fetch = async (url, options = {}) => {
+    const path = new URL(String(url), "http://127.0.0.1:5173").pathname;
+    if (path.endsWith("/action")) {
+      actions.push(path);
+      return new Response(JSON.stringify({ error: { message: "Поручение уже изменено. Обновите список." } }), { status: 409 });
+    }
+    assert.equal(path, "/api/collegium-assignments");
+    return new Response(JSON.stringify({ assignments: [own, foreign], ownAssignmentIds: ["own"], executableAssignmentIds: ["own"], employees: [], permissions: { canView: true, canManage: true, canExecute: true }, today: "2026-10-15" }));
+  };
+  const button = label => [...rootElement.querySelectorAll("button")].find(item => item.textContent === label);
+  try {
+    const { DirectorAssignmentsWorkspace } = await vite.ssrLoadModule("/src/DirectorAssignments.tsx");
+    await React.act(async () => root.render(React.createElement(DirectorAssignmentsWorkspace, { registryId: "collegium", onShowToast() {} })));
+    const queue = rootElement.querySelector(".board-assignment-review-queue");
+    assert.match(queue.textContent, /Чужое поручение/u);
+    assert.doesNotMatch(queue.textContent, /Своё поручение/u);
+    await React.act(async () => [...rootElement.querySelectorAll(".table-text-action")].find(item => item.textContent === own.summary).click());
+    const detail = rootElement.querySelector(".director-assignment-detail");
+    assert.equal(rootElement.querySelector(".board-assignment-decision"), null);
+    assert.equal(button("Принять исполнение"), undefined);
+    assert.match(detail.textContent, /Это ваше поручение\. Принять исполнение или вернуть его на доработку может другой руководитель\./u);
+    assert.doesNotMatch(detail.textContent, /Поручение у исполнителя/u);
+    await React.act(async () => button("Проверить исполнение").click());
+    assert.ok(button("Принять исполнение"));
+    assert.deepEqual(actions, []);
   } finally {
     await React.act(async () => root.unmount());
     globalThis.fetch = oldFetch;

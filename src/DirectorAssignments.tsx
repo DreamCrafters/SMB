@@ -205,6 +205,7 @@ export function DirectorAssignmentsWorkspace({ onShowToast, registryId = "direct
   }, [contentOpenCount]);
   const [form, setForm] = useState<DirectorAssignmentInput>();
   const [comment, setComment] = useState("");
+  const [decisionError, setDecisionError] = useState("");
   const [filters, setFilters] = useState<Record<string, string>>({});
   const [selectedStatuses, setSelectedStatuses] = useState<string[]>([]);
   const [history, setHistory] = useState<Array<{ id: string; assignment: DirectorAssignment }> | null>(null);
@@ -215,13 +216,13 @@ export function DirectorAssignmentsWorkspace({ onShowToast, registryId = "direct
     void directorRequest<DirectorAssignmentListResponse>(registry.apiPath, "GET", undefined, abort.signal).then(setData).catch(e => { if (!abort.signal.aborted) setError(e.message); });
     return () => abort.abort();
   }, [registry.apiPath, registryId]);
-  async function mutate(operation: () => Promise<unknown>) {
-    setSaving(true); setError("");
+  async function mutate(operation: () => Promise<unknown>, showError: (message: string) => void = setError) {
+    setSaving(true); setError(""); setDecisionError("");
     try {
       await operation(); await refresh(); setSelected(undefined); setForm(undefined); setComment("");
       onShowToast("Поручение сохранено", mode === "create" ? "Поручение отправлено и появилось в реестре." : "Изменения сохранены.", "success");
     }
-    catch (e) { setError(e instanceof Error ? e.message : "Не удалось сохранить поручение."); }
+    catch (e) { showError(e instanceof Error ? e.message : "Не удалось сохранить поручение."); }
     finally { setSaving(false); }
   }
   function save(event: FormEvent) {
@@ -229,10 +230,11 @@ export function DirectorAssignmentsWorkspace({ onShowToast, registryId = "direct
     if (form) void mutate(() => directorRequest(`${registry.apiPath}${selected ? `/${selected.id}` : ""}`, selected ? "PATCH" : "POST", { assignment: form, revision: selected?.revision, comment: selected ? comment : "Поручение создано." }));
   }
   function runAction(assignment: DirectorAssignment, action: "complete" | "return_for_revision") {
-    void mutate(() => directorRequest(`${registry.apiPath}/${assignment.id}/action`, "POST", { action, comment, revision: assignment.revision }));
+    // The error stays next to the decision buttons: the top of a long card is out of view.
+    void mutate(() => directorRequest(`${registry.apiPath}/${assignment.id}/action`, "POST", { action, comment, revision: assignment.revision }), setDecisionError);
   }
   function openAssignment(row: DirectorAssignment) {
-    setSelected(row); setForm(undefined); setComment(""); setContentOpenCount(count => count + 1);
+    setSelected(row); setForm(undefined); setComment(""); setDecisionError(""); setContentOpenCount(count => count + 1);
   }
   async function openHistory() {
     const request = ++historyRequest.current;
@@ -263,9 +265,12 @@ export function DirectorAssignmentsWorkspace({ onShowToast, registryId = "direct
   // Same decision rule as the board: only a controller decides, and only on a submitted result.
   // «Создание» lists the register read-only: decisions and edits live in «Просмотр».
   const canControl = canManage && !isCreateMode;
-  const canDecideSelected = !history && canControl && selected?.status === "under_review";
+  // The server forbids deciding on an own assignment: another controller accepts or returns it.
+  const ownAssignmentIds = new Set(data.ownAssignmentIds ?? []);
+  const isOwnSelected = selected !== undefined && ownAssignmentIds.has(selected.id);
+  const canDecideSelected = !history && canControl && selected?.status === "under_review" && !isOwnSelected;
   const rows = history ? history.map(item => item.assignment) : data.assignments;
-  const reviewQueue = !history && canControl ? data.assignments.filter(assignment => assignment.status === "under_review") : [];
+  const reviewQueue = !history && canControl ? data.assignments.filter(assignment => assignment.status === "under_review" && !ownAssignmentIds.has(assignment.id)) : [];
   const visible = rows.filter(row => {
     const cells = cellValues(row);
     return (selectedStatuses.length === 0 || selectedStatuses.some(status => status === "Требует уточнения" ? row.needsClarification : statuses[row.status] === status))
@@ -300,12 +305,15 @@ export function DirectorAssignmentsWorkspace({ onShowToast, registryId = "direct
           <textarea maxLength={4000} rows={4} disabled={saving} aria-describedby="director-action-comment-hint" value={comment} onChange={event => setComment(event.currentTarget.value)} />
         </label>
         <p className="director-field-hint" id="director-action-comment-hint">Проверьте результат и комментарии исполнителя, затем примите работу или верните её с понятным замечанием.</p>
+        {decisionError && <p className="form-message is-error" role="alert">{decisionError}</p>}
         <div className="board-assignment-dialog-actions">
           <button type="button" className="secondary-button board-assignment-return-button" disabled={saving || !comment.trim()} onClick={() => runAction(selected, "return_for_revision")}>Вернуть на доработку</button>
           <button type="button" className="primary-button" disabled={saving || !comment.trim()} onClick={() => runAction(selected, "complete")}>Принять исполнение</button>
         </div>
       </section>}
-      {!history && canControl && !canDecideSelected && selected.status !== "completed" && <p className="director-field-hint">Поручение у исполнителя. Принять исполнение или вернуть его можно после того, как исполнитель отправит результат на проверку.</p>}
+      {!history && canControl && !canDecideSelected && selected.status !== "completed" && <p className="director-field-hint">{isOwnSelected && selected.status === "under_review"
+        ? "Это ваше поручение. Принять исполнение или вернуть его на доработку может другой руководитель."
+        : "Поручение у исполнителя. Принять исполнение или вернуть его можно после того, как исполнитель отправит результат на проверку."}</p>}
       <footer className="board-assignment-dialog-actions">
         {!history && selected.status !== "completed" && canControl && <button type="button" className="secondary-button" disabled={saving} onClick={() => { setForm(inputFrom(selected, data.employees, registryId)); setComment(""); setContentOpenCount(count => count + 1); }}>Редактировать</button>}
         <button type="button" className="secondary-button" disabled={saving} onClick={() => setSelected(undefined)}>Закрыть</button>
