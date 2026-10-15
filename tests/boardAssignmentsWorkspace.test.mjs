@@ -52,6 +52,11 @@ test("board assignment creation offers one-time and recurring schedule choices",
         canExecute: false,
         canReview: false,
       },
+      responsibleCandidates: [
+        { userId: "gd-user", fullName: "Фридман Е.", position: "Генеральный директор" },
+        { userId: "assistant", fullName: "Мохарт О.", position: "Помощник генерального директора" },
+      ],
+      defaultResponsibleUserId: "gd-user",
     });
     const rootElement = dom.window.document.getElementById("root");
     const root = createRoot(rootElement);
@@ -85,6 +90,16 @@ test("board assignment creation offers one-time and recurring schedule choices",
     );
     assert.ok(addButton);
     await React.act(async () => addButton.click());
+
+    // Задача 139: the responsible is chosen among executors, the latest one by default.
+    const responsibleSelect = findLabel(rootElement.querySelector('[role="dialog"]'), "Ответственный")?.querySelector("select");
+    assert.ok(responsibleSelect);
+    assert.equal(responsibleSelect.required, true);
+    assert.equal(responsibleSelect.value, "gd-user");
+    assert.deepEqual(
+      Array.from(responsibleSelect.options).map((option) => option.textContent?.trim()),
+      ["Выберите ответственного", "Фридман Е. — Генеральный директор", "Мохарт О. — Помощник генерального директора"],
+    );
 
     const recurrenceSelect = findLabel(
       rootElement,
@@ -177,6 +192,8 @@ test("board assignment reviewer gets a decision queue with direct actions", asyn
     decisionNumber: "2.4",
     summary: "Представить отчёт о выполнении поручения",
     coExecutors: ["Экономист"],
+    responsibleUserId: "gd-user",
+    responsibleDisplayName: "Фридман Е.",
     dueDate: "Один раз, 28.07.2026",
     recurrence: "once",
     activeFrom: "2026-07-28",
@@ -328,6 +345,8 @@ test("board assignment viewer gets a quiet read-only register", async () => {
     decisionNumber: "2.5",
     summary: "Ознакомиться с состоянием поручения",
     coExecutors: [],
+    responsibleUserId: null,
+    responsibleDisplayName: "",
     dueDate: "Один раз, 28.07.2026",
     recurrence: "once",
     activeFrom: "2026-07-28",
@@ -384,6 +403,10 @@ test("board assignment viewer gets a quiet read-only register", async () => {
       /Только просмотр.*1.*поручение/su,
     );
     assert.notEqual(rootElement.querySelector("table"), null);
+    // Задача 139: the responsible column; older assignments are marked unassigned.
+    const headers = Array.from(rootElement.querySelectorAll("thead th")).map((cell) => cell.textContent?.trim());
+    assert.equal(headers[headers.indexOf("Суть поручения") + 1], "Ответственный");
+    assert.match(rootElement.querySelector("tbody")?.textContent ?? "", /Не назначен/u);
     await React.act(async () => {
       setInputValue(findLabel(rootElement, "Заседание с").querySelector("input"), "2026-07-01");
     });
@@ -446,6 +469,8 @@ test("board assignment creator edits live tasks and opens immutable completion h
     decisionNumber: "2.3",
     summary: "Первоначальное содержание",
     coExecutors: ["Экономист"],
+    responsibleUserId: "gd-user",
+    responsibleDisplayName: "Фридман Е.",
     dueDate: "Каждый месяц, с 10.07.2026 по 31.12.2026",
     recurrence: "monthly",
     activeFrom: "2026-07-10",

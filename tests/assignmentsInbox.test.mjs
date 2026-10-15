@@ -34,6 +34,8 @@ const boardSummary = {
   decisionNumber: "2.3",
   summary: "Подготовить анализ причин невыполнения плана",
   coExecutors: ["Экономист"],
+  responsibleUserId: "gd-user",
+  responsibleDisplayName: "Фридман Е.",
   dueDate: "Каждый месяц, с 01.08.2026 по 31.12.2026",
   recurrence: "monthly",
   activeFrom: "2026-08-01",

@@ -5019,6 +5019,19 @@ const migrations: Migration[] = [
       `alter table account_positions modify admin_navigation_items json not null;`,
     ],
   },
+  {
+    /**
+     * Задача 139: ответственный исполнитель поручения СД. Прежние поручения
+     * остаются без ответственного и доступны всем с правом исполнения, пока
+     * их не назначат правкой; имя читается из `app_users` по текущей связи.
+     */
+    id: "102_board_assignment_responsible",
+    statements: [
+      `alter table board_assignments
+         add column responsible_user_id varchar(120) null after co_executors,
+         add key idx_board_assignments_responsible (responsible_user_id);`,
+    ],
+  },
 ];
 
 function removePositionJsonValue(

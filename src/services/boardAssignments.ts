@@ -11,6 +11,7 @@ import {
   type BoardAssignmentFilters,
   type BoardAssignmentListItem,
   type BoardAssignmentPermissions,
+  type BoardAssignmentResponsibleCandidate,
   type BoardAssignmentStatus,
   type BoardAssignmentSummary,
   type BoardAssignmentUpdateInput,
@@ -43,6 +44,9 @@ export type BoardAssignmentsResult =
       assignments: BoardAssignmentListItem[];
       permissions: BoardAssignmentPermissions;
       boardMeetingReminder?: string;
+      /** Only in the register for users who may create assignments. */
+      responsibleCandidates?: BoardAssignmentResponsibleCandidate[];
+      defaultResponsibleUserId?: string;
     }
   | ErrorResult;
 
@@ -118,6 +122,17 @@ export async function requestBoardAssignments(
     (
       result.payload.boardMeetingReminder !== undefined &&
       typeof result.payload.boardMeetingReminder !== "string"
+    ) ||
+    (
+      result.payload.responsibleCandidates !== undefined &&
+      (
+        !Array.isArray(result.payload.responsibleCandidates) ||
+        !result.payload.responsibleCandidates.every(isResponsibleCandidate)
+      )
+    ) ||
+    (
+      result.payload.defaultResponsibleUserId !== undefined &&
+      typeof result.payload.defaultResponsibleUserId !== "string"
     )
   ) {
     return invalidResponse("Не удалось загрузить реестр поручений.");
@@ -130,7 +145,22 @@ export async function requestBoardAssignments(
     ...(typeof result.payload.boardMeetingReminder === "string"
       ? { boardMeetingReminder: result.payload.boardMeetingReminder }
       : {}),
+    ...(Array.isArray(result.payload.responsibleCandidates)
+      ? { responsibleCandidates: result.payload.responsibleCandidates as BoardAssignmentResponsibleCandidate[] }
+      : {}),
+    ...(typeof result.payload.defaultResponsibleUserId === "string"
+      ? { defaultResponsibleUserId: result.payload.defaultResponsibleUserId }
+      : {}),
   };
+}
+
+function isResponsibleCandidate(
+  value: unknown,
+): value is BoardAssignmentResponsibleCandidate {
+  return isRecord(value) &&
+    typeof value.userId === "string" &&
+    typeof value.fullName === "string" &&
+    typeof value.position === "string";
 }
 
 export async function requestBoardAssignment(
@@ -505,6 +535,8 @@ function isBoardAssignmentSummary(
     typeof value.summary === "string" &&
     Array.isArray(value.coExecutors) &&
     value.coExecutors.every((item) => typeof item === "string") &&
+    (value.responsibleUserId === null || typeof value.responsibleUserId === "string") &&
+    typeof value.responsibleDisplayName === "string" &&
     typeof value.dueDate === "string" &&
     boardAssignmentRecurrences.includes(
       value.recurrence as (typeof boardAssignmentRecurrences)[number],

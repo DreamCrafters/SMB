@@ -2,14 +2,11 @@ import { directorReminderLeaseSeconds, type DirectorReminderDelivery } from "../
 import { randomUUID } from "node:crypto";
 import type { RowDataPacket, ResultSetHeader } from "mysql2/promise";
 import type { DatabasePool } from "../db/pool.js";
-import { assignmentInboxNavigationItem, assignmentRegistries, type AssignmentRegistryId, type DirectorAssignment, type PersonnelEmployee } from "../contracts/directorAssignments.js";
+import { assignmentRegistries, type AssignmentRegistryId, type DirectorAssignment, type PersonnelEmployee } from "../contracts/directorAssignments.js";
 import { DirectorAssignmentError } from "../domain/directorAssignment.js";
+import { readAssignableAccounts } from "./assignableAccounts.js";
 
 type JsonRow = RowDataPacket & { payload: string | object };
-function jsonList(value: unknown): string[] {
-  const parsed = typeof value === "string" ? JSON.parse(value) as unknown : value;
-  return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === "string") : [];
-}
 function payload<T>(row: JsonRow): T {
   return (typeof row.payload === "string" ? JSON.parse(row.payload) : row.payload) as T;
 }
@@ -31,33 +28,10 @@ export function createDirectorAssignmentsRepository(pool: DatabasePool, registry
   const tables = registryTables[registryId];
   const registry = assignmentRegistries[registryId];
   async function accountEmployees(userId?: string, lock = false): Promise<PersonnelEmployee[]> {
-    const [rows] = await pool.query<(RowDataPacket & { user_id: string; full_name: string; position_name: string; navigation_items?: unknown; capabilities?: unknown })[]>(`
-      select users.id as user_id, users.display_name as full_name, positions.display_name as position_name,
-        positions.navigation_items, positions.capabilities
-      from app_users users
-      join account_accesses accesses on accesses.user_id = users.id
-      join account_positions positions on json_contains(coalesce(accesses.position_codes, json_array(accesses.position_code)), json_quote(positions.id))
-      where users.status = 'active' and accesses.is_active = 1 and accesses.scope_kind = 'organization'
-        ${userId === undefined ? "" : "and users.id = ?"}
-      order by users.display_name, users.id, positions.sort_order, positions.id
-      ${lock ? "for update" : ""}`, userId === undefined ? [] : [userId]);
-    const employees = new Map<string, PersonnelEmployee>();
-    const access = new Map<string, Set<string>>();
-    for (const row of rows) {
-      const granted = access.get(row.user_id) ?? new Set<string>();
-      for (const value of [...jsonList(row.navigation_items), ...jsonList(row.capabilities)]) granted.add(value);
-      access.set(row.user_id, granted);
-      const current = employees.get(row.user_id);
-      if (current) {
-        if (!current.position.split(" / ").includes(row.position_name)) current.position += ` / ${row.position_name}`;
-      } else employees.set(row.user_id, { id: `account:${row.user_id}`, revision: 0, fullName: row.full_name, position: row.position_name, department: "", category: "", userId: row.user_id, active: true });
-    }
-    // Same rule as the service's canExecute over the union of the account's positions.
-    for (const employee of employees.values()) {
-      const granted = access.get(employee.userId!)!;
-      employee.canReceive = granted.has(assignmentInboxNavigationItem) && granted.has(registry.viewCapability) && granted.has(registry.executeCapability);
-    }
-    return [...employees.values()];
+    return (await readAssignableAccounts(pool, registry, { userId, lock })).map(account => ({
+      id: `account:${account.userId}`, revision: 0, fullName: account.fullName, position: account.position,
+      department: "", category: "", userId: account.userId, active: true, canReceive: account.canReceive,
+    }));
   }
   async function listEmployees() {
     const [rows] = await pool.query<JsonRow[]>("select payload from personnel_employees order by full_name, id");

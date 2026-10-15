@@ -17,7 +17,7 @@ export function buildBoardAssignmentsPdfDocument(records: BoardAssignmentPrintRe
       { text: "Поручения Совета директоров", bold: true, fontSize: 15, margin: [0, 0, 0, 12] },
       { table: { headerRows: 1, widths: [60, "*", 75, 110, 60, 85], body: [
         ["Дата", "Суть поручения", "Исполнитель", "Соисполнители", "Срок", "Статус"].map(text => ({ text, bold: true, fillColor: "#eeeeee" })),
-        ...records.map(({ assignment: row, completedAt }) => [date(row.meetingDate), `${row.summary}\nПротокол №${row.protocolNumber}, пункт ${row.decisionNumber}`, "—", row.coExecutors.join(", ") || "—", date(row.currentOccurrenceDate), !completedAt && isBoardAssignmentOverdueOn(row, today) ? "Просрочено" : statuses[row.status]]),
+        ...records.map(({ assignment: row, completedAt }) => [date(row.meetingDate), `${row.summary}\nПротокол №${row.protocolNumber}, пункт ${row.decisionNumber}`, row.responsibleDisplayName || "—", row.coExecutors.join(", ") || "—", date(row.currentOccurrenceDate), !completedAt && isBoardAssignmentOverdueOn(row, today) ? "Просрочено" : statuses[row.status]]),
       ] }, layout: { paddingTop: () => 6, paddingBottom: () => 6 } },
     ],
   };
@@ -28,7 +28,7 @@ export function buildBoardAssignmentsPdfDocument(records: BoardAssignmentPrintRe
     content: [
       { text: "Поручение Совета директоров", bold: true, alignment: "center", fontSize: 14, margin: [0, 0, 0, 14] },
       { text: `От ${date(row.meetingDate)}\nПротокол №${row.protocolNumber}, пункт ${row.decisionNumber}`, alignment: "center", margin: [0, 0, 0, 30] },
-      field("Исполнитель", ""), field("Соисполнители", row.coExecutors.join(", ")),
+      field("Исполнитель", row.responsibleDisplayName), field("Соисполнители", row.coExecutors.join(", ")),
       field("Содержание (суть поручения)", row.summary), ...(row.details ? [field("Полное содержание", row.details)] : []),
       field("Срок выполнения (дата)", date(row.currentOccurrenceDate)),
       { text: "Подпись ________________________________", margin: [0, 20, 0, 35] },

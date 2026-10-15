@@ -12,7 +12,7 @@ export type AssignmentInboxAccess = "none" | AssignmentInboxSource[];
 export const assignmentInboxSourceOptions: ReadonlyArray<{ id: AssignmentInboxSource; label: string }> = [
   { id: "director", label: "Поручения генерального директора" },
   { id: "collegium", label: "Поручения Коллегии" },
-  { id: "board", label: "Поручения Совета директоров — исполнение всех активных" },
+  { id: "board", label: "Поручения Совета директоров — исполнение назначенных" },
 ];
 export const assignmentInboxSourceCapabilities = {
   director: ["business.view_director_assignments", "business.execute_director_assignments"],

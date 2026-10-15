@@ -4,14 +4,14 @@ import type { BoardAssignmentPrintRecord } from "../domain/boardAssignmentPdf.js
 import { buildBoardAssignmentsPdfDocument, renderBoardAssignmentsPdf } from "./boardAssignmentsPdf.js";
 
 const record: BoardAssignmentPrintRecord = { assignment: {
-  id: "assignment", meetingDate: "2026-09-01", protocolNumber: "118", decisionNumber: "1", summary: "Подготовить отчёт", details: "Полное содержание <текст>", coExecutors: ["Экономист"], dueDate: "2026-09-10", recurrence: "once", activeFrom: "2026-09-10", activeTo: "2026-09-10", currentOccurrenceDate: "2026-09-10", status: "in_progress", createdByDisplayName: "Автор", createdAt: "2026-09-01T00:00:00Z", updatedAt: "2026-09-01T00:00:00Z", documents: [], comments: [],
+  id: "assignment", meetingDate: "2026-09-01", protocolNumber: "118", decisionNumber: "1", summary: "Подготовить отчёт", details: "Полное содержание <текст>", coExecutors: ["Экономист"], responsibleUserId: "user-gd", responsibleDisplayName: "Гендиректор Тест", dueDate: "2026-09-10", recurrence: "once", activeFrom: "2026-09-10", activeTo: "2026-09-10", currentOccurrenceDate: "2026-09-10", status: "in_progress", createdByDisplayName: "Автор", createdAt: "2026-09-01T00:00:00Z", updatedAt: "2026-09-01T00:00:00Z", documents: [], comments: [],
 } };
 test("board register PDF has required columns, full text and repeated headers across pages", async () => {
   const long = { assignment: { ...record.assignment, summary: "Полное длинное поручение ".repeat(700) + "КОНЕЦ" } };
   const definition = buildBoardAssignmentsPdfDocument([long], "register", "2026-09-21");
   assert.equal(definition.pageOrientation, "landscape");
   const serialized = JSON.stringify(definition);
-  for (const value of [long.assignment.summary, "Дата", "Суть поручения", "Исполнитель", "Соисполнители", "Срок", "Статус", "Просрочено", "Экономист"]) assert.ok(serialized.includes(value));
+  for (const value of [long.assignment.summary, "Дата", "Суть поручения", "Исполнитель", "Соисполнители", "Срок", "Статус", "Просрочено", "Экономист", "Гендиректор Тест"]) assert.ok(serialized.includes(value));
   const pdf = await renderBoardAssignmentsPdf([long], "register", "2026-09-21");
   assert.equal(pdf.subarray(0, 5).toString(), "%PDF-");
   assert.match(pdf.toString("latin1"), /\/FontFile2/u);
@@ -22,6 +22,10 @@ test("board single PDF preserves protocol, full details and completion date from
   const definition = buildBoardAssignmentsPdfDocument([completed], "assignment", "2026-09-21");
   assert.equal(definition.pageOrientation, "portrait");
   const serialized = JSON.stringify(definition);
-  for (const value of ["Протокол №118", "пункт 1", record.assignment.details, "11.09.2026", "Подпись", "Комментарии по выполнению", "Фактически выполнено"]) assert.ok(serialized.includes(value));
+  for (const value of ["Протокол №118", "пункт 1", record.assignment.details, "11.09.2026", "Подпись", "Комментарии по выполнению", "Фактически выполнено", "Исполнитель: Гендиректор Тест"]) assert.ok(serialized.includes(value));
   assert.equal((await renderBoardAssignmentsPdf([completed], "assignment", "2026-09-21")).subarray(0, 5).toString(), "%PDF-");
+});
+test("board single PDF leaves a blank executor line when nobody is assigned", () => {
+  const legacy = { assignment: { ...record.assignment, responsibleUserId: null, responsibleDisplayName: "" } };
+  assert.ok(JSON.stringify(buildBoardAssignmentsPdfDocument([legacy], "assignment", "2026-09-21")).includes("Исполнитель: ____"));
 });

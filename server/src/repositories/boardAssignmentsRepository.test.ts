@@ -14,6 +14,7 @@ const assignmentRow = {
   summary: "Подготовить анализ причин невыполнения плана",
   details: "Представить Совету директоров письменный анализ.",
   co_executors: JSON.stringify(["Экономист"]),
+  responsible_user_id: null,
   due_date: "Ежемесячно до конца 2026 года",
   recurrence: "monthly",
   active_from: "2026-07-10",
@@ -86,6 +87,7 @@ test("board assignment repository stores the task and immutable initial comment"
       summary: "Подготовить анализ причин невыполнения плана",
       details: "Представить Совету директоров письменный анализ.",
       coExecutors: ["Экономист"],
+      responsibleUserId: "gd-user",
       recurrence: "monthly",
       activeFrom: "2026-07-10",
       activeTo: "2026-12-31",
@@ -472,6 +474,7 @@ test("board assignment repository edits the live version and records both states
       summary: "Уточнённое содержание",
       details: "Уточнённое полное содержание.",
       coExecutors: ["Экономист", "Главный инженер"],
+      responsibleUserId: "gd-user",
       recurrence: "weekly",
       activeFrom: "2026-07-15",
       activeTo: "2026-12-31",
@@ -654,6 +657,8 @@ function mapFixtureAssignment() {
     summary: assignmentRow.summary,
     details: assignmentRow.details,
     coExecutors: ["Экономист"],
+    responsibleUserId: null,
+    responsibleDisplayName: "",
     dueDate: assignmentRow.due_date,
     recurrence: "monthly" as const,
     activeFrom: assignmentRow.active_from,
@@ -717,3 +722,68 @@ for (const forUpdate of [false, true]) {
     }]);
   });
 }
+
+test("board assignment repository keeps unassigned and own assignments for an executor", async () => {
+  let querySql = "";
+  let queryParameters: readonly unknown[] = [];
+  const pool = {
+    async query(sql: string, parameters?: readonly unknown[]) {
+      querySql = sql;
+      queryParameters = parameters ?? [];
+      return [[{ ...assignmentRow, responsible_user_id: "gd-user", responsible_display_name: "Фридман Е." }], []];
+    },
+  } as unknown as DatabasePool;
+  const repository = createBoardAssignmentsRepository(pool);
+
+  const rows = await repository.list({}, { activeOn: "2026-07-27", assignedTo: "gd-user" });
+
+  assert.equal(rows[0]?.responsibleUserId, "gd-user");
+  assert.equal(rows[0]?.responsibleDisplayName, "Фридман Е.");
+  assert.match(querySql, /left join app_users responsible on responsible\.id = assignments\.responsible_user_id/u);
+  assert.match(querySql, /assignments\.responsible_user_id is null\s+or assignments\.responsible_user_id = \?/u);
+  assert.deepEqual(queryParameters, ["2026-07-27", "gd-user"]);
+});
+
+test("board assignment repository reads the responsible name without locking app_users", async () => {
+  const queries: string[] = [];
+  const pool = {
+    async query(sql: string) {
+      queries.push(sql);
+      if (sql.includes("from board_assignments assignments")) {
+        return [[{ ...assignmentRow, responsible_user_id: "gd-user" }], []];
+      }
+      if (sql.includes("from app_users")) return [[{ display_name: "Фридман Е." }], []];
+      return [[], []];
+    },
+  } as unknown as DatabasePool;
+  const repository = createBoardAssignmentsRepository(pool);
+
+  const assignment = await repository.readByIdForUpdate("assignment-1");
+
+  assert.equal(assignment?.responsibleDisplayName, "Фридман Е.");
+  const locked = queries.find((sql) => sql.includes("for update")) ?? "";
+  assert.doesNotMatch(locked, /app_users/u);
+  assert.doesNotMatch(queries.find((sql) => sql.includes("from app_users")) ?? "", /for update/u);
+});
+
+test("board assignment repository reads snapshots taken before the responsible existed", async () => {
+  const { responsibleUserId: _id, responsibleDisplayName: _name, ...legacySnapshot } = mapFixtureAssignment();
+  const pool = {
+    async query() {
+      return [[{
+        id: "completion-legacy",
+        assignment_id: "assignment-1",
+        occurrence_date: "2026-07-10",
+        snapshot: JSON.stringify({ ...legacySnapshot, status: "completed" }),
+        completed_by_display_name: "Лариков А.Т.",
+        completed_at: "2026-07-28T12:00:00.000Z",
+      }], []];
+    },
+  } as unknown as DatabasePool;
+  const repository = createBoardAssignmentsRepository(pool);
+
+  const completion = await repository.readCompletionById("completion-legacy");
+
+  assert.equal(completion?.assignment.responsibleUserId, null);
+  assert.equal(completion?.assignment.responsibleDisplayName, "");
+});

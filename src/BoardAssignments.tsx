@@ -1,6 +1,6 @@
 import { AssignmentCreateOverview } from "./AssignmentCreateOverview";
 import { BoardAssignmentDelegations } from "./BoardAssignmentDelegations";
-import { BoardAssignmentRegister, boardRegisterLabels, matchesBoardColumnFilters, type BoardRegisterColumn } from "./BoardAssignmentRegister";
+import { BoardAssignmentRegister, boardRegisterLabels, matchesBoardColumnFilters, unassignedResponsibleLabel, type BoardRegisterColumn } from "./BoardAssignmentRegister";
 import type { BoardAssignmentPdfRequest } from "../server/src/contracts/boardAssignmentPdf";
 import {
   useEffect,
@@ -24,6 +24,7 @@ import {
   type BoardAssignmentListItem,
   type BoardAssignmentPermissions,
   type BoardAssignmentRecurrence,
+  type BoardAssignmentResponsibleCandidate,
   type BoardAssignmentStatus,
   type BoardAssignmentUpdateInput,
 } from "./contracts";
@@ -84,6 +85,7 @@ const emptyCreateInput: BoardAssignmentCreateInput = {
   summary: "",
   details: "",
   coExecutors: [],
+  responsibleUserId: "",
   recurrence: "once",
   activeFrom: "",
   activeTo: "",
@@ -150,6 +152,11 @@ export function BoardAssignmentsWorkspace({
   });
   const [permissions, setPermissions] = useState(emptyPermissions);
   const [boardMeetingReminder, setBoardMeetingReminder] = useState<string>();
+  const [responsibleCandidates, setResponsibleCandidates] = useState<
+    BoardAssignmentResponsibleCandidate[]
+  >([]);
+  const [defaultResponsibleUserId, setDefaultResponsibleUserId] =
+    useState<string>();
   const [selectedId, setSelectedId] = useState<string>();
   const [detailState, setDetailState] = useState<DetailState>();
   const [completionListState, setCompletionListState] =
@@ -199,6 +206,8 @@ export function BoardAssignmentsWorkspace({
 
         setPermissions(result.permissions);
         setBoardMeetingReminder(result.boardMeetingReminder);
+        setResponsibleCandidates(result.responsibleCandidates ?? []);
+        setDefaultResponsibleUserId(result.defaultResponsibleUserId);
         setListState({
           status: "ready",
           assignments: result.assignments,
@@ -528,6 +537,10 @@ export function BoardAssignmentsWorkspace({
   function openCreateDialog() {
     setFormMessage("");
     setCreateDocuments([]);
+    // The responsible of the latest assignment is the usual choice.
+    setCreateInput((current) => current.responsibleUserId === "" && defaultResponsibleUserId !== undefined
+      ? { ...current, responsibleUserId: defaultResponsibleUserId }
+      : current);
     setIsCreateOpen(true);
   }
 
@@ -539,6 +552,7 @@ export function BoardAssignmentsWorkspace({
       summary: assignment.summary,
       details: assignment.details,
       coExecutors: assignment.coExecutors,
+      responsibleUserId: assignment.responsibleUserId ?? "",
       recurrence: assignment.recurrence,
       activeFrom: assignment.activeFrom,
       activeTo: assignment.activeTo,
@@ -597,6 +611,7 @@ export function BoardAssignmentsWorkspace({
       formMessage={formMessage}
       isSaving={isSaving}
       pendingDocuments={createDocuments}
+      responsibleCandidates={responsibleCandidates}
       removedDocumentIds={[]}
       onChange={setCreateInput}
       onCoExecutorsChange={setCoExecutorsText}
@@ -896,6 +911,7 @@ export function BoardAssignmentsWorkspace({
                       </span>
                     </div>
                     <h3>{assignment.summary}</h3>
+                    <p>Ответственный: {assignment.responsibleDisplayName || unassignedResponsibleLabel}</p>
                     <p>
                       {assignment.coExecutors.length === 0
                         ? "Без соисполнителей"
@@ -918,7 +934,8 @@ export function BoardAssignmentsWorkspace({
             aria-label="Реестр поручений"
           >
             <div className="board-assignment-table-wrap history-table-scroll">
-              <BoardAssignmentRegister assignments={visibleAssignments} allColumns={showAllColumns} loading={listState.status === "loading"} onOpen={setSelectedId} />
+              <BoardAssignmentRegister assignments={visibleAssignments} allColumns={showAllColumns} loading={listState.status === "loading"} onOpen={setSelectedId}
+                {...(canCreate ? { executableUserIds: new Set(responsibleCandidates.map(candidate => candidate.userId)) } : {})} />
             </div>
           </section>
         </>
@@ -941,6 +958,10 @@ export function BoardAssignmentsWorkspace({
           isSaving={isSaving}
           pendingDocuments={editDocuments}
           removedDocumentIds={editRemovedDocumentIds}
+          responsibleCandidates={responsibleCandidates}
+          {...(detailState?.status === "ready" && detailState.assignment.responsibleUserId !== null
+            ? { currentResponsible: { userId: detailState.assignment.responsibleUserId, displayName: detailState.assignment.responsibleDisplayName } }
+            : {})}
           onChange={setEditInput}
           onCoExecutorsChange={setEditCoExecutorsText}
           onCommentChange={setEditComment}
@@ -1185,9 +1206,14 @@ function BoardAssignmentEditorDialog({
   onToggleExistingDocument,
   onCancel,
   onSubmit,
+  responsibleCandidates,
+  currentResponsible,
 }: {
   mode: "create" | "edit";
   createInput: BoardAssignmentCreateInput;
+  responsibleCandidates: BoardAssignmentResponsibleCandidate[];
+  /** The stored responsible, shown even when the account is no longer a candidate. */
+  currentResponsible?: { userId: string; displayName: string };
   coExecutorsText: string;
   comment: string;
   existingDocuments: BoardAssignmentDocument[];
@@ -1533,6 +1559,35 @@ function BoardAssignmentEditorDialog({
             )}
           </fieldset>
           <label className="is-wide">
+            <span>Ответственный</span>
+            <select
+              required
+              value={createInput.responsibleUserId}
+              onChange={(event) => {
+                const value = event.currentTarget.value;
+                updateField("responsibleUserId", value);
+              }}
+            >
+              <option value="">Выберите ответственного</option>
+              {currentResponsible !== undefined &&
+                !responsibleCandidates.some((candidate) => candidate.userId === currentResponsible.userId) && (
+                  <option value={currentResponsible.userId}>
+                    {currentResponsible.displayName || "Прежний ответственный"} — нет права исполнения
+                  </option>
+                )}
+              {responsibleCandidates.map((candidate) => (
+                <option key={candidate.userId} value={candidate.userId}>
+                  {candidate.fullName} — {candidate.position}
+                </option>
+              ))}
+            </select>
+            {responsibleCandidates.length === 0 && (
+              <small className="director-field-hint">
+                Нет аккаунтов с вкладкой «Поручения» и исполнением поручений Совета директоров.
+              </small>
+            )}
+          </label>
+          <label className="is-wide">
             <span>Соисполнители</span>
             <textarea
               maxLength={4_000}
@@ -1773,6 +1828,10 @@ function BoardAssignmentDetailDialog({
               <div className="is-wide">
                 <dt>Полное содержание</dt>
                 <dd>{detailState.assignment.details}</dd>
+              </div>
+              <div className="is-wide">
+                <dt>Ответственный</dt>
+                <dd>{detailState.assignment.responsibleDisplayName || unassignedResponsibleLabel}</dd>
               </div>
               <div className="is-wide">
                 <dt>Соисполнители</dt>

@@ -38,6 +38,7 @@ export type ValidatedBoardAssignmentCreateRequest = {
   summary: string;
   details: string;
   coExecutors: string[];
+  responsibleUserId: string;
   recurrence: BoardAssignmentRecurrence;
   activeFrom: string;
   activeTo: string;
@@ -96,6 +97,17 @@ export function isBoardAssignmentExecutorOnly(permissions: BoardAssignmentPermis
   return permissions.canExecute && !permissions.canCreate && !permissions.canReview;
 }
 
+/**
+ * Task 139: an assignment belongs to its responsible. Assignments created
+ * before that have no responsible and stay with every executor until assigned.
+ */
+export function isBoardAssignmentAssignedTo(
+  assignment: { responsibleUserId: string | null },
+  userId: string,
+) {
+  return assignment.responsibleUserId === null || assignment.responsibleUserId === userId;
+}
+
 export function validateBoardAssignmentCreateRequest(
   value: unknown,
 ): ValidationResult<ValidatedBoardAssignmentCreateRequest> {
@@ -114,6 +126,7 @@ export function validateBoardAssignmentCreateRequest(
     "summary",
     "details",
     "coExecutors",
+    "responsibleUserId",
     "recurrence",
     "activeFrom",
     "activeTo",
@@ -176,6 +189,12 @@ export function validateBoardAssignmentCreateRequest(
     4_000,
   );
   const coExecutors = readCoExecutors(value.coExecutors, errors);
+  const responsibleUserId = readRequiredText(
+    value.responsibleUserId,
+    "Выберите ответственного.",
+    errors,
+    120,
+  );
 
   if (unexpectedFields.length > 0) {
     errors.push("Запрос содержит неизвестные поля.");
@@ -209,6 +228,7 @@ export function validateBoardAssignmentCreateRequest(
     summary === undefined ||
     details === undefined ||
     coExecutors === undefined ||
+    responsibleUserId === undefined ||
     recurrence === undefined ||
     activeFrom === undefined ||
     activeTo === undefined
@@ -228,6 +248,7 @@ export function validateBoardAssignmentCreateRequest(
       summary,
       details,
       coExecutors,
+      responsibleUserId,
       recurrence,
       activeFrom,
       activeTo,
@@ -440,10 +461,15 @@ export function formatBoardAssignmentSchedule({
   } по ${formatCalendarDateForDisplay(activeTo)}`;
 }
 
+/**
+ * `assignee` applies the board rule of task 139: only the responsible submits
+ * (anyone with execution while nobody is assigned) and never reviews it.
+ */
 export function validateBoardAssignmentAction(
   value: unknown,
   currentStatus: BoardAssignmentStatus,
   permissions: BoardAssignmentPermissions,
+  assignee?: { responsibleUserId: string | null; actorUserId: string },
 ): ValidationResult<ValidatedBoardAssignmentAction> {
   if (!isRecord(value)) {
     return {
@@ -477,7 +503,7 @@ export function validateBoardAssignmentAction(
 
   const status = action === undefined
     ? undefined
-    : readActionStatus(action, currentStatus, permissions, errors);
+    : readActionStatus(action, currentStatus, permissions, errors, assignee);
 
   if (
     errors.length > 0 ||
@@ -520,10 +546,15 @@ function readActionStatus(
   currentStatus: BoardAssignmentStatus,
   permissions: BoardAssignmentPermissions,
   errors: string[],
+  assignee?: { responsibleUserId: string | null; actorUserId: string },
 ): BoardAssignmentStatus | undefined {
   if (action === "submit_for_review") {
     if (!permissions.canExecute) {
       errors.push("Передать поручение на проверку может Генеральный директор.");
+      return undefined;
+    }
+    if (assignee !== undefined && !isBoardAssignmentAssignedTo(assignee, assignee.actorUserId)) {
+      errors.push("Передать поручение на проверку может только ответственный.");
       return undefined;
     }
     if (
@@ -539,6 +570,10 @@ function readActionStatus(
 
   if (!permissions.canReview) {
     errors.push("Решение по проверке доступно только уполномоченному члену Совета директоров.");
+    return undefined;
+  }
+  if (assignee !== undefined && assignee.responsibleUserId === assignee.actorUserId) {
+    errors.push("Своё поручение принимает другой член Совета директоров.");
     return undefined;
   }
   if (currentStatus !== "under_review") {

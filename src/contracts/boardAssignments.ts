@@ -42,6 +42,9 @@ export type BoardAssignmentSummary = {
   decisionNumber: string;
   summary: string;
   coExecutors: string[];
+  /** Null for assignments created before task 139: any executor may submit them. */
+  responsibleUserId: string | null;
+  responsibleDisplayName: string;
   dueDate: string;
   recurrence: BoardAssignmentRecurrence;
   activeFrom: string;
@@ -99,10 +102,18 @@ export type BoardAssignmentCreateInput = {
   summary: string;
   details: string;
   coExecutors: string[];
+  responsibleUserId: string;
   recurrence: BoardAssignmentRecurrence;
   activeFrom: string;
   activeTo: string;
   comment?: string;
+};
+
+/** An account that may be named responsible: it can execute board assignments. */
+export type BoardAssignmentResponsibleCandidate = {
+  userId: string;
+  fullName: string;
+  position: string;
 };
 
 export type BoardAssignmentUpdateInput =

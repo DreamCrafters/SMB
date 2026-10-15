@@ -5618,6 +5618,10 @@ p {
   font-size: 11px;
 }
 
+.board-assignment-table small.board-assignment-responsible-warning {
+  color: var(--danger);
+}
+
 .board-assignment-schedule-summary {
   display: grid;
   gap: 3px;

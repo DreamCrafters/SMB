@@ -192,6 +192,7 @@ import {
   getNextBoardAssignmentOccurrenceDate,
   getBoardAssignmentPermissions,
   isBoardAssignmentExecutorOnly,
+  isBoardAssignmentAssignedTo,
   isBoardAssignmentActiveOn,
   isBoardAssignmentOverdueOn,
   validateBoardAssignmentAction,
@@ -2399,7 +2400,7 @@ async function handleNotificationSettingsRequest({
     const overdueAssignments =
       access.profile.activeAccess.position === "general_director" &&
       boardAssignments !== undefined
-        ? (await boardAssignments.list({}, { activeOn: today })).filter(
+        ? (await boardAssignments.list({}, { activeOn: today, assignedTo: access.profile.userId })).filter(
             (assignment) => isBoardAssignmentOverdueOn(assignment, today),
           )
         : [];
@@ -2956,7 +2957,7 @@ async function handleBoardAssignmentsRequest({
     if (req.method !== "POST") { sendJson(res, 405, { error: { code: "invalid_response", message: "Действие недоступно." } }); return; }
     try {
       const today = buildIncidentOverviewPeriod(now()).today;
-      const selection = await selectBoardAssignmentsForPdf(boardAssignments, await readJsonBody(req), isBoardAssignmentExecutorOnly(permissions), today);
+      const selection = await selectBoardAssignmentsForPdf(boardAssignments, await readJsonBody(req), isBoardAssignmentExecutorOnly(permissions) ? access.profile.userId : undefined, today);
       sendPdf(res, await renderBoardAssignmentsPdf(selection.records, selection.mode, today), selection.mode === "register" ? "Журнал поручений СД.pdf" : "Поручение СД.pdf");
     } catch (error) {
       if (!(error instanceof BoardAssignmentPdfError)) throw error;
@@ -3240,14 +3241,21 @@ async function handleBoardAssignmentsRequest({
         ? []
         : await boardAssignments.list(
             filters.value,
-            executionOnly || isBoardAssignmentExecutorOnly(permissions) ? { activeOn: today } : undefined,
+            executionOnly || isBoardAssignmentExecutorOnly(permissions)
+              ? { activeOn: today, assignedTo: access.profile.userId }
+              : undefined,
           );
+      // The form needs candidates only in the register, not in «Поручения мне».
+      const responsibleChoice = permissions.canCreate && !executionOnly
+        ? await readBoardResponsibleChoice(boardAssignments)
+        : undefined;
       sendJson(res, 200, {
         assignments: assignments.map((assignment) => ({
           ...assignment,
           isOverdue: isBoardAssignmentOverdueOn(assignment, today),
         })),
         permissions,
+        ...responsibleChoice,
         ...(boardMeetingReminder === undefined
           ? {}
           : { boardMeetingReminder }),
@@ -3279,18 +3287,23 @@ async function handleBoardAssignmentsRequest({
         return;
       }
 
-      const assignment = await runAuditedMutation({
-        transaction: databaseTransaction,
-        audit,
-        mutate: () => boardAssignments.create({
+      const result = await databaseTransaction.run(async () => {
+        const responsibleProblem = await readBoardResponsibleProblem(
+          boardAssignments,
+          validation.value.responsibleUserId,
+        );
+        if (responsibleProblem !== undefined) {
+          return { kind: "invalid" as const, message: responsibleProblem };
+        }
+        const saved = await boardAssignments.create({
           assignment: validation.value,
           actor: {
             userId: access.profile.userId,
             accountId: access.profile.activeAccess.accountId,
             displayName: access.profile.displayName,
           },
-        }),
-        buildEvent: (saved) => ({
+        });
+        await audit.record({
           actor: buildAuditActor(access.profile),
           category: "data_change",
           action: "board_assignment.create",
@@ -3299,13 +3312,21 @@ async function handleBoardAssignmentsRequest({
             { label: "Дата заседания", value: saved.meetingDate },
             { label: "Протокол", value: saved.protocolNumber },
             { label: "Пункт решения", value: saved.decisionNumber },
+            { label: "Ответственный", value: saved.responsibleDisplayName },
             { label: "Срок исполнения", value: saved.dueDate },
           ],
           targetType: "board_assignment",
           targetId: saved.id,
-        }),
+        });
+        return { kind: "saved" as const, assignment: saved };
       });
-      sendJson(res, 201, { assignment, permissions });
+      if (result.kind === "invalid") {
+        sendJson(res, 400, {
+          error: { code: "invalid_response", message: result.message },
+        });
+        return;
+      }
+      sendJson(res, 201, { assignment: result.assignment, permissions });
       return;
     }
 
@@ -3360,6 +3381,10 @@ async function handleBoardAssignmentsRequest({
           payload,
           current.status,
           permissions,
+          {
+            responsibleUserId: current.responsibleUserId,
+            actorUserId: access.profile.userId,
+          },
         );
         if (!validation.ok) {
           return {
@@ -3517,6 +3542,17 @@ async function handleBoardAssignmentsRequest({
           if (current.status === "completed") {
             return { kind: "completed" as const };
           }
+          // Locked after the assignment row. A kept responsible who has since
+          // lost execution does not block other edits.
+          if (current.responsibleUserId !== validation.value.responsibleUserId) {
+            const responsibleProblem = await readBoardResponsibleProblem(
+              boardAssignments,
+              validation.value.responsibleUserId,
+            );
+            if (responsibleProblem !== undefined) {
+              return { kind: "invalid" as const, message: responsibleProblem };
+            }
+          }
 
           const currentOccurrenceDate =
             getBoardAssignmentOccurrenceOnOrAfter({
@@ -3556,6 +3592,12 @@ async function handleBoardAssignmentsRequest({
             summary: `Изменено поручение Совета директоров: ${assignment.summary}`,
             details: [
               { label: "Причина изменения", value: assignmentUpdate.comment },
+              ...(current.responsibleUserId === assignment.responsibleUserId
+                ? []
+                : [{
+                    label: "Ответственный",
+                    value: `${current.responsibleDisplayName || "Не назначен"} → ${assignment.responsibleDisplayName}`,
+                  }]),
               { label: "Протокол", value: assignment.protocolNumber },
               { label: "Пункт решения", value: assignment.decisionNumber },
               { label: "Срок исполнения", value: assignment.dueDate },
@@ -3621,9 +3663,12 @@ async function handleBoardAssignmentsRequest({
       assignment !== undefined &&
       (
         !isBoardAssignmentExecutorOnly(permissions) ||
-        isBoardAssignmentActiveOn(
-          assignment,
-          buildIncidentOverviewPeriod(now()).today,
+        (
+          isBoardAssignmentActiveOn(
+            assignment,
+            buildIncidentOverviewPeriod(now()).today,
+          ) &&
+          isBoardAssignmentAssignedTo(assignment, access.profile.userId)
         )
       );
     if (assignment === undefined || !isVisibleToExecutor) {
@@ -3692,6 +3737,41 @@ function readBoardAssignmentFilters(url: URL):
       ...(query === undefined ? {} : { query }),
     },
   };
+}
+
+/** Candidates and the default for the register form (task 139). */
+async function readBoardResponsibleChoice(
+  boardAssignments: BoardAssignmentsRepository,
+) {
+  const [accounts, latest] = await Promise.all([
+    boardAssignments.listResponsibleCandidates(),
+    boardAssignments.readLatestResponsibleUserId(),
+  ]);
+  const responsibleCandidates = accounts
+    .filter((account) => account.canReceive)
+    .map(({ userId, fullName, position }) => ({ userId, fullName, position }));
+  return {
+    responsibleCandidates,
+    ...(latest !== undefined &&
+      responsibleCandidates.some((candidate) => candidate.userId === latest)
+      ? { defaultResponsibleUserId: latest }
+      : {}),
+  };
+}
+
+/** Locks the account; inside an edit call it only after locking the assignment. */
+async function readBoardResponsibleProblem(
+  boardAssignments: BoardAssignmentsRepository,
+  userId: string,
+) {
+  const candidate = await boardAssignments.readResponsibleCandidate(userId, true);
+  if (candidate === undefined) {
+    return "Выберите действующую учётную запись ответственного.";
+  }
+  if (!candidate.canReceive) {
+    return "У ответственного нет вкладки «Поручения» с исполнением поручений Совета директоров.";
+  }
+  return undefined;
 }
 
 function sendBoardAssignmentNotFound(res: ServerResponse) {

@@ -11,7 +11,7 @@ function fixture(registryId: AssignmentRegistryId = "director", initiativeLinks?
   let completions: DirectorAssignment[] = [];
   let revisions: DirectorAssignment[] = [];
   let boardLocks = 0;
-  const board = { id: "board-parent", summary: "Исходное поручение", details: "Полное содержание поручения", status: "in_progress", recurrence: "once", activeFrom: "2026-09-01", activeTo: "2026-09-01", currentOccurrenceDate: "2026-09-01" } as BoardAssignment;
+  const board = { id: "board-parent", summary: "Исходное поручение", details: "Полное содержание поручения", status: "in_progress", recurrence: "once", activeFrom: "2026-09-01", activeTo: "2026-09-01", currentOccurrenceDate: "2026-09-01", responsibleUserId: "sender", responsibleDisplayName: "Отправитель" } as BoardAssignment;
   let auditFails = false;
   const employee: PersonnelEmployee = { id: "account:worker", revision: 1, fullName: "Исполнитель", position: "Инженер", department: "", category: "ИТР", userId: "worker", active: true, canReceive: true };
   const repository = {
@@ -354,6 +354,10 @@ test("delegation history respects source visibility and the original link cannot
   const child = await service.save(sender, { assignment, comment: "Назначено" });
   await assert.rejects(service.delegations(profile("worker"), board.id), /прав/u);
   await assert.rejects(service.delegations(sender, "unknown"), /недоступно/u);
+  // Задача 139: an executor who is not the responsible does not reach the source.
+  const otherExecutor = profile("other-executor", true);
+  otherExecutor.activeAccess.capabilities.push("business.view_board_assignments", "business.execute_board_assignments");
+  await assert.rejects(service.delegations(otherExecutor, board.id), /недоступно/u);
   await assert.rejects(service.save(sender, { assignment: { ...assignment, sourceBoardAssignmentId: null }, revision: 1, comment: "Удалить связь" }, child.id), /Нельзя изменить/u);
   board.status = "under_review";
   await assert.rejects(service.delegations(sender, board.id), /недоступно/u);

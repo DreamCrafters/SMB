@@ -10,6 +10,7 @@ import {
   type ValidatedBoardAssignmentCreateRequest,
   type ValidatedBoardAssignmentUpdateRequest,
 } from "../domain/boardAssignment.js";
+import { readAssignableAccounts, type AssignableAccount } from "./assignableAccounts.js";
 
 export type BoardAssignmentActor = {
   userId: string;
@@ -44,6 +45,10 @@ export type BoardAssignmentSummary = {
   decisionNumber: string;
   summary: string;
   coExecutors: string[];
+  /** Null for assignments created before task 139: any executor may submit them. */
+  responsibleUserId: string | null;
+  /** Current account name; empty when nobody is assigned. */
+  responsibleDisplayName: string;
   dueDate: string;
   recurrence: BoardAssignmentRecurrence;
   activeFrom: string;
@@ -91,8 +96,15 @@ export type BoardAssignmentFilters = {
 export type BoardAssignmentsRepository = {
   list: (
     filters?: BoardAssignmentFilters,
-    options?: { activeOn?: string },
+    options?: { activeOn?: string; assignedTo?: string },
   ) => Promise<BoardAssignmentSummary[]>;
+  listResponsibleCandidates: () => Promise<AssignableAccount[]>;
+  /** Lock only after the assignment row: positions are scanned under the lock. */
+  readResponsibleCandidate: (
+    userId: string,
+    lock?: boolean,
+  ) => Promise<AssignableAccount | undefined>;
+  readLatestResponsibleUserId: () => Promise<string | undefined>;
   readById: (id: string) => Promise<BoardAssignment | undefined>;
   readByIdForUpdate: (id: string) => Promise<BoardAssignment | undefined>;
   create: (input: {
@@ -162,6 +174,8 @@ type BoardAssignmentRow = RowDataPacket & {
   summary: string;
   details: string;
   co_executors: unknown;
+  responsible_user_id: string | null;
+  responsible_display_name?: string | null;
   due_date: string;
   recurrence: string;
   active_from: Date | string;
@@ -232,19 +246,35 @@ type BoardAssignmentsRepositoryOptions = {
   now?: () => Date;
 };
 
-const assignmentSelect = `
+const assignmentFields = `
   select assignments.id, assignments.meeting_date,
     assignments.protocol_number, assignments.decision_number,
     assignments.summary, assignments.details, assignments.co_executors,
+    assignments.responsible_user_id,
     assignments.due_date, assignments.recurrence,
     assignments.active_from, assignments.active_to,
     assignments.current_occurrence_date, assignments.status,
     assignments.source_material_key, assignments.source_material_file_name,
     assignments.created_by_user_id, assignments.created_by_account_id,
     assignments.created_by_display_name, assignments.created_at,
-    assignments.updated_at
+    assignments.updated_at`;
+
+const assignmentSelect = `${assignmentFields}
   from board_assignments assignments
 `;
+
+// The list never locks, so it reads the responsible's current name in one join;
+// a locking read would also lock the app_users row, so readById asks separately.
+const assignmentListSelect = `${assignmentFields},
+    responsible.display_name as responsible_display_name
+  from board_assignments assignments
+  left join app_users responsible on responsible.id = assignments.responsible_user_id
+`;
+
+const boardAssigneeRegistry = {
+  viewCapability: "business.view_board_assignments",
+  executeCapability: "business.execute_board_assignments",
+};
 
 const maxBoardAssignmentDocuments = 5;
 
@@ -257,7 +287,7 @@ export function createBoardAssignmentsRepository(
 ): BoardAssignmentsRepository {
   async function list(
     filters: BoardAssignmentFilters = {},
-    { activeOn }: { activeOn?: string } = {},
+    { activeOn, assignedTo }: { activeOn?: string; assignedTo?: string } = {},
   ) {
     const conditions: string[] = [];
     const parameters: unknown[] = [];
@@ -296,9 +326,16 @@ export function createBoardAssignmentsRepository(
       );
       parameters.push(activeOn);
     }
+    if (assignedTo !== undefined) {
+      conditions.push(
+        `(assignments.responsible_user_id is null
+          or assignments.responsible_user_id = ?)`,
+      );
+      parameters.push(assignedTo);
+    }
 
     const [rows] = await pool.query<BoardAssignmentRow[]>(
-      `${assignmentSelect}
+      `${assignmentListSelect}
       ${conditions.length === 0 ? "" : `where ${conditions.join(" and ")}`}
       order by
         ${activeOn === undefined
@@ -327,6 +364,12 @@ export function createBoardAssignmentsRepository(
       return undefined;
     }
 
+    const [responsibleRows] = row.responsible_user_id === null
+      ? [[]]
+      : await pool.query<(RowDataPacket & { display_name: string })[]>(
+          "select display_name from app_users where id = ? limit 1",
+          [row.responsible_user_id],
+        );
     const [commentRows] = await pool.query<BoardAssignmentCommentRow[]>(
       `select id, assignment_id, author_user_id, author_account_id,
         author_display_name, comment_text, status_after, created_at
@@ -345,7 +388,10 @@ export function createBoardAssignmentsRepository(
     );
 
     return {
-      ...mapSummary(row),
+      ...mapSummary({
+        ...row,
+        responsible_display_name: responsibleRows[0]?.display_name ?? null,
+      }),
       details: row.details,
       documents: documentRows.map(mapDocument),
       ...(
@@ -385,10 +431,10 @@ export function createBoardAssignmentsRepository(
     await pool.query(
       `insert into board_assignments (
         id, meeting_date, protocol_number, decision_number, summary, details,
-        co_executors, due_date, recurrence, active_from, active_to,
-        current_occurrence_date, status, created_by_user_id,
+        co_executors, responsible_user_id, due_date, recurrence, active_from,
+        active_to, current_occurrence_date, status, created_by_user_id,
         created_by_account_id, created_by_display_name, created_at, updated_at
-      ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'in_progress', ?, ?, ?, ?, ?)`,
+      ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'in_progress', ?, ?, ?, ?, ?)`,
       [
         assignmentId,
         assignment.meetingDate,
@@ -397,6 +443,7 @@ export function createBoardAssignmentsRepository(
         assignment.summary,
         assignment.details,
         JSON.stringify(assignment.coExecutors),
+        assignment.responsibleUserId,
         dueDate,
         assignment.recurrence,
         assignment.activeFrom,
@@ -452,7 +499,8 @@ export function createBoardAssignmentsRepository(
     const [result] = await pool.query<ResultSetHeader>(
       `update board_assignments
       set meeting_date = ?, protocol_number = ?, decision_number = ?,
-        summary = ?, details = ?, co_executors = ?, due_date = ?,
+        summary = ?, details = ?, co_executors = ?, responsible_user_id = ?,
+        due_date = ?,
         recurrence = ?, active_from = ?, active_to = ?,
         current_occurrence_date = ?, updated_at = ?
       where id = ? and updated_at = ? and status <> 'completed'`,
@@ -463,6 +511,7 @@ export function createBoardAssignmentsRepository(
         assignment.summary,
         assignment.details,
         JSON.stringify(assignment.coExecutors),
+        assignment.responsibleUserId,
         dueDate,
         assignment.recurrence,
         assignment.activeFrom,
@@ -826,8 +875,24 @@ export function createBoardAssignmentsRepository(
     );
   }
 
+  /** Responsible of the latest assignment that has one: the form's default. */
+  async function readLatestResponsibleUserId() {
+    const [rows] = await pool.query<(RowDataPacket & { responsible_user_id: string })[]>(
+      `select responsible_user_id from board_assignments
+      where responsible_user_id is not null
+      order by created_at desc, id desc
+      limit 1`,
+    );
+    return rows[0]?.responsible_user_id;
+  }
+
   return {
     list,
+    listResponsibleCandidates: () => readAssignableAccounts(pool, boardAssigneeRegistry),
+    async readResponsibleCandidate(userId: string, lock = false) {
+      return (await readAssignableAccounts(pool, boardAssigneeRegistry, { userId, lock }))[0];
+    },
+    readLatestResponsibleUserId,
     readById,
     readByIdForUpdate,
     create,
@@ -856,6 +921,10 @@ function mapSummary(row: BoardAssignmentRow): BoardAssignmentSummary {
     decisionNumber: row.decision_number,
     summary: row.summary,
     coExecutors: readStringArray(row.co_executors),
+    responsibleUserId: row.responsible_user_id,
+    responsibleDisplayName: row.responsible_user_id === null
+      ? ""
+      : (row.responsible_display_name ?? ""),
     dueDate: row.due_date,
     recurrence: row.recurrence,
     activeFrom: formatDateOnly(row.active_from),
@@ -967,6 +1036,15 @@ function readBoardAssignmentSnapshot(value: unknown): BoardAssignment {
     typeof snapshot.details !== "string" ||
     !Array.isArray(snapshot.coExecutors) ||
     !snapshot.coExecutors.every((item) => typeof item === "string") ||
+    (
+      snapshot.responsibleUserId !== undefined &&
+      snapshot.responsibleUserId !== null &&
+      typeof snapshot.responsibleUserId !== "string"
+    ) ||
+    (
+      snapshot.responsibleDisplayName !== undefined &&
+      typeof snapshot.responsibleDisplayName !== "string"
+    ) ||
     typeof snapshot.dueDate !== "string" ||
     !isBoardAssignmentRecurrence(snapshot.recurrence) ||
     typeof snapshot.activeFrom !== "string" ||
@@ -1000,6 +1078,9 @@ function readBoardAssignmentSnapshot(value: unknown): BoardAssignment {
 
   return {
     ...snapshot,
+    // Snapshots taken before task 139 have no responsible.
+    responsibleUserId: snapshot.responsibleUserId ?? null,
+    responsibleDisplayName: snapshot.responsibleDisplayName ?? "",
     documents: snapshot.documents ?? (
       snapshot.sourceMaterial === undefined
         ? []

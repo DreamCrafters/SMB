@@ -12431,6 +12431,8 @@ test("board assignment API enforces creation, execution and review capabilities"
     summary: "Подготовить анализ причин невыполнения плана",
     details: "Представить Совету директоров письменный анализ.",
     coExecutors: ["Экономист"],
+    responsibleUserId: "user-gd",
+    responsibleDisplayName: "Гендиректор",
     dueDate: "До 24.07.2026",
     recurrence: "daily",
     activeFrom: "2026-07-10",
@@ -12444,13 +12446,26 @@ test("board assignment API enforces creation, execution and review capabilities"
     comments: [],
   };
   let listFilters: BoardAssignmentFilters | undefined;
-  let listOptions: { activeOn?: string } | undefined;
+  let listOptions: { activeOn?: string; assignedTo?: string } | undefined;
   let completedOccurrenceDate: string | undefined;
+  const candidates = [
+    { userId: "user-gd", fullName: "Гендиректор", position: "Генеральный директор", canReceive: true },
+    { userId: "user-no-access", fullName: "Без права", position: "Экономист", canReceive: false },
+  ];
   const repository: BoardAssignmentsRepository = {
     async list(filters, options) {
       listFilters = filters;
       listOptions = options;
       return [current];
+    },
+    async listResponsibleCandidates() {
+      return candidates;
+    },
+    async readResponsibleCandidate(userId) {
+      return candidates.find((candidate) => candidate.userId === userId);
+    },
+    async readLatestResponsibleUserId() {
+      return "user-gd";
     },
     async readById() {
       return current;
@@ -12573,6 +12588,12 @@ test("board assignment API enforces creation, execution and review capabilities"
       { headers },
     );
     assert.equal(listResponse.status, 200);
+    // Задача 139: the creator's register carries only accounts that can execute.
+    const listPayload = await listResponse.json() as { responsibleCandidates?: unknown; defaultResponsibleUserId?: string };
+    assert.deepEqual(listPayload.responsibleCandidates, [
+      { userId: "user-gd", fullName: "Гендиректор", position: "Генеральный директор" },
+    ]);
+    assert.equal(listPayload.defaultResponsibleUserId, "user-gd");
     assert.deepEqual(listFilters, {
       status: "in_progress",
       meetingDateFrom: "2026-07-01",
@@ -12596,13 +12617,34 @@ test("board assignment API enforces creation, execution and review capabilities"
         summary: "Подготовить анализ причин невыполнения плана",
         details: "Представить Совету директоров письменный анализ.",
         coExecutors: ["Экономист"],
+        responsibleUserId: "user-no-access",
         recurrence: "daily",
         activeFrom: "2026-07-10",
         activeTo: "2026-07-31",
         comment: "Внесено по протоколу.",
       }),
     });
-    assert.equal(createResponse.status, 201);
+    assert.equal(createResponse.status, 400);
+    assert.match(((await createResponse.json()) as { error: { message: string } }).error.message, /нет вкладки «Поручения»/u);
+    const createAssignedResponse = await fetch(`${baseUrl}/api/board-assignments`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        meetingDate: "2026-07-10",
+        protocolNumber: "369",
+        decisionNumber: "2.3",
+        summary: "Подготовить анализ причин невыполнения плана",
+        details: "Представить Совету директоров письменный анализ.",
+        coExecutors: ["Экономист"],
+        responsibleUserId: "user-gd",
+        recurrence: "daily",
+        activeFrom: "2026-07-10",
+        activeTo: "2026-07-31",
+        comment: "Внесено по протоколу.",
+      }),
+    });
+    assert.equal(createAssignedResponse.status, 201);
+    assert.ok(events[0]?.details?.some((detail) => detail.label === "Ответственный"));
 
     profile.activeAccess.position = "general_director";
     profile.activeAccess.positionDisplayName = "Генеральный директор";
@@ -12619,7 +12661,7 @@ test("board assignment API enforces creation, execution and review capabilities"
       assignments: Array<{ isOverdue: boolean }>;
     };
     assert.equal(activeListPayload.assignments[0]?.isOverdue, true);
-    assert.deepEqual(listOptions, { activeOn: "2026-07-20" });
+    assert.deepEqual(listOptions, { activeOn: "2026-07-20", assignedTo: profile.userId });
     // Задача 131: execution combined with review keeps the whole register readable,
     // while «Поручения мне» still asks for assignments to execute only.
     profile.activeAccess.capabilities = [
@@ -12629,8 +12671,10 @@ test("board assignment API enforces creation, execution and review capabilities"
     ];
     assert.equal((await fetch(`${baseUrl}/api/board-assignments`, { headers })).status, 200);
     assert.equal(listOptions, undefined);
-    assert.equal((await fetch(`${baseUrl}/api/board-assignments?executionOnly=1`, { headers })).status, 200);
-    assert.deepEqual(listOptions, { activeOn: "2026-07-20" });
+    const inboxResponse = await fetch(`${baseUrl}/api/board-assignments?executionOnly=1`, { headers });
+    assert.equal(inboxResponse.status, 200);
+    assert.deepEqual(listOptions, { activeOn: "2026-07-20", assignedTo: profile.userId });
+    assert.equal(((await inboxResponse.json()) as { responsibleCandidates?: unknown }).responsibleCandidates, undefined);
     current.currentOccurrenceDate = "2026-07-21";
     assert.equal((await fetch(`${baseUrl}/api/board-assignments/assignment-1`, { headers })).status, 200);
     current.currentOccurrenceDate = "2026-07-10";
@@ -12645,6 +12689,17 @@ test("board assignment API enforces creation, execution and review capabilities"
     );
     assert.equal(inactiveDetailResponse.status, 404);
     current.currentOccurrenceDate = "2026-07-10";
+    // Another executor neither reads nor submits the GD's assignment.
+    assert.equal((await fetch(`${baseUrl}/api/board-assignments/assignment-1`, { headers })).status, 404);
+    const foreignSubmitResponse = await fetch(
+      `${baseUrl}/api/board-assignments/assignment-1/action`,
+      { method: "POST", headers, body: JSON.stringify({ action: "submit_for_review", comment: "Чужое." }) },
+    );
+    assert.equal(foreignSubmitResponse.status, 400);
+    assert.match(((await foreignSubmitResponse.json()) as { error: { message: string } }).error.message, /только ответственный/u);
+    const executorUserId = profile.userId;
+    profile.userId = "user-gd";
+    assert.equal((await fetch(`${baseUrl}/api/board-assignments/assignment-1`, { headers })).status, 200);
     const submitResponse = await fetch(
       `${baseUrl}/api/board-assignments/assignment-1/action`,
       {
@@ -12666,6 +12721,13 @@ test("board assignment API enforces creation, execution and review capabilities"
       "business.create_board_assignments",
       "business.review_board_assignments",
     ];
+    // The responsible never accepts the own assignment.
+    const selfReviewResponse = await fetch(
+      `${baseUrl}/api/board-assignments/assignment-1/action`,
+      { method: "POST", headers, body: JSON.stringify({ action: "complete", comment: "Сам себе." }) },
+    );
+    assert.equal(selfReviewResponse.status, 400);
+    profile.userId = executorUserId;
     const completeResponse = await fetch(
       `${baseUrl}/api/board-assignments/assignment-1/action`,
       {
@@ -12768,6 +12830,8 @@ test("board assignment API lets creators upload and remove up to five protected 
     summary: "Поручение с приложениями",
     details: "К поручению можно приложить до пяти PDF.",
     coExecutors: [],
+    responsibleUserId: null,
+    responsibleDisplayName: "",
     dueDate: "Один раз, 10.07.2026",
     recurrence: "once",
     activeFrom: "2026-07-10",
@@ -12782,6 +12846,9 @@ test("board assignment API lets creators upload and remove up to five protected 
   };
   const repository: BoardAssignmentsRepository = {
     async list() { return [assignment]; },
+    async listResponsibleCandidates() { return []; },
+    async readResponsibleCandidate() { return undefined; },
+    async readLatestResponsibleUserId() { return undefined; },
     async readById() {
       assignment.documents = documents;
       return assignment;
@@ -12957,6 +13024,8 @@ test("board assignment API lets any creator edit a live assignment but keeps a c
     summary: "Первоначальное содержание",
     details: "Первоначальное полное содержание.",
     coExecutors: ["Экономист"],
+    responsibleUserId: null,
+    responsibleDisplayName: "",
     dueDate: "Каждый месяц, с 10.07.2026 по 31.12.2026",
     recurrence: "monthly",
     activeFrom: "2026-07-10",
@@ -12970,6 +13039,8 @@ test("board assignment API lets any creator edit a live assignment but keeps a c
     comments: [],
   };
   let updateInput: Record<string, unknown> | undefined;
+  const lockOrder: string[] = [];
+  const candidate = { userId: "user-gd", fullName: "Гендиректор", position: "Генеральный директор", canReceive: true };
   const repository = {
     async list() {
       return [current];
@@ -12978,7 +13049,12 @@ test("board assignment API lets any creator edit a live assignment but keeps a c
       return current;
     },
     async readByIdForUpdate() {
+      lockOrder.push("assignment");
       return current;
+    },
+    async readResponsibleCandidate(userId: string, lock: boolean) {
+      if (lock) lockOrder.push("account");
+      return userId === candidate.userId ? candidate : undefined;
     },
     async create() {
       return current;
@@ -12992,6 +13068,7 @@ test("board assignment API lets any creator edit a live assignment but keeps a c
       current = {
         ...current,
         ...assignment,
+        responsibleDisplayName: "Гендиректор",
         dueDate: "Каждую неделю, с 15.07.2026 по 31.12.2026",
         updatedAt: "2026-07-28T10:00:00.000Z",
       };
@@ -13035,6 +13112,7 @@ test("board assignment API lets any creator edit a live assignment but keeps a c
     summary: "Уточнённое содержание",
     details: "Уточнённое полное содержание.",
     coExecutors: ["Экономист", "Главный инженер"],
+    responsibleUserId: "user-gd",
     recurrence: "weekly",
     activeFrom: "2026-07-15",
     activeTo: "2026-12-31",
@@ -13075,6 +13153,26 @@ test("board assignment API lets any creator edit a live assignment but keeps a c
       },
     );
     assert.equal(events.at(-1)?.action, "board_assignment.update");
+    // Задача 139: the first assignment is checked after the assignment row is locked.
+    assert.deepEqual(lockOrder, ["assignment", "account"]);
+    assert.ok(events.at(-1)?.details?.some((detail) =>
+      detail.label === "Ответственный" && detail.value === "Не назначен → Гендиректор"));
+
+    // A kept responsible who has lost execution does not block other edits.
+    candidate.canReceive = false;
+    lockOrder.length = 0;
+    const keptResponse = await fetch(
+      `${baseUrl}/api/board-assignments/assignment-edit`,
+      { method: "PATCH", headers, body: JSON.stringify({ ...updateBody, expectedUpdatedAt: current.updatedAt }) },
+    );
+    assert.equal(keptResponse.status, 200);
+    assert.deepEqual(lockOrder, ["assignment"]);
+    current.responsibleUserId = null;
+    const lostResponse = await fetch(
+      `${baseUrl}/api/board-assignments/assignment-edit`,
+      { method: "PATCH", headers, body: JSON.stringify({ ...updateBody, expectedUpdatedAt: current.updatedAt }) },
+    );
+    assert.equal(lostResponse.status, 400);
 
     current.status = "completed";
     updateInput = undefined;
@@ -13107,6 +13205,8 @@ test("board assignment completion history returns immutable accepted snapshots",
     summary: "Состояние поручения на момент приёмки",
     details: "Это содержание не меняется после завершения периода.",
     coExecutors: ["Экономист"],
+    responsibleUserId: "user-gd",
+    responsibleDisplayName: "Гендиректор",
     dueDate: "Каждый месяц, с 10.07.2026 по 31.12.2026",
     recurrence: "monthly",
     activeFrom: "2026-07-10",
@@ -13142,6 +13242,8 @@ test("board assignment completion history returns immutable accepted snapshots",
       decisionNumber: assignment.decisionNumber,
       summary: assignment.summary,
       coExecutors: assignment.coExecutors,
+      responsibleUserId: assignment.responsibleUserId,
+      responsibleDisplayName: assignment.responsibleDisplayName,
       dueDate: assignment.dueDate,
       recurrence: assignment.recurrence,
       activeFrom: assignment.activeFrom,

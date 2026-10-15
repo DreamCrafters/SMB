@@ -5,6 +5,7 @@ import {
   getBoardAssignmentOccurrenceOnOrAfter,
   getNextBoardAssignmentOccurrenceDate,
   getBoardAssignmentPermissions,
+  isBoardAssignmentAssignedTo,
   isBoardAssignmentActiveOn,
   isBoardAssignmentOverdueOn,
   validateBoardAssignmentAction,
@@ -21,6 +22,7 @@ test("board assignment creation accepts protocol fields and normalizes co-execut
     details:
       "Представить Совету директоров письменный анализ причин невыполнения плановых показателей.",
     coExecutors: ["Экономист", " Финансовый директор ", "Экономист"],
+    responsibleUserId: "gd-user",
     recurrence: "monthly",
     activeFrom: "2026-08-01",
     activeTo: "2026-12-31",
@@ -37,6 +39,7 @@ test("board assignment creation accepts protocol fields and normalizes co-execut
       details:
         "Представить Совету директоров письменный анализ причин невыполнения плановых показателей.",
       coExecutors: ["Экономист", "Финансовый директор"],
+      responsibleUserId: "gd-user",
       recurrence: "monthly",
       activeFrom: "2026-08-01",
       activeTo: "2026-12-31",
@@ -53,12 +56,18 @@ test("board assignment editing requires an explicit change comment", () => {
     summary: "Подготовить анализ причин невыполнения плана",
     details: "Представить Совету директоров письменный анализ.",
     coExecutors: ["Экономист"],
+    responsibleUserId: "gd-user",
     recurrence: "monthly",
     activeFrom: "2026-08-01",
     activeTo: "2026-12-31",
   };
 
   assert.equal(validateBoardAssignmentUpdateRequest(request).ok, false);
+  const { responsibleUserId: _responsible, ...withoutResponsible } = request;
+  assert.deepEqual(
+    validateBoardAssignmentUpdateRequest({ ...withoutResponsible, comment: "Уточнены сроки.", expectedUpdatedAt: "2026-07-20T08:00:00.000Z" }),
+    { ok: false, errors: ["Выберите ответственного."] },
+  );
   assert.equal(
     validateBoardAssignmentUpdateRequest({
       ...request,
@@ -365,3 +374,21 @@ function buildProfile(
     receivedAt: "2026-07-10T08:00:00.000Z",
   };
 }
+
+test("board assignment actions belong to the responsible (task 139)", () => {
+  const executor = { canView: true, canCreate: false, canExecute: true, canReview: false };
+  const reviewer = { canView: true, canCreate: true, canExecute: true, canReview: true };
+  const submit = { action: "submit_for_review", comment: "Готово." };
+  assert.equal(validateBoardAssignmentAction(submit, "in_progress", executor, { responsibleUserId: "gd", actorUserId: "gd" }).ok, true);
+  assert.deepEqual(
+    validateBoardAssignmentAction(submit, "in_progress", executor, { responsibleUserId: "gd", actorUserId: "member" }),
+    { ok: false, errors: ["Передать поручение на проверку может только ответственный."] },
+  );
+  // Assignments created before the responsible existed stay with every executor.
+  assert.equal(validateBoardAssignmentAction(submit, "in_progress", executor, { responsibleUserId: null, actorUserId: "member" }).ok, true);
+  const accept = { action: "complete", comment: "Принято." };
+  assert.equal(validateBoardAssignmentAction(accept, "under_review", reviewer, { responsibleUserId: "gd", actorUserId: "member" }).ok, true);
+  assert.equal(validateBoardAssignmentAction(accept, "under_review", reviewer, { responsibleUserId: "member", actorUserId: "member" }).ok, false);
+  assert.equal(isBoardAssignmentAssignedTo({ responsibleUserId: null }, "anyone"), true);
+  assert.equal(isBoardAssignmentAssignedTo({ responsibleUserId: "gd" }, "member"), false);
+});
