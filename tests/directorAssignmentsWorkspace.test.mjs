@@ -150,7 +150,7 @@ for (const mode of ["send", "send-linked", "send-unlinked", "both"]) {
           assert.equal(submitted.assignment.responsibleId, "account:employee-1");
           return;
         }
-        assert.equal(rootElement.querySelectorAll('.director-coexecutors input[type="checkbox"]').length, 1);
+        assert.equal(rootElement.querySelectorAll('.co-executor-picker select option:not([value=""])').length, 1);
         return;
       }
       const form = rootElement.querySelector("form");
@@ -164,8 +164,18 @@ for (const mode of ["send", "send-linked", "send-unlinked", "both"]) {
         responsible.value = "account:employee-1";
         responsible.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
       });
-      const coExecutor = form.querySelector('input[type="checkbox"]');
-      await React.act(async () => coExecutor.click());
+      const coExecutor = () => form.querySelector(".co-executor-picker select");
+      assert.deepEqual([...coExecutor().options].map(option => option.value), ["", "account:employee-2"], "the responsible is not offered as a co-executor");
+      const addCoExecutor = async id => React.act(async () => {
+        coExecutor().value = id;
+        coExecutor().dispatchEvent(new dom.window.Event("change", { bubbles: true }));
+      });
+      await addCoExecutor("account:employee-2");
+      assert.match(form.querySelector(".co-executor-picker ul").textContent, /Убрать/u);
+      assert.deepEqual([...coExecutor().options].map(option => option.value), [""], "a chosen co-executor leaves the list");
+      await React.act(async () => form.querySelector(".co-executor-picker li button").click());
+      assert.equal(form.querySelector(".co-executor-picker ul"), null);
+      await addCoExecutor("account:employee-2");
       await React.act(async () => form.dispatchEvent(new dom.window.Event("submit", { bubbles: true, cancelable: true })));
       assert.equal(submitted.assignment.responsibleId, "account:employee-1");
       assert.equal(submitted.assignment.summary, "Подготовить отчёт");
@@ -300,7 +310,7 @@ test("collegium workspace uses its own API, title and protocol fields without a 
     assert.doesNotMatch(form.textContent, /Исходное поручение Совета директоров/u);
     const field = label => [...form.querySelectorAll("label")].find(item => item.textContent.startsWith(label)).querySelector("input, select, textarea");
     assert.deepEqual([...field("Ответственный").options].map(option => option.value), ["", "account:employee-1"]);
-    assert.equal(form.querySelectorAll(".director-coexecutors input").length, 2, "any active account can still be a co-executor");
+    assert.equal(form.querySelectorAll('.co-executor-picker select option:not([value=""])').length, 2, "any active account can still be a co-executor");
     await React.act(async () => {
       Object.getOwnPropertyDescriptor(dom.window.HTMLTextAreaElement.prototype, "value").set.call(field("Суть поручения"), "Подготовить справку");
       field("Суть поручения").dispatchEvent(new dom.window.Event("input", { bubbles: true }));

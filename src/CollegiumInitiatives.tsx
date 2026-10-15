@@ -38,6 +38,7 @@ import {
   type CollegiumPerson,
 } from "./contracts/collegiumInitiatives";
 import type { ServerUserProfile } from "./contracts";
+import { CoExecutorPicker } from "./CoExecutorPicker";
 import { CollegiumMeetingsView } from "./CollegiumMeetings";
 import { CollegiumDashboardView } from "./CollegiumDashboard";
 import { CollegiumSettingsView } from "./CollegiumSettings";
@@ -1230,6 +1231,7 @@ function AssignmentFromInitiativeForm({
   const peopleIndex = usePeopleIndex(people);
   const [summary, setSummary] = useState(`По инициативе ${initiative.number} «${card.title}»: `);
   const [responsibleId, setResponsibleId] = useState(card.executorId);
+  const [coExecutorIds, setCoExecutorIds] = useState<string[]>([]);
   const [deadline, setDeadline] = useState(card.plannedResult);
   const [note, setNote] = useState([
     card.kpiCriterion === "" ? "" : `Ожидаемый результат и KPI: ${card.kpiCriterion}.`,
@@ -1257,7 +1259,7 @@ function AssignmentFromInitiativeForm({
         department: "",
         project: initiative.number,
         responsibleId,
-        coExecutorIds: [],
+        coExecutorIds,
         recurrence: "once",
         activeFrom: deadline,
         activeTo: deadline,
@@ -1310,6 +1312,7 @@ function AssignmentFromInitiativeForm({
             onChange={(event) => {
               const value = event.currentTarget.value;
               setResponsibleId(value);
+              setCoExecutorIds((current) => current.filter((id) => id !== value));
             }}
           >
             <option value="">Не выбран</option>
@@ -1330,6 +1333,15 @@ function AssignmentFromInitiativeForm({
             }}
           />
         </label>
+        <CoExecutorPicker
+          className="collegium-field-wide"
+          labelClassName="collegium-field"
+          options={people.map((person) => ({ id: person.id, name: person.displayName, detail: person.position }))}
+          value={coExecutorIds}
+          excludedId={responsibleId}
+          disabled={isSaving}
+          onChange={setCoExecutorIds}
+        />
         <label className="collegium-field collegium-field-wide">
           <span>Примечание</span>
           <textarea

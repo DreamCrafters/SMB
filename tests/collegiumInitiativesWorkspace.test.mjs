@@ -327,6 +327,17 @@ test("an approved initiative creates a linked collegium assignment with protocol
     assert.match(container.textContent, /протокол № КЗ-2026-01 от 12\.10\.2026, вопрос 2/u);
     await React.act(async () => findButtonByText(container, "Создать поручение").click());
     const form = container.querySelector(".collegium-implementation .collegium-action-form");
+    const coExecutor = form.querySelector(".co-executor-picker select");
+    assert.deepEqual(
+      Array.from(coExecutor.options, (option) => option.value),
+      ["", "account:outsider"],
+      "co-executors come from the same people list without the responsible",
+    );
+    await React.act(async () => {
+      coExecutor.value = "account:outsider";
+      coExecutor.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
+    });
+    assert.match(form.querySelector(".co-executor-picker ul").textContent, /Сидоров С\.С\./u);
     await React.act(async () => {
       form.dispatchEvent(new dom.window.Event("submit", { bubbles: true, cancelable: true }));
     });
@@ -336,6 +347,7 @@ test("an approved initiative creates a linked collegium assignment with protocol
     assert.equal(comment, "Создано из инициативы И-2026-0001");
     assert.equal(assignment.sourceInitiativeId, "initiative-1");
     assert.equal(assignment.responsibleId, "account:owner");
+    assert.deepEqual(assignment.coExecutorIds, ["account:outsider"]);
     assert.deepEqual(
       [assignment.activeFrom, assignment.activeTo, assignment.recurrence],
       ["2026-12-01", "2026-12-01", "once"],

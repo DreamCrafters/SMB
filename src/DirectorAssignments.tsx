@@ -7,6 +7,7 @@ import type { BoardAssignmentListItem } from "./contracts/boardAssignments";
 import { ManagedTable } from "./ManagedTable";
 import { TableCell, TableHeader } from "./TableCell";
 import { LoadingIndicator } from "./LoadingIndicator";
+import { CoExecutorPicker } from "./CoExecutorPicker";
 import type { ShowToast } from "./services/toastStack";
 
 const accountLinkLabels = { linked: "Аккаунт привязан", unlinked: "Не привязан к аккаунту", unavailable: "Аккаунт недоступен" };
@@ -410,7 +411,7 @@ export function DirectorAssignmentForm({ form, setForm, employees, saving, assig
         <p className="director-field-hint is-wide">Доступно сотрудников: {employees.length}. Ответственным можно выбрать учётную запись с вкладкой «Поручения» и реестром «{registry.title}»: только он отправляет результат на проверку. Соисполнителем — любую действующую учётную запись.</p>
         {employees.length === 0 && <p className="is-wide" role="status">Список сотрудников пока пуст. Добавьте учётные записи сотрудников.</p>}
         {form.coExecutorIds.filter(id => !employees.some(employee => employee.id === id)).map(id => <div key={id} className="is-wide director-assignment-actions"><span>{legacyEmployees.find(employee => employee.id === id)?.fullName ?? "Прежний соисполнитель"}: нет доступного аккаунта. Удалите участника и при необходимости выберите его аккаунт.</span><button type="button" disabled={saving} onClick={() => setForm(current => current && { ...current, coExecutorIds: current.coExecutorIds.filter(value => value !== id) })}>Убрать прежнего соисполнителя</button></div>)}
-        <details className="is-wide director-coexecutors"><summary>Соисполнители{form.coExecutorIds.length ? `: ${form.coExecutorIds.length}` : " (необязательно)"}</summary><div>{employeeOptions.filter(employee => employee.id !== form.responsibleId).map(employee => <label key={employee.id}><input type="checkbox" checked={form.coExecutorIds.includes(employee.id)} onChange={event => { const checked = event.currentTarget.checked; setForm(current => current && { ...current, coExecutorIds: checked ? [...current.coExecutorIds, employee.id] : current.coExecutorIds.filter(id => id !== employee.id) }); }} /><span>{employee.fullName}<small>{employee.position}</small></span></label>)}</div></details>
+        <CoExecutorPicker className="is-wide" options={employeeOptions.map(employee => ({ id: employee.id, name: employee.fullName, detail: employee.position }))} value={form.coExecutorIds} excludedId={form.responsibleId} disabled={saving} onChange={ids => setForm(current => current && { ...current, coExecutorIds: ids })} />
       </fieldset>
       <fieldset disabled={saving} className="board-assignment-form-grid director-compose-fields">
         <legend>Когда выполнить</legend>
