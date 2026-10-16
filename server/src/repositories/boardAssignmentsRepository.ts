@@ -275,6 +275,8 @@ const boardAssigneeRegistry = {
   viewCapability: "business.view_board_assignments",
   executeCapability: "business.execute_board_assignments",
 };
+/** The responsible of a board assignment is always a general director. */
+export const boardResponsiblePosition = "general_director";
 
 const maxBoardAssignmentDocuments = 5;
 
@@ -888,9 +890,9 @@ export function createBoardAssignmentsRepository(
 
   return {
     list,
-    listResponsibleCandidates: () => readAssignableAccounts(pool, boardAssigneeRegistry),
+    listResponsibleCandidates: () => readAssignableAccounts(pool, boardAssigneeRegistry, { positionCode: boardResponsiblePosition }),
     async readResponsibleCandidate(userId: string, lock = false) {
-      return (await readAssignableAccounts(pool, boardAssigneeRegistry, { userId, lock }))[0];
+      return (await readAssignableAccounts(pool, boardAssigneeRegistry, { userId, lock, positionCode: boardResponsiblePosition }))[0];
     },
     readLatestResponsibleUserId,
     readById,

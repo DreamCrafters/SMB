@@ -3739,7 +3739,7 @@ function readBoardAssignmentFilters(url: URL):
   };
 }
 
-/** Candidates and the default for the register form (task 139). */
+/** General directors who may execute, and the default, for the register form (task 139). */
 async function readBoardResponsibleChoice(
   boardAssignments: BoardAssignmentsRepository,
 ) {
@@ -3750,12 +3750,14 @@ async function readBoardResponsibleChoice(
   const responsibleCandidates = accounts
     .filter((account) => account.canReceive)
     .map(({ userId, fullName, position }) => ({ userId, fullName, position }));
+  // A single general director is set automatically; among several the
+  // latest assignment's choice is kept.
+  const defaultResponsibleUserId = responsibleCandidates.length === 1
+    ? responsibleCandidates[0]?.userId
+    : responsibleCandidates.find((candidate) => candidate.userId === latest)?.userId;
   return {
     responsibleCandidates,
-    ...(latest !== undefined &&
-      responsibleCandidates.some((candidate) => candidate.userId === latest)
-      ? { defaultResponsibleUserId: latest }
-      : {}),
+    ...(defaultResponsibleUserId === undefined ? {} : { defaultResponsibleUserId }),
   };
 }
 
@@ -3766,10 +3768,10 @@ async function readBoardResponsibleProblem(
 ) {
   const candidate = await boardAssignments.readResponsibleCandidate(userId, true);
   if (candidate === undefined) {
-    return "Выберите действующую учётную запись ответственного.";
+    return "Ответственным назначается действующий генеральный директор.";
   }
   if (!candidate.canReceive) {
-    return "У ответственного нет вкладки «Поручения» с исполнением поручений Совета директоров.";
+    return "У генерального директора нет вкладки «Поручения» с исполнением поручений Совета директоров.";
   }
   return undefined;
 }

@@ -19,13 +19,15 @@ function jsonList(value: unknown): string[] {
 /**
  * Active organization accounts that may be named as responsible in an assignment
  * registry. `lock` must be used only inside a transaction that already holds the
- * assignment row: positions are scanned through json_contains.
+ * assignment row: positions are scanned through json_contains. `positionCode`
+ * keeps only accounts holding that position; all their positions still count.
  */
 export async function readAssignableAccounts(
   pool: DatabasePool,
   registry: { viewCapability: string; executeCapability: string },
-  { userId, lock = false }: { userId?: string; lock?: boolean } = {},
+  { userId, lock = false, positionCode }: { userId?: string; lock?: boolean; positionCode?: string } = {},
 ): Promise<AssignableAccount[]> {
+  const parameters = [...(userId === undefined ? [] : [userId]), ...(positionCode === undefined ? [] : [positionCode])];
   const [rows] = await pool.query<(RowDataPacket & { user_id: string; full_name: string; position_name: string; navigation_items?: unknown; capabilities?: unknown })[]>(`
     select users.id as user_id, users.display_name as full_name, positions.display_name as position_name,
       positions.navigation_items, positions.capabilities
@@ -34,8 +36,9 @@ export async function readAssignableAccounts(
     join account_positions positions on json_contains(coalesce(accesses.position_codes, json_array(accesses.position_code)), json_quote(positions.id))
     where users.status = 'active' and accesses.is_active = 1 and accesses.scope_kind = 'organization'
       ${userId === undefined ? "" : "and users.id = ?"}
+      ${positionCode === undefined ? "" : "and json_contains(coalesce(accesses.position_codes, json_array(accesses.position_code)), json_quote(?))"}
     order by users.display_name, users.id, positions.sort_order, positions.id
-    ${lock ? "for update" : ""}`, userId === undefined ? [] : [userId]);
+    ${lock ? "for update" : ""}`, parameters);
   const accounts = new Map<string, AssignableAccount>();
   const access = new Map<string, Set<string>>();
   for (const row of rows) {

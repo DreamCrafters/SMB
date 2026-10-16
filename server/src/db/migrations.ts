@@ -265,6 +265,22 @@ function auditBackfilledTransmission({ table, action, targetType, summary, detai
   `;
 }
 
+const boardResponsibleBackfillActor = "system-task-139-board-responsible";
+
+/** Миграция 103: единственный действующий генеральный директор (или ни одной строки). */
+const singleGeneralDirectorSql = `
+  select min(users.id) as user_id, min(users.display_name) as display_name
+  from app_users users
+  join account_accesses accesses on accesses.user_id = users.id
+  where users.status = 'active' and accesses.is_active = 1
+    and accesses.scope_kind = 'organization'
+    and json_contains(
+      coalesce(accesses.position_codes, json_array(accesses.position_code)),
+      json_quote('general_director')
+    )
+  having count(distinct users.id) = 1
+`;
+
 const migrations: Migration[] = [
   {
     id: "001_dispatcher_submissions_mysql",
@@ -5030,6 +5046,44 @@ const migrations: Migration[] = [
       `alter table board_assignments
          add column responsible_user_id varchar(120) null after co_executors,
          add key idx_board_assignments_responsible (responsible_user_id);`,
+    ],
+  },
+  {
+    /**
+     * Доработка задачи 139: ответственный поручения СД — всегда генеральный
+     * директор. Если действующий гендиректор один, прежние поручения без
+     * ответственного (включая завершённые) назначаются ему с событием журнала;
+     * при нескольких или ни одном поручения остаются для выбора правкой.
+     */
+    id: "103_board_assignment_general_director",
+    statements: [
+      `
+      insert into user_audit_events (
+        id, actor_user_id, actor_account_id, actor_display_name,
+        actor_position_display_name, category, action, outcome, summary, details,
+        target_type, target_id
+      )
+      select
+        uuid(), '${boardResponsibleBackfillActor}', '${boardResponsibleBackfillActor}',
+        'Назначение ответственного', 'Системная миграция', 'data_change',
+        'board_assignment.update', 'success',
+        concat('Изменено поручение Совета директоров: ', assignments.summary),
+        json_array(
+          json_object('label', 'Ответственный', 'value', concat('Не назначен → ', director.display_name)),
+          json_object('label', 'Протокол', 'value', assignments.protocol_number),
+          json_object('label', 'Пункт решения', 'value', assignments.decision_number)
+        ),
+        'board_assignment', assignments.id
+      from board_assignments assignments
+      join (${singleGeneralDirectorSql}) director
+      where assignments.responsible_user_id is null;
+      `,
+      `
+      update board_assignments assignments
+      join (${singleGeneralDirectorSql}) director
+      set assignments.responsible_user_id = director.user_id
+      where assignments.responsible_user_id is null;
+      `,
     ],
   },
 ];

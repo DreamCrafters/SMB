@@ -537,7 +537,8 @@ export function BoardAssignmentsWorkspace({
   function openCreateDialog() {
     setFormMessage("");
     setCreateDocuments([]);
-    // The responsible of the latest assignment is the usual choice.
+    // A single general director is set by the server default; among several
+    // the latest assignment's choice is kept.
     setCreateInput((current) => current.responsibleUserId === "" && defaultResponsibleUserId !== undefined
       ? { ...current, responsibleUserId: defaultResponsibleUserId }
       : current);
@@ -552,7 +553,7 @@ export function BoardAssignmentsWorkspace({
       summary: assignment.summary,
       details: assignment.details,
       coExecutors: assignment.coExecutors,
-      responsibleUserId: assignment.responsibleUserId ?? "",
+      responsibleUserId: assignment.responsibleUserId ?? defaultResponsibleUserId ?? "",
       recurrence: assignment.recurrence,
       activeFrom: assignment.activeFrom,
       activeTo: assignment.activeTo,
@@ -1558,6 +1559,19 @@ function BoardAssignmentEditorDialog({
               </ul>
             )}
           </fieldset>
+          {responsibleCandidates.length === 1 &&
+            createInput.responsibleUserId === responsibleCandidates[0]?.userId ? (
+            <label className="is-wide">
+              <span>Ответственный</span>
+              <input
+                readOnly
+                value={`${responsibleCandidates[0].fullName} — ${responsibleCandidates[0].position}`}
+              />
+              <small className="director-field-hint">
+                Ответственным назначается генеральный директор.
+              </small>
+            </label>
+          ) : (
           <label className="is-wide">
             <span>Ответственный</span>
             <select
@@ -1568,11 +1582,11 @@ function BoardAssignmentEditorDialog({
                 updateField("responsibleUserId", value);
               }}
             >
-              <option value="">Выберите ответственного</option>
+              <option value="">Выберите генерального директора</option>
               {currentResponsible !== undefined &&
                 !responsibleCandidates.some((candidate) => candidate.userId === currentResponsible.userId) && (
                   <option value={currentResponsible.userId}>
-                    {currentResponsible.displayName || "Прежний ответственный"} — нет права исполнения
+                    {currentResponsible.displayName || "Прежний ответственный"} — не может быть ответственным
                   </option>
                 )}
               {responsibleCandidates.map((candidate) => (
@@ -1583,10 +1597,11 @@ function BoardAssignmentEditorDialog({
             </select>
             {responsibleCandidates.length === 0 && (
               <small className="director-field-hint">
-                Нет аккаунтов с вкладкой «Поручения» и исполнением поручений Совета директоров.
+                Нет генерального директора с вкладкой «Поручения» и исполнением поручений Совета директоров.
               </small>
             )}
           </label>
+          )}
           <label className="is-wide">
             <span>Соисполнители</span>
             <textarea

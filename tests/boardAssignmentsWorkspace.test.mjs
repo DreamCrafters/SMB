@@ -54,7 +54,7 @@ test("board assignment creation offers one-time and recurring schedule choices",
       },
       responsibleCandidates: [
         { userId: "gd-user", fullName: "Фридман Е.", position: "Генеральный директор" },
-        { userId: "assistant", fullName: "Мохарт О.", position: "Помощник генерального директора" },
+        { userId: "gd-second", fullName: "Петров П.", position: "Генеральный директор" },
       ],
       defaultResponsibleUserId: "gd-user",
     });
@@ -91,14 +91,14 @@ test("board assignment creation offers one-time and recurring schedule choices",
     assert.ok(addButton);
     await React.act(async () => addButton.click());
 
-    // Задача 139: the responsible is chosen among executors, the latest one by default.
+    // Задача 139: among several general directors the latest choice is the default.
     const responsibleSelect = findLabel(rootElement.querySelector('[role="dialog"]'), "Ответственный")?.querySelector("select");
     assert.ok(responsibleSelect);
     assert.equal(responsibleSelect.required, true);
     assert.equal(responsibleSelect.value, "gd-user");
     assert.deepEqual(
       Array.from(responsibleSelect.options).map((option) => option.textContent?.trim()),
-      ["Выберите ответственного", "Фридман Е. — Генеральный директор", "Мохарт О. — Помощник генерального директора"],
+      ["Выберите генерального директора", "Фридман Е. — Генеральный директор", "Петров П. — Генеральный директор"],
     );
 
     const recurrenceSelect = findLabel(
@@ -696,6 +696,57 @@ test("board assignment creator edits live tasks and opens immutable completion h
       false,
     );
 
+    await React.act(async () => root.unmount());
+  } finally {
+    globalThis.fetch = previousFetch;
+    restoreDomGlobals(previousGlobals);
+    dom.window.close();
+  }
+});
+
+test("board assignment form sets the only general director as the responsible", async () => {
+  const dom = new JSDOM(
+    '<!doctype html><html><body><div id="root"></div></body></html>',
+    { url: "http://127.0.0.1:5173/" },
+  );
+  const previousGlobals = captureDomGlobals();
+  const previousFetch = globalThis.fetch;
+  installDomGlobals(dom.window);
+  const React = await import("react");
+  const { createRoot } = await import("react-dom/client");
+
+  try {
+    const { BoardAssignmentsWorkspace } = await vite.ssrLoadModule(
+      "/src/BoardAssignments.tsx",
+    );
+    globalThis.fetch = async () => jsonResponse({
+      assignments: [],
+      permissions: { canView: true, canCreate: true, canExecute: false, canReview: false },
+      responsibleCandidates: [
+        { userId: "gd-user", fullName: "Фридман Е.", position: "Генеральный директор" },
+      ],
+      defaultResponsibleUserId: "gd-user",
+    });
+    const rootElement = dom.window.document.getElementById("root");
+    const root = createRoot(rootElement);
+    await React.act(async () => {
+      root.render(
+        React.createElement(BoardAssignmentsWorkspace, { mode: "create", onShowToast() {} }),
+      );
+    });
+    await waitFor(React, () =>
+      rootElement.querySelector(".board-assignment-create-overview") !== null
+    );
+    const addButton = Array.from(rootElement.querySelectorAll("button")).find(
+      (button) => button.textContent?.trim() === "Добавить поручение",
+    );
+    await React.act(async () => addButton.click());
+
+    const field = findLabel(rootElement.querySelector('[role="dialog"]'), "Ответственный");
+    assert.equal(field?.querySelector("select"), null);
+    const input = field?.querySelector("input");
+    assert.equal(input?.readOnly, true);
+    assert.equal(input?.value, "Фридман Е. — Генеральный директор");
     await React.act(async () => root.unmount());
   } finally {
     globalThis.fetch = previousFetch;

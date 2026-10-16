@@ -5388,6 +5388,13 @@ p {
   font: inherit;
 }
 
+/* Задача 139: единственный гендиректор подставляется сам, поле только для чтения. */
+.board-assignment-form-grid input[readonly] {
+  border-color: var(--line);
+  color: var(--muted);
+  background: var(--surface-subtle);
+}
+
 .board-assignment-form-grid textarea,
 .board-assignment-decision textarea {
   min-height: auto;

@@ -744,6 +744,26 @@ test("board assignment repository keeps unassigned and own assignments for an ex
   assert.deepEqual(queryParameters, ["2026-07-27", "gd-user"]);
 });
 
+test("board assignment responsible candidates are only general directors", async () => {
+  const calls: { sql: string; parameters: readonly unknown[] }[] = [];
+  const pool = {
+    async query(sql: string, parameters?: readonly unknown[]) {
+      calls.push({ sql, parameters: parameters ?? [] });
+      return [[], []];
+    },
+  } as unknown as DatabasePool;
+  const repository = createBoardAssignmentsRepository(pool);
+
+  await repository.listResponsibleCandidates();
+  await repository.readResponsibleCandidate("gd-user", true);
+
+  for (const call of calls) {
+    assert.match(call.sql, /json_contains\(coalesce\(accesses\.position_codes, json_array\(accesses\.position_code\)\), json_quote\(\?\)\)/u);
+  }
+  assert.deepEqual(calls.map((call) => call.parameters), [["general_director"], ["gd-user", "general_director"]]);
+  assert.match(calls[1]?.sql ?? "", /for update/u);
+});
+
 test("board assignment repository reads the responsible name without locking app_users", async () => {
   const queries: string[] = [];
   const pool = {
