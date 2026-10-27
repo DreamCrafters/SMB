@@ -5,7 +5,7 @@ import type { BoardAssignmentsRepository } from "../repositories/boardAssignment
 import type { AuditRepository } from "../repositories/auditRepository.js";
 import type { DatabaseTransactionRunner } from "../db/transactionContext.js";
 import { hasProfileCapability, type ServerUserProfile } from "./auth.js";
-import { canViewDirectorAssignment, canExecuteDirectorAssignment, directorWorkdays, DirectorAssignmentError, readDirectorAssignmentInput, readDirectorRecord, readDirectorText } from "./directorAssignment.js";
+import { canViewDirectorAssignment, canExecuteDirectorAssignment, directorWorkdays, DirectorAssignmentError, readDirectorAssignmentClosing, readDirectorAssignmentInput, readDirectorRecord, readDirectorText } from "./directorAssignment.js";
 import { buildAssignmentOverviewSummary } from "./assignmentOverview.js";
 import { getBoardAssignmentOccurrenceOnOrAfter, getBoardAssignmentPermissions, getNextBoardAssignmentOccurrenceDate, isBoardAssignmentActiveOn, isBoardAssignmentAssignedTo, isBoardAssignmentExecutorOnly, validateBoardAssignmentAction } from "./boardAssignment.js";
 
@@ -22,7 +22,7 @@ export function directorAssignmentPermissions(profile: ServerUserProfile, regist
   };
 }
 
-export const directorAssignmentActions = ["record_progress", "submit_for_review", "return_for_revision", "complete"] as const;
+export const directorAssignmentActions = ["record_progress", "submit_for_review", "return_for_revision", "complete", "close"] as const;
 
 /**
  * Задача 135: порт модуля инициатив. `lockForAssignment` проверяет доступ и
@@ -259,7 +259,8 @@ export function createDirectorAssignmentsService({ repository, boardAssignments,
         if (row.revision !== previous.revision) throw new DirectorAssignmentError("Поручение уже изменено. Обновите список.", 409);
         const canExecute = permissions.canExecute && canExecuteDirectorAssignment(await effectiveAssignment(previous), profile.userId, today());
         if (!permissions.canManage && !canExecute) throw new DirectorAssignmentError("Поручение недоступно для исполнения.", 403);
-        if (!directorAssignmentActions.includes(row.action as (typeof directorAssignmentActions)[number])) throw new DirectorAssignmentError("Выберите допустимое действие.");
+        if (!directorAssignmentActions.includes(row.action as (typeof directorAssignmentActions)[number])
+          || (row.action === "close" && !registry.canCloseWithoutReview)) throw new DirectorAssignmentError("Выберите допустимое действие.");
         // Same cycle as board assignments: the executor reports, only the controller decides.
         if (row.action === "record_progress" || row.action === "submit_for_review") {
           if (!canExecute) throw new DirectorAssignmentError("Поручение недоступно для исполнения.", 403);
@@ -276,15 +277,22 @@ export function createDirectorAssignmentsService({ repository, boardAssignments,
           return assignment;
         }
         if (previous.status === "completed") throw new DirectorAssignmentError("Поручение уже завершено.", 409);
-        const validation = validateBoardAssignmentAction({ action: row.action, comment: row.comment }, previous.status, {
-          canView: true, canCreate: permissions.canManage, canReview: permissions.canManage, canExecute,
-        });
-        if (!validation.ok) throw new DirectorAssignmentError(validation.errors.join(" "));
-        const { status, comment: actionComment } = validation.value;
+        let status: DirectorAssignment["status"] = "completed";
+        let actionComment: string;
+        let completedOn = today();
+        if (row.action === "close") {
+          ({ comment: actionComment, completedOn } = readDirectorAssignmentClosing(row, previous, today()));
+        } else {
+          const validation = validateBoardAssignmentAction({ action: row.action, comment: row.comment }, previous.status, {
+            canView: true, canCreate: permissions.canManage, canReview: permissions.canManage, canExecute,
+          });
+          if (!validation.ok) throw new DirectorAssignmentError(validation.errors.join(" "));
+          ({ status, comment: actionComment } = validation.value);
+        }
         const assignment = { ...previous, status, revision: previous.revision + 1, updatedAt: now().toISOString(),
           comments: [...previous.comments, comment(profile, actionComment, status)] };
         if (status === "completed") {
-          assignment.completedOn = today();
+          assignment.completedOn = completedOn;
           assignment.needsClarification = false;
           await repository.addCompletion(assignment);
           // An early completion must advance beyond that occurrence, not only beyond today.
@@ -293,7 +301,7 @@ export function createDirectorAssignmentsService({ repository, boardAssignments,
           if (next) { assignment.needsClarification = previous.needsClarification; assignment.status = "in_progress"; assignment.currentOccurrenceDate = next; assignment.completedOn = ""; }
         }
         await repository.update(assignment, previous);
-        await recordAudit(profile, `Изменён статус поручения ${registry.ownerGenitive}`, id);
+        await recordAudit(profile, row.action === "close" ? `Поручение ${registry.ownerGenitive} закрыто без проверки` : `Изменён статус поручения ${registry.ownerGenitive}`, id);
         return assignment;
       });
     },

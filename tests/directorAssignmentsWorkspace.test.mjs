@@ -235,9 +235,12 @@ for (const canManage of [true]) {
         assert.doesNotMatch(queue.textContent, /Поручение у исполнителя/u);
         const inWork = [...rootElement.querySelectorAll(".table-text-action")].find(item => item.textContent === "Поручение у исполнителя");
         await React.act(async () => inWork.click());
-        assert.equal(rootElement.querySelector(".board-assignment-decision"), null);
-        assert.match(rootElement.querySelector(".director-assignment-detail").textContent, /после того, как исполнитель отправит результат на проверку/u);
+        // Задача 142: an unsubmitted director assignment offers closing, not the review decision.
+        assert.ok(rootElement.querySelector(".board-assignment-decision.is-close"));
+        assert.equal(button("Принять исполнение"), undefined);
+        assert.equal(button("Вернуть на доработку"), undefined);
         await React.act(async () => button("Проверить исполнение").click());
+        assert.equal(rootElement.querySelector(".board-assignment-decision.is-close"), null);
         assert.ok(button("Вернуть на доработку"));
       } else {
         assert.equal(rootElement.querySelector(".board-assignment-review-queue"), null);
@@ -407,6 +410,117 @@ test("a controller responsible for a submitted assignment sees no decision on it
     await React.act(async () => button("Проверить исполнение").click());
     assert.ok(button("Принять исполнение"));
     assert.deepEqual(actions, []);
+  } finally {
+    await React.act(async () => root.unmount());
+    globalThis.fetch = oldFetch;
+    for (const [name, descriptor] of descriptors) {
+      if (descriptor) Object.defineProperty(globalThis, name, descriptor);
+      else delete globalThis[name];
+    }
+    dom.window.close();
+  }
+});
+
+test("a director controller closes an unsubmitted assignment with the actual date and a comment", async () => {
+  const dom = new JSDOM('<div id="root"></div>', { url: "http://127.0.0.1:5173/" });
+  const descriptors = new Map(globalNames.map(name => [name, Object.getOwnPropertyDescriptor(globalThis, name)]));
+  const oldFetch = globalThis.fetch;
+  for (const name of globalNames) Object.defineProperty(globalThis, name, { value: name === "IS_REACT_ACT_ENVIRONMENT" ? true : dom.window[name], configurable: true, writable: true });
+  dom.window.HTMLElement.prototype.scrollIntoView = () => {};
+  const React = await import("react");
+  const { createRoot } = await import("react-dom/client");
+  const rootElement = document.getElementById("root");
+  const root = createRoot(rootElement);
+  const base = { revision: 2, kind: "Поручение", department: "", project: "", responsible: { fullName: "Исполнитель" }, coExecutorIds: [], coExecutors: [], recurrence: "monthly", activeFrom: "2026-10-01", activeTo: "2026-12-31", currentOccurrenceDate: "2026-10-01", urgency: "", importance: "", progress: "", note: "", incomingNumber: "", completedOn: "", status: "in_progress", comments: [], documents: [], source: null, sourceBoardAssignmentId: null, postponedUntil: "" };
+  const open = { ...base, id: "open", number: "ГД-5", summary: "Поручение без отчёта", assignedOn: "2026-10-01", responsibleId: "account:worker" };
+  const future = { ...base, id: "future", number: "ГД-6", summary: "Будущее поручение", assignedOn: "2026-10-20", responsibleId: "account:worker" };
+  const own = { ...base, id: "own", number: "ГД-7", summary: "Своё поручение", assignedOn: "2026-10-01", responsibleId: "account:me" };
+  const submitted = [];
+  let failAction = true;
+  globalThis.fetch = async (url, options = {}) => {
+    const path = new URL(String(url), "http://127.0.0.1:5173").pathname;
+    if (path === "/api/director-assignments/open/action") {
+      submitted.push(JSON.parse(options.body));
+      if (failAction) return new Response(JSON.stringify({ error: { message: "Поручение уже изменено. Обновите список." } }), { status: 409 });
+      open.status = "completed";
+      return new Response(JSON.stringify(open));
+    }
+    assert.equal(path, "/api/director-assignments");
+    return new Response(JSON.stringify({ assignments: [open, future, own], ownAssignmentIds: ["own"], executableAssignmentIds: [], employees: [], permissions: { canView: true, canManage: true, canExecute: false }, today: "2026-10-15" }));
+  };
+  const button = label => [...rootElement.querySelectorAll("button")].find(item => item.textContent === label);
+  const openRow = summary => React.act(async () => [...rootElement.querySelectorAll(".table-text-action")].find(item => item.textContent === summary).click());
+  const type = async (element, value) => React.act(async () => {
+    const prototype = element instanceof dom.window.HTMLTextAreaElement ? dom.window.HTMLTextAreaElement.prototype : dom.window.HTMLInputElement.prototype;
+    Object.getOwnPropertyDescriptor(prototype, "value").set.call(element, value);
+    element.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+  });
+  try {
+    const { DirectorAssignmentsWorkspace } = await vite.ssrLoadModule("/src/DirectorAssignments.tsx");
+    await React.act(async () => root.render(React.createElement(DirectorAssignmentsWorkspace, { onShowToast() {} })));
+    // The register has no submitted result, so nothing waits for a review decision.
+    assert.equal(rootElement.querySelector(".board-assignment-review-queue"), null);
+
+    await openRow(future.summary);
+    assert.equal(rootElement.querySelector(".board-assignment-decision"), null);
+    assert.match(rootElement.querySelector(".director-assignment-detail").textContent, /Закрыть его можно с даты постановки/u);
+    await openRow(own.summary);
+    assert.equal(rootElement.querySelector(".board-assignment-decision"), null);
+    assert.equal(button("Закрыть как выполненное"), undefined);
+
+    await openRow(open.summary);
+    const section = rootElement.querySelector(".board-assignment-decision.is-close");
+    assert.match(section.textContent, /Закроется текущий срок, и откроется следующий/u);
+    const date = section.querySelector('input[type="date"]');
+    assert.equal(date.value, "2026-10-15");
+    assert.equal(date.min, "2026-10-01");
+    assert.equal(date.max, "2026-10-15");
+    assert.equal(button("Закрыть как выполненное").disabled, true);
+    await type(section.querySelector("textarea"), "Выполнено, отчёт получен");
+    assert.equal(button("Закрыть как выполненное").disabled, false);
+    await type(date, "2026-10-16");
+    assert.equal(button("Закрыть как выполненное").disabled, true, "a future date cannot be chosen");
+    await type(date, "2026-09-30");
+    assert.equal(button("Закрыть как выполненное").disabled, true, "the date cannot precede the assignment");
+    await type(date, "2026-10-10");
+    await React.act(async () => button("Закрыть как выполненное").click());
+    assert.deepEqual(submitted, [{ action: "close", comment: "Выполнено, отчёт получен", revision: 2, completedOn: "2026-10-10" }]);
+    // A rejection stays next to the button with the entered values kept.
+    assert.match(section.querySelector('[role="alert"]').textContent, /уже изменено/u);
+    assert.equal(date.value, "2026-10-10");
+    failAction = false;
+    await React.act(async () => button("Закрыть как выполненное").click());
+    assert.equal(rootElement.querySelector(".director-assignment-detail"), null);
+    assert.match(rootElement.querySelector("tbody").textContent, /Завершено/u);
+  } finally {
+    await React.act(async () => root.unmount());
+    globalThis.fetch = oldFetch;
+    for (const [name, descriptor] of descriptors) {
+      if (descriptor) Object.defineProperty(globalThis, name, descriptor);
+      else delete globalThis[name];
+    }
+    dom.window.close();
+  }
+});
+
+test("collegium assignments keep the review cycle without closing an unsubmitted assignment", async () => {
+  const dom = new JSDOM('<div id="root"></div>', { url: "http://127.0.0.1:5173/" });
+  const descriptors = new Map(globalNames.map(name => [name, Object.getOwnPropertyDescriptor(globalThis, name)]));
+  const oldFetch = globalThis.fetch;
+  for (const name of globalNames) Object.defineProperty(globalThis, name, { value: name === "IS_REACT_ACT_ENVIRONMENT" ? true : dom.window[name], configurable: true, writable: true });
+  dom.window.HTMLElement.prototype.scrollIntoView = () => {};
+  const React = await import("react");
+  const { createRoot } = await import("react-dom/client");
+  const rootElement = document.getElementById("root");
+  const root = createRoot(rootElement);
+  const assignment = { id: "work", number: "К-3", revision: 1, assignedOn: "2026-10-01", kind: "Поручение", summary: "Поручение Коллегии в работе", department: "", project: "", responsibleId: "account:worker", responsible: { fullName: "Исполнитель" }, coExecutorIds: [], coExecutors: [], recurrence: "once", activeFrom: "2026-10-10", activeTo: "2026-10-10", currentOccurrenceDate: "2026-10-10", urgency: "", importance: "", progress: "", note: "", incomingNumber: "", completedOn: "", status: "in_progress", comments: [], documents: [], source: null, sourceBoardAssignmentId: null, postponedUntil: "" };
+  globalThis.fetch = async () => new Response(JSON.stringify({ assignments: [assignment], employees: [], permissions: { canView: true, canManage: true, canExecute: false }, today: "2026-10-15" }));
+  try {
+    const { DirectorAssignmentsWorkspace } = await vite.ssrLoadModule("/src/DirectorAssignments.tsx");
+    await React.act(async () => root.render(React.createElement(DirectorAssignmentsWorkspace, { registryId: "collegium", onShowToast() {} })));
+    await React.act(async () => rootElement.querySelector(".table-text-action").click());
+    assert.equal(rootElement.querySelector(".board-assignment-decision"), null);
+    assert.match(rootElement.querySelector(".director-assignment-detail").textContent, /после того, как исполнитель отправит результат на проверку/u);
   } finally {
     await React.act(async () => root.unmount());
     globalThis.fetch = oldFetch;

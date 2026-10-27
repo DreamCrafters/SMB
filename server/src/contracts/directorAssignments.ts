@@ -75,6 +75,8 @@ export const assignmentRegistries = {
     hasProtocol: false,
     canLinkBoardAssignment: true,
     canLinkInitiative: false,
+    // Задача 142: руководитель закрывает поручение и без отправки исполнителем на проверку.
+    canCloseWithoutReview: true,
   },
   collegium: {
     id: "collegium",
@@ -93,6 +95,7 @@ export const assignmentRegistries = {
     canLinkBoardAssignment: false,
     // Задача 135: поручения из инициатив Коллегии ставятся только сюда.
     canLinkInitiative: true,
+    canCloseWithoutReview: false,
   },
 } as const;
 export type AssignmentRegistryId = keyof typeof assignmentRegistries;

@@ -143,6 +143,80 @@ for (const status of ["in_progress", "revision_requested"] as const) {
   });
 }
 
+for (const status of ["in_progress", "revision_requested"] as const) {
+  test(`controller closes an assignment that is ${status} without a submitted result on the actual completion date`, async () => {
+    const { service, profile, input } = fixture();
+    const manager = profile("assistant", true);
+    let record = await service.save(manager, { assignment: { ...input, recurrence: "once", activeFrom: "2026-09-30", activeTo: "2026-09-30" }, comment: "Создано" });
+    if (status === "revision_requested") {
+      record = await service.action(profile("worker"), record.id, { action: "submit_for_review", comment: "Проверить", revision: record.revision });
+      record = await service.action(manager, record.id, { action: "return_for_revision", comment: "Исправить", revision: record.revision });
+    }
+    const closed = await service.action(manager, record.id, { action: "close", comment: "  Выполнено, отчёт получен устно  ", completedOn: "2026-09-10", revision: record.revision });
+    assert.equal(closed.status, "completed");
+    assert.equal(closed.completedOn, "2026-09-10");
+    assert.deepEqual(closed.comments.at(-1), { id: closed.comments.at(-1)!.id, userId: "assistant", author: "assistant", text: "Выполнено, отчёт получен устно", status: "completed", createdAt: "2026-09-14T10:00:00.000Z" });
+    const history = await service.completions(manager);
+    assert.equal(history.length, 1);
+    assert.equal(history[0].assignment.completedOn, "2026-09-10");
+    assert.equal(history[0].assignment.currentOccurrenceDate, "2026-09-30");
+    assert.equal((await service.list(profile("worker"))).assignments.length, 0);
+  });
+}
+
+test("closing without review advances a recurring assignment past the closed period", async () => {
+  const { service, profile, input, markUnclear } = fixture();
+  const manager = profile("director", true);
+  const record = await service.save(manager, { assignment: input, comment: "Создано" });
+  // Imported records needing clarification cannot be executed, but the controller may close them.
+  markUnclear(record.id);
+  const closed = await service.action(manager, record.id, { action: "close", comment: "Сентябрь выполнен", completedOn: "2026-09-01", revision: record.revision });
+  assert.equal(closed.status, "in_progress");
+  assert.equal(closed.currentOccurrenceDate, "2026-10-01");
+  assert.equal(closed.completedOn, "");
+  const history = await service.completions(manager);
+  assert.deepEqual(history.map(item => [item.assignment.currentOccurrenceDate, item.assignment.completedOn, item.assignment.needsClarification]), [["2026-09-01", "2026-09-01", false]]);
+});
+
+test("closing without review checks the date, comment, status, role and registry without partial writes", async () => {
+  const { service, profile, input } = fixture();
+  const manager = profile("director", true);
+  const record = await service.save(manager, { assignment: { ...input, assignedOn: "2026-09-05" }, comment: "Создано" });
+  const close = { action: "close", comment: "Выполнено", completedOn: "2026-09-14", revision: record.revision };
+  for (const completedOn of ["2026-09-15", "2026-09-04", "2026-02-30", "14.09.2026", "", null, undefined]) {
+    await assert.rejects(service.action(manager, record.id, { ...close, completedOn }), /дату исполнения/u);
+  }
+  for (const comment of ["", "  ", null, "а".repeat(4001)]) await assert.rejects(service.action(manager, record.id, { ...close, comment }), /Комментарий/u);
+  await assert.rejects(service.action(manager, record.id, { ...close, revision: 0 }), /изменено/u);
+  await assert.rejects(service.action(profile("worker"), record.id, close), /руководитель/u);
+  const review = await service.action(profile("worker"), record.id, { action: "submit_for_review", comment: "Готово", revision: record.revision });
+  // A submitted result is accepted or returned through the review decision.
+  await assert.rejects(service.action(manager, record.id, { ...close, revision: review.revision }), /в работе или на доработке/u);
+  assert.equal((await service.read(manager, record.id)).status, "under_review");
+  assert.equal((await service.completions(manager)).length, 0);
+
+  const own = profile("worker", true);
+  own.activeAccess.capabilities.push("business.execute_director_assignments");
+  const ownRecord = await service.save(own, { assignment: input, comment: "Создано" });
+  await assert.rejects(service.action(own, ownRecord.id, { ...close, revision: ownRecord.revision }), /другой руководитель/u);
+
+  const collegium = fixture("collegium");
+  const chair = collegium.profile("chair", true);
+  const collegiumRecord = await collegium.service.save(chair, { assignment: collegium.input, comment: "Создано" });
+  await assert.rejects(collegium.service.action(chair, collegiumRecord.id, { ...close, revision: collegiumRecord.revision }), /действие/u);
+  assert.equal((await collegium.service.completions(chair)).length, 0);
+});
+
+test("closing without review rolls back when audit fails", async () => {
+  const { service, profile, input, failAudit } = fixture();
+  const manager = profile("director", true);
+  const record = await service.save(manager, { assignment: input, comment: "Создано" });
+  failAudit();
+  await assert.rejects(service.action(manager, record.id, { action: "close", comment: "Выполнено", completedOn: "2026-09-14", revision: record.revision }), /audit/u);
+  assert.equal((await service.read(manager, record.id)).status, "in_progress");
+  assert.equal((await service.completions(manager)).length, 0);
+});
+
 test("executor only reports: completing, returning and unknown actions are rejected", async () => {
   const { service, profile, input } = fixture();
   const manager = profile("director", true);

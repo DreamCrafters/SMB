@@ -5376,6 +5376,7 @@ p {
 .board-assignment-form-grid input,
 .board-assignment-form-grid select,
 .board-assignment-form-grid textarea,
+.board-assignment-decision input[type="date"],
 .board-assignment-decision textarea,
 .board-assignment-decision select {
   width: 100%;
@@ -5407,6 +5408,7 @@ p {
 .board-assignment-form-grid input:focus,
 .board-assignment-form-grid select:focus,
 .board-assignment-form-grid textarea:focus,
+.board-assignment-decision input[type="date"]:focus,
 .board-assignment-decision textarea:focus,
 .board-assignment-decision select:focus {
   border-color: var(--blue-gray);
@@ -5945,6 +5947,12 @@ p {
 .board-assignment-decision.is-execute,
 .board-assignment-decision.is-review {
   grid-template-columns: 1fr;
+}
+
+/* Задача 142: дата исполнения при закрытии без проверки — короткое поле, а не на всю ширину. */
+.board-assignment-close-date {
+  justify-self: start;
+  width: min(100%, 220px);
 }
 
 .board-assignment-return-button {

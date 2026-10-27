@@ -76,6 +76,25 @@ export function canViewDirectorAssignment(assignment: DirectorAssignment, userId
 }
 
 /**
+ * Задача 142: a controller closes an assignment the executor has not submitted and sets the
+ * actual completion date itself — from the assignment date up to today, never in the future.
+ */
+export function readDirectorAssignmentClosing(
+  row: Record<string, unknown>,
+  assignment: Pick<DirectorAssignment, "status" | "assignedOn">,
+  today: string,
+) {
+  if (assignment.status !== "in_progress" && assignment.status !== "revision_requested") {
+    throw new DirectorAssignmentError("Без проверки закрывается только поручение в работе или на доработке.", 409);
+  }
+  if (!readCalendarDate(row.completedOn) || (row.completedOn as string) < assignment.assignedOn || (row.completedOn as string) > today) {
+    throw new DirectorAssignmentError("Укажите дату исполнения не раньше даты постановки и не позже сегодняшнего дня.");
+  }
+  if (typeof row.comment !== "string" || !row.comment.trim() || row.comment.trim().length > 4000) throw new DirectorAssignmentError("Комментарий обязателен.");
+  return { completedOn: row.completedOn as string, comment: row.comment.trim() };
+}
+
+/**
  * Without a direct completion, the executor must be able to report before the deadline:
  * work opens on the assignment date, not on the due date of the current occurrence.
  */

@@ -206,6 +206,7 @@ export function DirectorAssignmentsWorkspace({ onShowToast, registryId = "direct
   }, [contentOpenCount]);
   const [form, setForm] = useState<DirectorAssignmentInput>();
   const [comment, setComment] = useState("");
+  const [closedOn, setClosedOn] = useState("");
   const [decisionError, setDecisionError] = useState("");
   const [filters, setFilters] = useState<Record<string, string>>({});
   const [selectedStatuses, setSelectedStatuses] = useState<string[]>([]);
@@ -230,12 +231,12 @@ export function DirectorAssignmentsWorkspace({ onShowToast, registryId = "direct
     event.preventDefault();
     if (form) void mutate(() => directorRequest(`${registry.apiPath}${selected ? `/${selected.id}` : ""}`, selected ? "PATCH" : "POST", { assignment: form, revision: selected?.revision, comment: selected ? comment : "Поручение создано." }));
   }
-  function runAction(assignment: DirectorAssignment, action: "complete" | "return_for_revision") {
+  function runAction(assignment: DirectorAssignment, action: "complete" | "return_for_revision" | "close") {
     // The error stays next to the decision buttons: the top of a long card is out of view.
-    void mutate(() => directorRequest(`${registry.apiPath}/${assignment.id}/action`, "POST", { action, comment, revision: assignment.revision }), setDecisionError);
+    void mutate(() => directorRequest(`${registry.apiPath}/${assignment.id}/action`, "POST", { action, comment, revision: assignment.revision, ...(action === "close" ? { completedOn: closedOn } : {}) }), setDecisionError);
   }
   function openAssignment(row: DirectorAssignment) {
-    setSelected(row); setForm(undefined); setComment(""); setDecisionError(""); setContentOpenCount(count => count + 1);
+    setSelected(row); setForm(undefined); setComment(""); setClosedOn(data?.today ?? ""); setDecisionError(""); setContentOpenCount(count => count + 1);
   }
   async function openHistory() {
     const request = ++historyRequest.current;
@@ -270,6 +271,10 @@ export function DirectorAssignmentsWorkspace({ onShowToast, registryId = "direct
   const ownAssignmentIds = new Set(data.ownAssignmentIds ?? []);
   const isOwnSelected = selected !== undefined && ownAssignmentIds.has(selected.id);
   const canDecideSelected = !history && canControl && selected?.status === "under_review" && !isOwnSelected;
+  // Задача 142: a director assignment the executor has not submitted is closed by a controller with the actual date.
+  const canCloseSelected = !history && canControl && registry.canCloseWithoutReview && !isOwnSelected && selected !== undefined
+    && (selected.status === "in_progress" || selected.status === "revision_requested") && selected.assignedOn <= data.today;
+  const isClosingDateValid = selected !== undefined && closedOn >= selected.assignedOn && closedOn <= data.today;
   const rows = history ? history.map(item => item.assignment) : data.assignments;
   const reviewQueue = !history && canControl ? data.assignments.filter(assignment => assignment.status === "under_review" && !ownAssignmentIds.has(assignment.id)) : [];
   const visible = rows.filter(row => {
@@ -312,9 +317,26 @@ export function DirectorAssignmentsWorkspace({ onShowToast, registryId = "direct
           <button type="button" className="primary-button" disabled={saving || !comment.trim()} onClick={() => runAction(selected, "complete")}>Принять исполнение</button>
         </div>
       </section>}
-      {!history && canControl && !canDecideSelected && selected.status !== "completed" && <p className="director-field-hint">{isOwnSelected && selected.status === "under_review"
+      {canCloseSelected && <section className="board-assignment-decision is-review is-close" aria-label="Закрытие поручения">
+        <label className="board-assignment-close-date">
+          <span>Дата исполнения</span>
+          <input type="date" required min={selected.assignedOn} max={data.today} disabled={saving} value={closedOn} onChange={event => setClosedOn(event.currentTarget.value)} />
+        </label>
+        <label>
+          <span>Комментарий к закрытию</span>
+          <textarea maxLength={4000} rows={4} disabled={saving} aria-describedby="director-close-hint" value={comment} onChange={event => setComment(event.currentTarget.value)} />
+        </label>
+        <p className="director-field-hint" id="director-close-hint">Исполнитель ещё не отправил результат на проверку. Если поручение выполнено, укажите дату исполнения и комментарий и закройте его.{selected.recurrence !== "once" && " Закроется текущий срок, и откроется следующий."}</p>
+        {decisionError && <p className="form-message is-error" role="alert">{decisionError}</p>}
+        <div className="board-assignment-dialog-actions">
+          <button type="button" className="primary-button" disabled={saving || !comment.trim() || !isClosingDateValid} onClick={() => runAction(selected, "close")}>Закрыть как выполненное</button>
+        </div>
+      </section>}
+      {!history && canControl && !canDecideSelected && !canCloseSelected && selected.status !== "completed" && <p className="director-field-hint">{isOwnSelected && selected.status === "under_review"
         ? "Это ваше поручение. Принять исполнение или вернуть его на доработку может другой руководитель."
-        : "Поручение у исполнителя. Принять исполнение или вернуть его можно после того, как исполнитель отправит результат на проверку."}</p>}
+        : registry.canCloseWithoutReview && !isOwnSelected && selected.assignedOn > data.today
+          ? "Поручение ещё не поставлено. Закрыть его можно с даты постановки."
+          : "Поручение у исполнителя. Принять исполнение или вернуть его можно после того, как исполнитель отправит результат на проверку."}</p>}
       <footer className="board-assignment-dialog-actions">
         {!history && selected.status !== "completed" && canControl && <button type="button" className="secondary-button" disabled={saving} onClick={() => { setForm(inputFrom(selected, data.employees, registryId)); setComment(""); setContentOpenCount(count => count + 1); }}>Редактировать</button>}
         <button type="button" className="secondary-button" disabled={saving} onClick={() => setSelected(undefined)}>Закрыть</button>
