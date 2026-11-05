@@ -89,6 +89,13 @@ test("refractory workspace opens shift reports and the wagon journal", async () 
         unformedRows: [],
       },
     });
+    const refractoryWagonFleet = [{
+      number: "В-16",
+      onBoardDate: "2026-08-07",
+      capitalRepairPeriod: "до 12.2024",
+      load: "ШБ 5б/к",
+      asOfDate: "2026-10-28",
+    }];
     const refractoryWagons = [
       {
         id: "wagon-16",
@@ -225,7 +232,7 @@ test("refractory workspace opens shift reports and the wagon journal", async () 
             headers: { "Content-Type": "application/json" },
           });
         }
-        return new Response(JSON.stringify({ wagons: refractoryWagons }), {
+        return new Response(JSON.stringify({ wagons: refractoryWagons, fleet: refractoryWagonFleet }), {
           status: 200,
           headers: { "Content-Type": "application/json" },
         });
@@ -722,8 +729,9 @@ test("refractory workspace opens shift reports and the wagon journal", async () 
     assert.ok(catalogRow);
     assert.deepEqual(
       Array.from(catalogRow.querySelectorAll("td"), (cell) => cell.textContent),
-      ["В-16", "2", "Можно эксплуатировать"],
+      ["В-16", "07.08.2026", "до 12.2024", "ШБ 5б/к", "2", "Можно эксплуатировать"],
     );
+    assert.ok(rootElement.textContent.includes("по учёту на 28.10.2026"));
     // Стиль таблиц вкладки Вагоны повторяет Обжиг/Сортировка: без внутренней
     // вертикальной прокрутки.
     assert.ok(
@@ -855,6 +863,14 @@ test("refractory workspace opens shift reports and the wagon journal", async () 
       React,
       () => rootElement.querySelector('select[name="wagonNumber"]')
         ?.querySelector('option[value="В-17"]') !== null,
+    );
+    // Цикл без садки не заслоняет настоящие записи журнала.
+    assert.equal(
+      Array.from(
+        rootElement.querySelectorAll(".refractory-wagon-table tbody tr td:first-child"),
+        (cell) => cell.textContent,
+      ).at(-1),
+      "В-17",
     );
     const wagonNumberSelect = rootElement.querySelector(
       'select[name="wagonNumber"]',
@@ -1119,7 +1135,7 @@ async function runRefractoryWagonSaveRace(responseOrder) {
       createdAt: "2026-08-05T08:00:00.000Z",
     };
     const initialLoadResponse = new Response(
-      JSON.stringify({ wagons: [loadedWagon] }),
+      JSON.stringify({ wagons: [loadedWagon], fleet: [] }),
       {
         status: 200,
         headers: { "Content-Type": "application/json" },
@@ -1337,7 +1353,7 @@ test("laboratory wagons variant opens only the wagon journals without banks", as
       const body = url.pathname.endsWith("/production-brands")
         ? { labels: ["ША-22"] }
         : url.pathname.endsWith("/refractory-wagons")
-          ? { wagons: [] }
+          ? { wagons: [], fleet: [] }
           : url.pathname.endsWith("/refractory-reports")
             ? { reports: [] }
             : undefined;

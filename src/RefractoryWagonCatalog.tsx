@@ -1,7 +1,10 @@
 import { ManagedTable } from "./ManagedTable";
 import { TableHeader, TableCell } from "./TableCell";
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import type { RefractoryWagonRecord } from "./contracts/refractoryWagons";
+import type {
+  RefractoryWagonFleetRecord,
+  RefractoryWagonRecord,
+} from "./contracts/refractoryWagons";
 import { LoadingIndicator } from "./LoadingIndicator";
 import { requestRefractoryWagons, submitRefractoryWagon } from "./services/refractoryWagons";
 import { readShortUserMessage } from "./services/userFacingMessages";
@@ -11,6 +14,7 @@ import type { ShowToast } from "./services/toastStack";
  * Каталог — единственное место, где регистрируют новый физический вагон по
  * номеру. Остальные его поля заполняет исправлением журнал `Оборот вагонов`,
  * а счётчик обжига и текущее состояние всегда считает и подтягивает сервер.
+ * Дата на борту, дата кап. и загрузка — снимок ведомости `Учёт вагонов`.
  */
 export function RefractoryWagonCatalog({
   onShowToast,
@@ -18,6 +22,7 @@ export function RefractoryWagonCatalog({
   onShowToast: ShowToast;
 }) {
   const [wagons, setWagons] = useState<RefractoryWagonRecord[]>([]);
+  const [fleet, setFleet] = useState<RefractoryWagonFleetRecord[]>([]);
   const [loadState, setLoadState] = useState<"loading" | "ready" | "error">(
     "loading",
   );
@@ -34,6 +39,7 @@ export function RefractoryWagonCatalog({
     requestRefractoryWagons({ signal: controller.signal }).then((result) => {
       if (controller.signal.aborted) return;
       if (result.status === "ready") {
+        setFleet(result.fleet);
         if (hasSuccessfulMutation.current) {
           setWagons((current) => {
             const currentIds = new Set(current.map((wagon) => wagon.id));
@@ -99,6 +105,8 @@ export function RefractoryWagonCatalog({
   const sortedWagons = summarizeWagonsByNumber(wagons).sort((first, second) =>
     first.number.localeCompare(second.number, "ru", { numeric: true })
   );
+  const fleetByNumber = new Map(fleet.map((record) => [record.number, record]));
+  const fleetAsOfDate = fleet.map((record) => record.asOfDate).sort().at(-1);
 
   return (
     <section className="refractory-wagon-catalog" aria-label="Каталог вагонов">
@@ -140,29 +148,52 @@ export function RefractoryWagonCatalog({
       ) : sortedWagons.length === 0 ? (
         <p className="laboratory-empty-note">В каталоге пока нет вагонов.</p>
       ) : (
-        <div className="refractory-table-wrap refractory-table-wrap-full-height">
-          <ManagedTable tableId="refractory.catalog" className="refractory-input-table refractory-wagon-catalog-table">
-            <thead>
-              <tr>
-                <TableHeader>Номер вагона</TableHeader>
-                <TableHeader>Счётчик обжига</TableHeader>
-                <TableHeader>Текущее состояние</TableHeader>
-              </tr>
-            </thead>
-            <tbody>
-              {sortedWagons.map((wagon) => (
-                <tr key={wagon.number}>
-                  <TableCell>{wagon.number}</TableCell>
-                  <TableCell>{wagon.firingCount}</TableCell>
-                  <TableCell>{wagon.currentCondition ?? "—"}</TableCell>
+        <>
+          {fleetAsOfDate === undefined ? null : (
+            <p className="laboratory-empty-note">
+              Дата на борту, дата кап. и загрузка — по учёту на{" "}
+              {formatDate(fleetAsOfDate)}.
+            </p>
+          )}
+          <div className="refractory-table-wrap refractory-table-wrap-full-height">
+            <ManagedTable tableId="refractory.catalog" className="refractory-input-table refractory-wagon-catalog-table">
+              <thead>
+                <tr>
+                  <TableHeader>Номер вагона</TableHeader>
+                  <TableHeader>Дата на борту</TableHeader>
+                  <TableHeader>Дата кап.</TableHeader>
+                  <TableHeader>Загрузка</TableHeader>
+                  <TableHeader>Счётчик обжига</TableHeader>
+                  <TableHeader>Текущее состояние</TableHeader>
                 </tr>
-              ))}
-            </tbody>
-          </ManagedTable>
-        </div>
+              </thead>
+              <tbody>
+                {sortedWagons.map((wagon) => {
+                  const fleetRecord = fleetByNumber.get(wagon.number);
+                  return (
+                    <tr key={wagon.number}>
+                      <TableCell>{wagon.number}</TableCell>
+                      <TableCell>{formatDate(fleetRecord?.onBoardDate ?? null)}</TableCell>
+                      <TableCell>{fleetRecord?.capitalRepairPeriod ?? "—"}</TableCell>
+                      <TableCell>{fleetRecord?.load ?? "—"}</TableCell>
+                      <TableCell>{wagon.firingCount}</TableCell>
+                      <TableCell>{wagon.currentCondition ?? "—"}</TableCell>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </ManagedTable>
+          </div>
+        </>
       )}
     </section>
   );
+}
+
+function formatDate(value: string | null) {
+  if (value === null) return "—";
+  const [year, month, day] = value.split("-");
+  return `${day}.${month}.${year}`;
 }
 
 type WagonCatalogSummary = {

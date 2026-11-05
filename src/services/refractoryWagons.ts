@@ -1,4 +1,5 @@
 import type {
+  RefractoryWagonFleetRecord,
   RefractoryWagonRecord,
   RefractoryWagonSubmission,
 } from "../contracts/refractoryWagons.js";
@@ -19,7 +20,11 @@ type ErrorResult = {
 };
 
 export type RefractoryWagonsListResult =
-  | { status: "ready"; wagons: RefractoryWagonRecord[] }
+  | {
+      status: "ready";
+      wagons: RefractoryWagonRecord[];
+      fleet: RefractoryWagonFleetRecord[];
+    }
   | ErrorResult;
 export type RefractoryWagonSaveResult =
   | { status: "ready"; wagon: RefractoryWagonRecord }
@@ -33,13 +38,19 @@ export async function requestRefractoryWagons(
   if (
     !isRecord(result.payload) ||
     !Array.isArray(result.payload.wagons) ||
-    !result.payload.wagons.every(isWagonRecord)
+    !result.payload.wagons.every(isWagonRecord) ||
+    !Array.isArray(result.payload.fleet) ||
+    !result.payload.fleet.every(isFleetRecord)
   ) {
     return invalidResponse(
       "Сервер вернул журнал оборота вагонов в неподдерживаемом формате.",
     );
   }
-  return { status: "ready", wagons: result.payload.wagons };
+  return {
+    status: "ready",
+    wagons: result.payload.wagons,
+    fleet: result.payload.fleet,
+  };
 }
 
 export async function submitRefractoryWagon(
@@ -124,6 +135,15 @@ function isWagonRecord(value: unknown): value is RefractoryWagonRecord {
     isOptionalString(value.postFiringCondition) &&
     isOptionalString(value.serviceApprovalDate) &&
     typeof value.createdAt === "string";
+}
+
+function isFleetRecord(value: unknown): value is RefractoryWagonFleetRecord {
+  return isRecord(value) &&
+    typeof value.number === "string" &&
+    isOptionalString(value.onBoardDate) &&
+    isOptionalString(value.capitalRepairPeriod) &&
+    isOptionalString(value.load) &&
+    typeof value.asOfDate === "string";
 }
 
 function isOptionalString(value: unknown): value is string | null {

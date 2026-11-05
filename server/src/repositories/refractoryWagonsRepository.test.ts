@@ -334,3 +334,95 @@ test("refractory wagon repository replaces report-derived firing and sorting eve
     RefractoryWagonBrandMismatchError,
   );
 });
+
+test("refractory wagon repository lists the fleet accounting of catalog wagons", async () => {
+  const queries: string[] = [];
+  const pool = {
+    async query(sql: string) {
+      queries.push(sql);
+      return [[{
+        wagon_number: "34А",
+        on_board_date: new Date("2026-08-07T00:00:00.000Z"),
+        capital_repair_period: "05.2025",
+        load_description: "ШБ 8б/к",
+        fleet_as_of: "2026-10-28",
+      }], []];
+    },
+  } as unknown as DatabasePool;
+
+  assert.deepEqual(await createRefractoryWagonsRepository(pool).listFleet(), [{
+    number: "34А",
+    onBoardDate: "2026-08-07",
+    capitalRepairPeriod: "05.2025",
+    load: "ШБ 8б/к",
+    asOfDate: "2026-10-28",
+  }]);
+  assert.match(queries[0]!, /where fleet_as_of is not null/u);
+});
+
+test("refractory wagon repository reads whether a number and its accounting exist", async () => {
+  const pool = {
+    async query(_sql: string, parameters: unknown[]) {
+      const rows: Record<string, unknown[]> = {
+        "9": [{ fleet_as_of: null }],
+        "99": [{ fleet_as_of: new Date("2026-10-28T00:00:00.000Z") }],
+      };
+      return [rows[String(parameters[0])] ?? [], []];
+    },
+  } as unknown as DatabasePool;
+  const repository = createRefractoryWagonsRepository(pool);
+
+  assert.equal(await repository.readFleetState("228"), undefined);
+  assert.deepEqual(await repository.readFleetState("9"), { asOfDate: null });
+  assert.deepEqual(await repository.readFleetState("99"), { asOfDate: "2026-10-28" });
+});
+
+test("refractory wagon repository saves accounting on the catalog and returns the current cycle", async () => {
+  const queries: Array<{ sql: string; parameters?: unknown[] }> = [];
+  const pool = {
+    async query(sql: string, parameters?: unknown[]) {
+      queries.push({ sql, parameters });
+      return /from refractory_wagons/u.test(sql)
+        ? [[{ id: "wagon-latest" }], []]
+        : [{ affectedRows: 1 }, []];
+    },
+  } as unknown as DatabasePool;
+
+  const wagonId = await createRefractoryWagonsRepository(pool).saveFleetRecord({
+    number: "30",
+    onBoardDate: "2026-08-07",
+    capitalRepairPeriod: "01.2025",
+    load: "ШБ 5б/к",
+    asOfDate: "2026-10-28",
+  });
+
+  assert.equal(wagonId, "wagon-latest");
+  assert.match(queries[0]!.sql, /update refractory_wagon_catalog/u);
+  assert.deepEqual(queries[0]!.parameters, [
+    "2026-08-07",
+    "01.2025",
+    "ШБ 5б/к",
+    "2026-10-28",
+    "30",
+  ]);
+  assert.match(queries[1]!.sql, /order by sequence_id desc/u);
+});
+
+test("refractory wagon repository refuses accounting for a number without a cycle", async () => {
+  const pool = {
+    async query(sql: string) {
+      return /from refractory_wagons/u.test(sql) ? [[], []] : [{ affectedRows: 0 }, []];
+    },
+  } as unknown as DatabasePool;
+
+  await assert.rejects(
+    createRefractoryWagonsRepository(pool).saveFleetRecord({
+      number: "30",
+      onBoardDate: null,
+      capitalRepairPeriod: null,
+      load: null,
+      asOfDate: "2026-10-28",
+    }),
+    { name: "RefractoryWagonNotFoundError" },
+  );
+});

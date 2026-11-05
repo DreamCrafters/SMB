@@ -182,6 +182,13 @@ export function RefractoryWagonJournal({
     first.localeCompare(second, "ru", { numeric: true })
   );
   const isCorrection = editingWagonId !== undefined && !isLoadingStage;
+  // Циклы без садки ещё не история: в парке их больше сотни, и наверху они
+  // скрыли бы настоящие записи. Порядок сервера меняем только для показа: на
+  // него опирается `selectLatestWagonCycles`.
+  const journalRows = [
+    ...wagons.filter((wagon) => wagon.loadingDate !== null),
+    ...wagons.filter((wagon) => wagon.loadingDate === null),
+  ];
 
   return (
     <section
@@ -346,7 +353,7 @@ export function RefractoryWagonJournal({
               </tr>
             </thead>
             <tbody>
-              {wagons.map((wagon) => (
+              {journalRows.map((wagon) => (
                 <tr key={wagon.id}>
                   <TableCell>
                     <button

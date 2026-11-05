@@ -7625,7 +7625,10 @@ async function handleRefractoryWagonsRequest({
   }
 
   if (req.method === "GET") {
-    sendJson(res, 200, { wagons: await refractoryWagons.list() });
+    sendJson(res, 200, {
+      wagons: await refractoryWagons.list(),
+      fleet: await refractoryWagons.listFleet(),
+    });
     return;
   }
   if (req.method !== "POST") {

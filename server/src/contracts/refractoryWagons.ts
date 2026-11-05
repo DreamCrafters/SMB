@@ -49,6 +49,21 @@ export type RefractoryWagonRecord = {
   createdAt: string;
 };
 
+/**
+ * Учёт парка на дату: сведения о физическом вагоне из ведомости `Учёт вагонов`,
+ * а не о цикле оборота, поэтому они живут в каталоге и приходят только
+ * импортом. `capitalRepairPeriod` — текст ведомости (точная дата, месяц или
+ * «до мм.гггг»): календарной датой его не представить, не выдумав день.
+ * `load` — снимок на `asOfDate`, в садку он не переносится.
+ */
+export type RefractoryWagonFleetRecord = {
+  number: string;
+  onBoardDate: string | null;
+  capitalRepairPeriod: string | null;
+  load: string | null;
+  asOfDate: string;
+};
+
 export type RefractoryWagonInspectionSubmission = {
   wagonId: string;
   condition: RefractoryWagonCondition;

@@ -365,6 +365,21 @@ const passthroughProductionBrands: ProductionBrandsDataSource = {
   },
 };
 
+const emptyRefractoryWagonFleet: Pick<
+  RefractoryWagonsRepository,
+  "listFleet" | "readFleetState" | "saveFleetRecord"
+> = {
+  async listFleet() {
+    return [];
+  },
+  async readFleetState() {
+    return undefined;
+  },
+  async saveFleetRecord() {
+    return "wagon-fleet";
+  },
+};
+
 const emptyRefractoryReports: RefractoryReportsRepository = {
   async submit() { throw new Error("not used"); },
   async listLatestForShift() { return []; },
@@ -2883,9 +2898,25 @@ test("refractory wagon journal creates real wagon options for green product qual
   };
   let savedInput: Parameters<RefractoryWagonsRepository["create"]>[0] | undefined;
   let correctedInput: Parameters<RefractoryWagonsRepository["update"]>[0] | undefined;
+  const fleetRecord = {
+    number: "В-16",
+    onBoardDate: null,
+    capitalRepairPeriod: "до 12.2024",
+    load: "ШБ 5б/к",
+    asOfDate: "2026-10-28",
+  };
   const refractoryWagons: RefractoryWagonsRepository = {
     async list() {
       return [initialRecord];
+    },
+    async listFleet() {
+      return [fleetRecord];
+    },
+    async readFleetState() {
+      return undefined;
+    },
+    async saveFleetRecord() {
+      return "wagon-16";
     },
     async findByIds(ids) {
       return [initialRecord]
@@ -2987,7 +3018,10 @@ test("refractory wagon journal creates real wagon options for green product qual
       });
 
       assert.equal(listResponse.status, 200);
-      assert.deepEqual(await listResponse.json(), { wagons: [initialRecord] });
+      assert.deepEqual(await listResponse.json(), {
+        wagons: [initialRecord],
+        fleet: [fleetRecord],
+      });
       assert.equal(createResponse.status, 201);
       assert.equal(correctionResponse.status, 200);
       assert.equal(duplicateResponse.status, 409);
@@ -3232,6 +3266,7 @@ test("laboratory assistant operates refractory wagons and only the firing shift 
   };
   const createdWagonNumbers: string[] = [];
   const refractoryWagons: RefractoryWagonsRepository = {
+    ...emptyRefractoryWagonFleet,
     async create(input) {
       createdWagonNumbers.push(input.wagon.number);
       return {
@@ -11984,6 +12019,7 @@ test("refractory reports are submitted and reviewed independently through protec
     productBrand: "ША-22",
   };
   const lifecycleWagons: RefractoryWagonsRepository = {
+    ...emptyRefractoryWagonFleet,
     async create() {
       throw new Error("not used");
     },

@@ -5086,6 +5086,23 @@ const migrations: Migration[] = [
       `,
     ],
   },
+  {
+    /**
+     * Задача 143: учёт парка из ведомости `Учёт вагонов` — свойства физического
+     * вагона, поэтому они в каталоге, а не в циклах оборота. Сами данные
+     * загружает `wagons:import`: миграции общие для всех экземпляров сайта.
+     */
+    id: "104_refractory_wagon_fleet_info",
+    statements: [
+      `
+      alter table refractory_wagon_catalog
+        add column on_board_date date null after wagon_number,
+        add column capital_repair_period varchar(40) null after on_board_date,
+        add column load_description varchar(120) null after capital_repair_period,
+        add column fleet_as_of date null after load_description;
+      `,
+    ],
+  },
 ];
 
 function removePositionJsonValue(

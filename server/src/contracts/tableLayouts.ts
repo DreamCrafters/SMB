@@ -85,7 +85,7 @@ export const tableDefinitions = {
   "refractory.equipment": defineTable("Выпуск формованных огнеупоров", ["equipment", "productBrand", "outputNorm", "actualPieces", "actualTons", "workedHours", "totalDowntimeHours", "mechanicalRepairHours", "electricalRepairHours", "carriageReplacementHours", "brandReplacementHours", "moldReplacementHours", "reserveHours", "workerAbsenceHours", "rawMaterialAbsenceHours", "note"]),
   "refractory.unformed": defineTable("Выпуск неформованных огнеупоров", ["brand", "norm", "actualContainers", "actualTons"]),
   "refractory.firing": defineTable("Обжиг", ["firingDate", "firingOperator", "wagons", "sortingDate", "sorter", "quantityPieces", "palletCount", "goodTonsAverageWeight", "goodTonsWeighed", "rejectTotalPieces", "rejectUnderburnPieces", "rejectCracksPieces", "rejectFusionPieces", "rejectChipsPieces", "note"]),
-  "refractory.catalog": defineTable("Каталог вагонов", ["number", "firingCount", "state"]),
+  "refractory.catalog": defineTable("Каталог вагонов", ["number", "onBoardDate", "capitalRepairPeriod", "load", "firingCount", "state"]),
   "refractory.inspections": defineTable("Осмотры вагонов", ["number", "sortingDate", "state", "inspectionDate", "inspector"]),
   "refractory.wagons": defineTable("Вагоны огнеупорного цеха", ["number", "settingDate", "brand", "pressDate", "pieces", "setter", "pressOperator", "inspectionDate", "firingOperator", "firingDates", "sorter", "sortingDate", "state", "checkedAt"]),
   "warehouse.sheet": defineTable("Исходный лист 1С", ["rowNumber"]),
@@ -120,6 +120,10 @@ export function getTableColumnWidth(tableId: TableId, columnId: string) {
     return widths[columnId] ?? tableLayoutLimits.defaultWidth;
   }
   if (tableId === "warehouse.stock") return columnId === "warehouse" || columnId === "nomenclature" ? 180 : 140;
+  if (tableId === "refractory.catalog") {
+    const widths: Record<string, number> = { number: 110, onBoardDate: 130, capitalRepairPeriod: 130, load: 140, firingCount: 130, state: 200 };
+    return widths[columnId] ?? tableLayoutLimits.defaultWidth;
+  }
   if (columnId === "actions" || columnId === "counter" || columnId === "rowNumber") return 96;
   if (/description|note|summary|reasons|navigation|actor|action|nomenclature/iu.test(columnId)) return 240;
   return tableLayoutLimits.defaultWidth;

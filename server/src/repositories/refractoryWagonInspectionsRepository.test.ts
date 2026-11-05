@@ -166,6 +166,48 @@ test("wagon inspection reopens after a new sorting and returns a repaired wagon"
   }));
 });
 
+test("wagon inspection from the fleet import repairs a wagon outside the cycle", async () => {
+  const queries: Array<{ sql: string; parameters?: unknown[] }> = [];
+  const repository = createRefractoryWagonInspectionsRepository(
+    buildPool(
+      {
+        post_firing_condition: null,
+        service_approval_date: null,
+        firing_operator: null,
+        sorter_name: null,
+      },
+      null,
+      queries,
+    ),
+    { createId: () => "inspection-1" },
+  );
+  const input = {
+    inspection: {
+      wagonId: "wagon-17",
+      condition: "В ремонт" as const,
+      approvalDate: "2026-10-28",
+    },
+    inspectedByUserId: "system-task-143",
+    inspectedByAccountId: "system-task-143",
+    inspectedByDisplayName: "Перенос учёта вагонов",
+  };
+
+  await assert.rejects(
+    repository.create(input),
+    RefractoryWagonInspectionNotAllowedError,
+  );
+  const record = await repository.create({ ...input, fromFleetImport: true });
+
+  assert.equal(record?.condition, "В ремонт");
+  assert.equal(record?.sortingDate, null);
+  assert.ok(queries.some(({ sql, parameters }) =>
+    /update refractory_wagons/u.test(sql) && parameters?.[0] === "В ремонт"));
+  assert.equal(
+    queries.filter(({ sql }) => /insert into refractory_wagons/u.test(sql)).length,
+    0,
+  );
+});
+
 test("wagon inspection rejects wagons that are not awaiting it", async () => {
   const notSorted = createRefractoryWagonInspectionsRepository(
     buildPool(

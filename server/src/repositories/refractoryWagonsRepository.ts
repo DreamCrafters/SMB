@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { RowDataPacket } from "mysql2/promise";
 import type {
+  RefractoryWagonFleetRecord,
   RefractoryWagonRecord,
   RefractoryWagonSubmission,
 } from "../contracts/refractoryWagons.js";
@@ -47,6 +48,14 @@ export type RefractoryWagonsRepository = {
     submittedByAccountId: string;
   }) => Promise<RefractoryWagonRecord>;
   list: () => Promise<RefractoryWagonRecord[]>;
+  /** Учёт парка по вагонам, для которых ведомость уже загружена. */
+  listFleet: () => Promise<RefractoryWagonFleetRecord[]>;
+  /** `undefined` — номера в каталоге нет; `asOfDate: null` — учёт не загружен. */
+  readFleetState: (
+    number: string,
+  ) => Promise<{ asOfDate: string | null } | undefined>;
+  /** Записывает учёт в каталог и возвращает ID текущего цикла вагона. */
+  saveFleetRecord: (record: RefractoryWagonFleetRecord) => Promise<string>;
   findByIds: (ids: string[]) => Promise<RefractoryWagonReference[]>;
   /**
    * Задача 79: журнал проб формованной продукции подтягивает марку и дату
@@ -101,6 +110,14 @@ type WagonRow = RowDataPacket & {
   post_firing_condition: string | null;
   service_approval_date: Date | string | null;
   created_at: Date | string;
+};
+
+type FleetRow = RowDataPacket & {
+  wagon_number: string;
+  on_board_date: Date | string | null;
+  capital_repair_period: string | null;
+  load_description: string | null;
+  fleet_as_of: Date | string;
 };
 
 type LifecycleEventRow = RowDataPacket & {
@@ -226,6 +243,70 @@ export function createRefractoryWagonsRepository(
       );
       const lifecycle = await loadLifecycle(pool, rows.map((row) => row.id));
       return rows.map((row) => mapWagonRow(row, lifecycle.get(row.id)));
+    },
+
+    async listFleet() {
+      const [rows] = await pool.query<FleetRow[]>(
+        `select
+          wagon_number,
+          on_board_date,
+          capital_repair_period,
+          load_description,
+          fleet_as_of
+        from refractory_wagon_catalog
+        where fleet_as_of is not null`,
+      );
+      return rows.map((row) => ({
+        number: row.wagon_number,
+        onBoardDate: formatOptionalCalendarDate(row.on_board_date),
+        capitalRepairPeriod: row.capital_repair_period,
+        load: row.load_description,
+        asOfDate: formatOptionalCalendarDate(row.fleet_as_of)!,
+      }));
+    },
+
+    // Номер сравнивается по collation колонки: `34а` найдёт вагон `34А`, как и
+    // уникальный ключ каталога.
+    async readFleetState(number) {
+      const [rows] = await pool.query<Array<
+        RowDataPacket & { fleet_as_of: Date | string | null }
+      >>(
+        `select fleet_as_of
+        from refractory_wagon_catalog
+        where wagon_number = ?
+        limit 1`,
+        [number],
+      );
+      const row = rows[0];
+      if (row === undefined) return undefined;
+      return { asOfDate: formatOptionalCalendarDate(row.fleet_as_of) };
+    },
+
+    async saveFleetRecord(record) {
+      await pool.query(
+        `update refractory_wagon_catalog
+        set on_board_date = ?, capital_repair_period = ?,
+          load_description = ?, fleet_as_of = ?
+        where wagon_number = ?`,
+        [
+          record.onBoardDate,
+          record.capitalRepairPeriod,
+          record.load,
+          record.asOfDate,
+          record.number,
+        ],
+      );
+      const [rows] = await pool.query<Array<RowDataPacket & { id: string }>>(
+        `select id
+        from refractory_wagons
+        where wagon_number = ?
+        order by sequence_id desc
+        limit 1`,
+        [record.number],
+      );
+      const row = rows[0];
+      if (row === undefined) throw new RefractoryWagonNotFoundError();
+      return row.id;
     },
 
     async findByIds(ids) {

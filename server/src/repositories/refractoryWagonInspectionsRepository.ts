@@ -22,6 +22,8 @@ export type RefractoryWagonInspectionsRepository = {
     inspectedByUserId: string;
     inspectedByAccountId: string;
     inspectedByDisplayName: string;
+    /** Ведомость `Учёт вагонов` ставит вагон в ремонт вне цикла оборота. */
+    fromFleetImport?: boolean;
   }) => Promise<RefractoryWagonInspectionRecord | undefined>;
 };
 
@@ -123,7 +125,7 @@ export function createRefractoryWagonInspectionsRepository(
         sorter: wagon.sorter_name,
         sortingDate,
       });
-      if (!isAwaitingInspection) {
+      if (!input.fromFleetImport && !isAwaitingInspection) {
         throw new RefractoryWagonInspectionNotAllowedError();
       }
 

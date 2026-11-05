@@ -8377,15 +8377,6 @@ p {
   table-layout: fixed;
 }
 
-.refractory-wagon-catalog-table th:first-child,
-.refractory-wagon-catalog-table th:nth-child(2) {
-  width: 25%;
-}
-
-.refractory-wagon-catalog-table th:last-child {
-  width: 50%;
-}
-
 /**
  * Задача 90 (доработка): в `Осмотре вагонов` всего 5 колонок, но таблица
  * наследовала от `.refractory-input-table` общий `min-width: 1900px` от
