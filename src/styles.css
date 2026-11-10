@@ -5966,6 +5966,19 @@ p {
   grid-column: 1 / -1;
 }
 
+/* Задача 144: подсказка о пустом комментарии и ошибка решения видны рядом с кнопками. */
+.board-assignment-decision .form-message.is-error {
+  margin: 0;
+  color: var(--brick);
+  font-weight: 700;
+}
+
+.board-assignment-decision textarea[aria-invalid="true"] {
+  border-color: var(--brick);
+  background: color-mix(in srgb, var(--brick) 7%, var(--surface));
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--brick) 18%, transparent);
+}
+
 /* Содержимое раздела уже 980px (с учётом левого меню). */
 @media (max-width: 1256px) {
   .board-assignment-filters {

@@ -304,6 +304,18 @@ test("board assignment reviewer gets a decision queue with direct actions", asyn
       "Комментарий к решению",
     )?.querySelector("textarea");
     assert.ok(decisionComment);
+    // Task 144: an empty or blank comment is explained next to the buttons and nothing is sent.
+    await React.act(async () => setTextAreaValue(decisionComment, "  "));
+    await React.act(async () => acceptButton.click());
+    assert.equal(actionRequest, undefined);
+    assert.match(
+      reviewDialog.querySelector('.board-assignment-decision [role="alert"]')?.textContent ?? "",
+      /Напишите комментарий, чтобы принять исполнение\./u,
+    );
+    assert.equal(decisionComment.getAttribute("aria-invalid"), "true");
+    await React.act(async () => returnButton.click());
+    assert.match(reviewDialog.textContent ?? "", /Напишите комментарий, чтобы вернуть поручение на доработку\./u);
+    assert.equal(actionRequest, undefined);
     await React.act(async () => {
       setTextAreaValue(decisionComment, "Результат соответствует поручению.");
     });

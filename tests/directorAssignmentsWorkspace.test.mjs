@@ -251,8 +251,14 @@ for (const canManage of [true]) {
       const label = canManage ? "Принять исполнение" : "Отправить на проверку";
       assert.equal(button(canManage ? "Отправить на проверку" : "Принять исполнение"), undefined);
       assert.equal(button(label).className, "primary-button");
-      assert.equal(button(label).disabled, true);
+      // Task 144: an empty comment explains itself next to the buttons instead of a silently disabled button.
+      assert.equal(button(label).disabled, false);
       const comment = rootElement.querySelector(".director-assignment-detail textarea");
+      await React.act(async () => button(label).click());
+      assert.equal(submitted, undefined);
+      assert.match(rootElement.querySelector('.board-assignment-decision [role="alert"]').textContent, canManage ? /Напишите комментарий, чтобы принять исполнение\./u : /Напишите комментарий, чтобы отправить поручение на проверку\./u);
+      assert.equal(document.activeElement, comment);
+      assert.equal(comment.getAttribute("aria-invalid"), "true");
       await React.act(async () => {
         Object.getOwnPropertyDescriptor(dom.window.HTMLTextAreaElement.prototype, "value").set.call(comment, "Работа выполнена");
         comment.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
@@ -475,13 +481,24 @@ test("a director controller closes an unsubmitted assignment with the actual dat
     assert.equal(date.value, "2026-10-15");
     assert.equal(date.min, "2026-10-01");
     assert.equal(date.max, "2026-10-15");
-    assert.equal(button("Закрыть как выполненное").disabled, true);
-    await type(section.querySelector("textarea"), "Выполнено, отчёт получен");
+    // Task 144: closing without a comment shows a hint instead of a button that does nothing.
+    const hint = () => section.querySelector('[role="alert"]')?.textContent ?? "";
     assert.equal(button("Закрыть как выполненное").disabled, false);
+    await React.act(async () => button("Закрыть как выполненное").click());
+    assert.match(hint(), /Напишите комментарий, чтобы закрыть поручение\./u);
+    assert.equal(document.activeElement, section.querySelector("textarea"));
+    await type(section.querySelector("textarea"), "   ");
+    await React.act(async () => button("Закрыть как выполненное").click());
+    assert.match(hint(), /Напишите комментарий/u, "whitespace is not a comment");
+    await type(section.querySelector("textarea"), "Выполнено, отчёт получен");
+    assert.equal(hint(), "", "typing clears the hint");
     await type(date, "2026-10-16");
-    assert.equal(button("Закрыть как выполненное").disabled, true, "a future date cannot be chosen");
+    await React.act(async () => button("Закрыть как выполненное").click());
+    assert.match(hint(), /Укажите дату исполнения/u, "a future date cannot be chosen");
     await type(date, "2026-09-30");
-    assert.equal(button("Закрыть как выполненное").disabled, true, "the date cannot precede the assignment");
+    await React.act(async () => button("Закрыть как выполненное").click());
+    assert.match(hint(), /Укажите дату исполнения/u, "the date cannot precede the assignment");
+    assert.deepEqual(submitted, []);
     await type(date, "2026-10-10");
     await React.act(async () => button("Закрыть как выполненное").click());
     assert.deepEqual(submitted, [{ action: "close", comment: "Выполнено, отчёт получен", revision: 2, completedOn: "2026-10-10" }]);

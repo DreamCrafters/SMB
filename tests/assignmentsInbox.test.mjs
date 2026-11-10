@@ -278,8 +278,13 @@ test("«Поручения» merges own assignments of every source, filters the
     assert.equal(buttonByText(rootElement, "Принять исполнение"), undefined);
     assert.equal(buttonByText(rootElement, "Редактировать"), undefined);
     const submit = buttonByText(rootElement, "Отправить на проверку");
-    assert.equal(submit.disabled, true);
+    // Task 144: the button stays clickable and explains the missing comment.
+    assert.equal(submit.disabled, false);
+    await React.act(async () => submit.click());
+    assert.equal(submitted, undefined);
+    assert.match(detail.textContent, /Напишите комментарий, чтобы отправить поручение на проверку\./u);
     await React.act(async () => setTextAreaValue(detail.querySelector("textarea"), "Отчёт готов"));
+    assert.doesNotMatch(detail.textContent, /Напишите комментарий/u);
     await React.act(async () => submit.click());
     assert.deepEqual(submitted, { action: "submit_for_review", comment: "Отчёт готов", revision: 3 });
     assert.match(detail.textContent, /уже изменено/u);

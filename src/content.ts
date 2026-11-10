@@ -278,3 +278,19 @@ export const defaultNavigationOrder: AccountNavigationItem[] = [
   ...nonAdminNavigationItems.map(({ id }) => id),
   ...navigationItemsByAccountType.admin.map(({ id }) => id),
 ];
+
+/**
+ * Hint shown next to an assignment action (board, general director, Collegium)
+ * when its required comment is empty: the button stays clickable and explains
+ * what is missing instead of silently doing nothing (task 144).
+ */
+export const assignmentCommentRequiredHints = {
+  record_progress: "Напишите комментарий, чтобы сохранить промежуточный результат.",
+  submit_for_review: "Напишите комментарий, чтобы отправить поручение на проверку.",
+  return_for_revision: "Напишите комментарий, чтобы вернуть поручение на доработку.",
+  complete: "Напишите комментарий, чтобы принять исполнение.",
+  close: "Напишите комментарий, чтобы закрыть поручение.",
+} as const;
+
+export const assignmentClosingDateHint =
+  "Укажите дату исполнения: не раньше даты постановки и не позже сегодняшнего дня.";

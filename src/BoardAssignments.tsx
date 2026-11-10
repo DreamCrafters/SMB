@@ -43,6 +43,7 @@ import {
 } from "./services/boardAssignments";
 import { LoadingIndicator } from "./LoadingIndicator";
 import type { ShowToast } from "./services/toastStack";
+import { assignmentCommentRequiredHints } from "./content";
 
 const statusLabels: Record<BoardAssignmentStatus, string> = {
   in_progress: "В работе",
@@ -1697,10 +1698,13 @@ function BoardAssignmentDetailDialog({
   };
 }) {
   const [isDelegationSaving, setIsDelegationSaving] = useState(false);
+  const [commentHint, setCommentHint] = useState("");
+  const commentRef = useRef<HTMLTextAreaElement>(null);
   const isSaving = isBoardSaving || isDelegationSaving;
   const onCancel = () => { if (!isSaving) onClose(); };
   const assignment =
     detailState?.status === "ready" ? detailState.assignment : undefined;
+  useEffect(() => setCommentHint(""), [assignment?.id]);
   const documents = assignment === undefined
     ? []
     : readAssignmentDocuments(assignment);
@@ -1914,7 +1918,21 @@ function BoardAssignmentDetailDialog({
                     ? " is-review"
                     : ""
                 }`}
-                onSubmit={(event) => { if (isSaving) { event.preventDefault(); return; } onSubmit(event); }}
+                noValidate
+                onSubmit={(event) => {
+                  if (isSaving) { event.preventDefault(); return; }
+                  // Task 144: an empty comment is explained next to the buttons, not by a native bubble or a silent no-op.
+                  const submitter = (event.nativeEvent as SubmitEvent).submitter?.getAttribute("value");
+                  const action = boardAssignmentActions.find((item) => item === submitter);
+                  if (action !== undefined && actionComment.trim() === "") {
+                    event.preventDefault();
+                    setCommentHint(assignmentCommentRequiredHints[action]);
+                    commentRef.current?.focus();
+                    return;
+                  }
+                  setCommentHint("");
+                  onSubmit(event);
+                }}
               >
                 <label>
                   <span>
@@ -1923,16 +1941,24 @@ function BoardAssignmentDetailDialog({
                       : "Комментарий"}
                   </span>
                   <textarea
+                    ref={commentRef}
+                    aria-invalid={commentHint === "" ? undefined : true}
                     maxLength={4_000}
                     required
                     rows={4}
                     value={actionComment}
                     onChange={(event) => {
                       const value = event.currentTarget.value;
+                      setCommentHint("");
                       onCommentChange(value);
                     }}
                   />
                 </label>
+                {commentHint === "" ? null : (
+                  <p className="form-message is-error" role="alert">
+                    {commentHint}
+                  </p>
+                )}
                 {formMessage === "" ? null : (
                   <p className="form-message is-error" role="alert">
                     {formMessage}

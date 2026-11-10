@@ -9,6 +9,7 @@ import { TableCell, TableHeader } from "./TableCell";
 import { LoadingIndicator } from "./LoadingIndicator";
 import { CoExecutorPicker } from "./CoExecutorPicker";
 import type { ShowToast } from "./services/toastStack";
+import { assignmentClosingDateHint, assignmentCommentRequiredHints } from "./content";
 
 const accountLinkLabels = { linked: "Аккаунт привязан", unlinked: "Не привязан к аккаунту", unavailable: "Аккаунт недоступен" };
 const statuses = { in_progress: "В работе", under_review: "На проверке", revision_requested: "На доработке", completed: "Завершено" };
@@ -130,12 +131,15 @@ export function DirectorAssignmentExecutionCard({ registryId, assignment, canExe
   const [saving, setSaving] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [error, setError] = useState("");
+  const [commentHint, setCommentHint] = useState("");
+  const commentRef = useRef<HTMLTextAreaElement>(null);
   const cardRef = useRef<HTMLElement>(null);
   useEffect(() => {
     cardRef.current?.focus({ preventScroll: true });
     cardRef.current?.scrollIntoView?.({ block: "start", behavior: "instant" });
   }, [assignment.id]);
   async function runAction(action: "record_progress" | "submit_for_review") {
+    if (!comment.trim()) { setCommentHint(assignmentCommentRequiredHints[action]); commentRef.current?.focus(); return; }
     setSaving(true); setError("");
     try {
       await directorRequest(`${registry.apiPath}/${assignment.id}/action`, "POST", { action, comment, revision: assignment.revision });
@@ -164,12 +168,13 @@ export function DirectorAssignmentExecutionCard({ registryId, assignment, canExe
     {isOpen && canExecute && <section className="board-assignment-decision is-execute">
       <label>
         <span>Комментарий</span>
-        <textarea maxLength={4000} rows={4} disabled={saving} aria-describedby="assignment-inbox-comment-hint" value={comment} onChange={event => setComment(event.currentTarget.value)} />
+        <textarea ref={commentRef} maxLength={4000} rows={4} disabled={saving} aria-required="true" aria-invalid={commentHint ? true : undefined} aria-describedby="assignment-inbox-comment-hint" value={comment} onChange={event => { setComment(event.currentTarget.value); setCommentHint(""); }} />
       </label>
       <p className="director-field-hint" id="assignment-inbox-comment-hint">Для сохранения результата или отправки на проверку укажите комментарий.</p>
+      {commentHint && <p className="form-message is-error" role="alert">{commentHint}</p>}
       <div className="board-assignment-dialog-actions">
-        <button type="button" className="secondary-button" disabled={saving || !comment.trim()} onClick={() => void runAction("record_progress")}>Сохранить промежуточный результат</button>
-        <button type="button" className="primary-button" disabled={saving || !comment.trim()} onClick={() => void runAction("submit_for_review")}>Отправить на проверку</button>
+        <button type="button" className="secondary-button" disabled={saving} onClick={() => void runAction("record_progress")}>Сохранить промежуточный результат</button>
+        <button type="button" className="primary-button" disabled={saving} onClick={() => void runAction("submit_for_review")}>Отправить на проверку</button>
       </div>
     </section>}
     {isOpen && !canExecute && <p className="director-field-hint">{assignment.status === "under_review" ? "Результат на проверке у руководителя." : assignment.needsClarification ? "Поручение требует уточнения у руководителя." : "Исполнение откроется с даты постановки поручения."}</p>}
@@ -208,6 +213,8 @@ export function DirectorAssignmentsWorkspace({ onShowToast, registryId = "direct
   const [comment, setComment] = useState("");
   const [closedOn, setClosedOn] = useState("");
   const [decisionError, setDecisionError] = useState("");
+  const [decisionHint, setDecisionHint] = useState("");
+  const decisionCommentRef = useRef<HTMLTextAreaElement>(null);
   const [filters, setFilters] = useState<Record<string, string>>({});
   const [selectedStatuses, setSelectedStatuses] = useState<string[]>([]);
   const [history, setHistory] = useState<Array<{ id: string; assignment: DirectorAssignment }> | null>(null);
@@ -232,11 +239,15 @@ export function DirectorAssignmentsWorkspace({ onShowToast, registryId = "direct
     if (form) void mutate(() => directorRequest(`${registry.apiPath}${selected ? `/${selected.id}` : ""}`, selected ? "PATCH" : "POST", { assignment: form, revision: selected?.revision, comment: selected ? comment : "Поручение создано." }));
   }
   function runAction(assignment: DirectorAssignment, action: "complete" | "return_for_revision" | "close") {
+    // Task 144: a missing comment or date is explained next to the buttons instead of a silently disabled button.
+    if (!comment.trim()) { setDecisionHint(assignmentCommentRequiredHints[action]); decisionCommentRef.current?.focus(); return; }
+    if (action === "close" && !(closedOn >= assignment.assignedOn && data !== undefined && closedOn <= data.today)) { setDecisionHint(assignmentClosingDateHint); return; }
+    setDecisionHint("");
     // The error stays next to the decision buttons: the top of a long card is out of view.
     void mutate(() => directorRequest(`${registry.apiPath}/${assignment.id}/action`, "POST", { action, comment, revision: assignment.revision, ...(action === "close" ? { completedOn: closedOn } : {}) }), setDecisionError);
   }
   function openAssignment(row: DirectorAssignment) {
-    setSelected(row); setForm(undefined); setComment(""); setClosedOn(data?.today ?? ""); setDecisionError(""); setContentOpenCount(count => count + 1);
+    setSelected(row); setForm(undefined); setComment(""); setClosedOn(data?.today ?? ""); setDecisionError(""); setDecisionHint(""); setContentOpenCount(count => count + 1);
   }
   async function openHistory() {
     const request = ++historyRequest.current;
@@ -274,7 +285,6 @@ export function DirectorAssignmentsWorkspace({ onShowToast, registryId = "direct
   // Задача 142: a director assignment the executor has not submitted is closed by a controller with the actual date.
   const canCloseSelected = !history && canControl && registry.canCloseWithoutReview && !isOwnSelected && selected !== undefined
     && (selected.status === "in_progress" || selected.status === "revision_requested") && selected.assignedOn <= data.today;
-  const isClosingDateValid = selected !== undefined && closedOn >= selected.assignedOn && closedOn <= data.today;
   const rows = history ? history.map(item => item.assignment) : data.assignments;
   const reviewQueue = !history && canControl ? data.assignments.filter(assignment => assignment.status === "under_review" && !ownAssignmentIds.has(assignment.id)) : [];
   const visible = rows.filter(row => {
@@ -308,28 +318,30 @@ export function DirectorAssignmentsWorkspace({ onShowToast, registryId = "direct
       {canDecideSelected && <section className="board-assignment-decision is-review">
         <label>
           <span>Комментарий к решению</span>
-          <textarea maxLength={4000} rows={4} disabled={saving} aria-describedby="director-action-comment-hint" value={comment} onChange={event => setComment(event.currentTarget.value)} />
+          <textarea ref={decisionCommentRef} maxLength={4000} rows={4} disabled={saving} aria-required="true" aria-invalid={decisionHint ? true : undefined} aria-describedby="director-action-comment-hint" value={comment} onChange={event => { setComment(event.currentTarget.value); setDecisionHint(""); }} />
         </label>
         <p className="director-field-hint" id="director-action-comment-hint">Проверьте результат и комментарии исполнителя, затем примите работу или верните её с понятным замечанием.</p>
+        {decisionHint && <p className="form-message is-error" role="alert">{decisionHint}</p>}
         {decisionError && <p className="form-message is-error" role="alert">{decisionError}</p>}
         <div className="board-assignment-dialog-actions">
-          <button type="button" className="secondary-button board-assignment-return-button" disabled={saving || !comment.trim()} onClick={() => runAction(selected, "return_for_revision")}>Вернуть на доработку</button>
-          <button type="button" className="primary-button" disabled={saving || !comment.trim()} onClick={() => runAction(selected, "complete")}>Принять исполнение</button>
+          <button type="button" className="secondary-button board-assignment-return-button" disabled={saving} onClick={() => runAction(selected, "return_for_revision")}>Вернуть на доработку</button>
+          <button type="button" className="primary-button" disabled={saving} onClick={() => runAction(selected, "complete")}>Принять исполнение</button>
         </div>
       </section>}
       {canCloseSelected && <section className="board-assignment-decision is-review is-close" aria-label="Закрытие поручения">
         <label className="board-assignment-close-date">
           <span>Дата исполнения</span>
-          <input type="date" required min={selected.assignedOn} max={data.today} disabled={saving} value={closedOn} onChange={event => setClosedOn(event.currentTarget.value)} />
+          <input type="date" required min={selected.assignedOn} max={data.today} disabled={saving} value={closedOn} onChange={event => { setClosedOn(event.currentTarget.value); setDecisionHint(""); }} />
         </label>
         <label>
           <span>Комментарий к закрытию</span>
-          <textarea maxLength={4000} rows={4} disabled={saving} aria-describedby="director-close-hint" value={comment} onChange={event => setComment(event.currentTarget.value)} />
+          <textarea ref={decisionCommentRef} maxLength={4000} rows={4} disabled={saving} aria-required="true" aria-invalid={decisionHint && decisionHint !== assignmentClosingDateHint ? true : undefined} aria-describedby="director-close-hint" value={comment} onChange={event => { setComment(event.currentTarget.value); setDecisionHint(""); }} />
         </label>
         <p className="director-field-hint" id="director-close-hint">Исполнитель ещё не отправил результат на проверку. Если поручение выполнено, укажите дату исполнения и комментарий и закройте его.{selected.recurrence !== "once" && " Закроется текущий срок, и откроется следующий."}</p>
+        {decisionHint && <p className="form-message is-error" role="alert">{decisionHint}</p>}
         {decisionError && <p className="form-message is-error" role="alert">{decisionError}</p>}
         <div className="board-assignment-dialog-actions">
-          <button type="button" className="primary-button" disabled={saving || !comment.trim() || !isClosingDateValid} onClick={() => runAction(selected, "close")}>Закрыть как выполненное</button>
+          <button type="button" className="primary-button" disabled={saving} onClick={() => runAction(selected, "close")}>Закрыть как выполненное</button>
         </div>
       </section>}
       {!history && canControl && !canDecideSelected && !canCloseSelected && selected.status !== "completed" && <p className="director-field-hint">{isOwnSelected && selected.status === "under_review"
