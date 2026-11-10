@@ -129,6 +129,8 @@ SMB_DEPLOY_BRANCH=main npm run deploy:jino:dual
 - устанавливает зависимости через `npm ci`;
 - запускает typecheck;
 - применяет миграции с env конкретной среды;
+- загружает ведомость учёта вагонов (`wagons:import -- --apply`); уже
+  загруженная ведомость пропускается;
 - собирает backend;
 - собирает frontend в нужном Vite mode;
 - проверяет наличие `dist/.htaccess` с HTTP → HTTPS redirect и security headers;

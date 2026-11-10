@@ -65,16 +65,33 @@ export function previewRefractoryWagonFleetImport(rows: string[][], asOfDate: st
   return { entries, warnings };
 }
 
+/**
+ * Ведомость применяется одной транзакцией, поэтому любой вагон с её датой учёта
+ * (или более поздней) значит, что прогон уже был. Тогда пропускается вся
+ * ведомость: импорт выполняется при каждой выкатке, а вагон, переименованный
+ * после загрузки, иначе вернулся бы в каталог под прежним номером.
+ */
+async function isFleetLedgerApplied(
+  wagons: Pick<RefractoryWagonsRepository, "readLatestFleetAsOf">,
+  entries: RefractoryWagonFleetEntry[],
+) {
+  const asOfDate = entries[0]?.asOfDate;
+  if (asOfDate === undefined) return false;
+  const latest = await wagons.readLatestFleetAsOf();
+  return latest !== null && latest >= asOfDate;
+}
+
 /** Только чтение: что сделает импорт с текущей БД. */
 export async function countRefractoryWagonFleetChanges(
-  wagons: Pick<RefractoryWagonsRepository, "readFleetState">,
+  wagons: Pick<RefractoryWagonsRepository, "readFleetState" | "readLatestFleetAsOf">,
   entries: RefractoryWagonFleetEntry[],
 ) {
   const counts = { created: 0, updated: 0, skipped: 0 };
+  if (await isFleetLedgerApplied(wagons, entries)) {
+    return { ...counts, skipped: entries.length };
+  }
   for (const entry of entries) {
-    const state = await wagons.readFleetState(entry.number);
-    if (state === undefined) counts.created++;
-    else if (state.asOfDate === entry.asOfDate) counts.skipped++;
+    if (await wagons.readFleetState(entry.number) === undefined) counts.created++;
     else counts.updated++;
   }
   return counts;
@@ -82,8 +99,8 @@ export async function countRefractoryWagonFleetChanges(
 
 /**
  * Новый номер регистрируется как из `Каталога вагонов`, с первым пустым циклом.
- * Вагон с той же датой учёта пропускается: повторный запуск не вернёт в ремонт
- * вагон, который уже вышел из него осмотром. Неисправный вагон уходит в ремонт
+ * Уже применённая ведомость пропускается целиком: повторный запуск не вернёт в
+ * ремонт вагон, который уже вышел из него осмотром. Неисправный вагон уходит в ремонт
  * записью осмотра — другого источника этого состояния нет, а обратный путь у
  * него только один, через тот же журнал.
  */
@@ -93,19 +110,20 @@ export async function applyRefractoryWagonFleetImport({
   entries,
   actor,
 }: {
-  wagons: Pick<RefractoryWagonsRepository, "create" | "readFleetState" | "saveFleetRecord">;
+  wagons: Pick<
+    RefractoryWagonsRepository,
+    "create" | "readFleetState" | "readLatestFleetAsOf" | "saveFleetRecord"
+  >;
   inspections: Pick<RefractoryWagonInspectionsRepository, "create">;
   entries: RefractoryWagonFleetEntry[];
   actor: RefractoryWagonFleetActor;
 }) {
   const counts = { created: 0, updated: 0, skipped: 0, underRepair: 0 };
+  if (await isFleetLedgerApplied(wagons, entries)) {
+    return { ...counts, skipped: entries.length };
+  }
   for (const { serviceable, ...record } of entries) {
-    const state = await wagons.readFleetState(record.number);
-    if (state?.asOfDate === record.asOfDate) {
-      counts.skipped++;
-      continue;
-    }
-    if (state === undefined) {
+    if (await wagons.readFleetState(record.number) === undefined) {
       await wagons.create({
         wagon: {
           number: record.number,

@@ -54,6 +54,8 @@ export type RefractoryWagonsRepository = {
   readFleetState: (
     number: string,
   ) => Promise<{ asOfDate: string | null } | undefined>;
+  /** Самая поздняя загруженная дата ведомости; `null` — учёт ещё не загружали. */
+  readLatestFleetAsOf: () => Promise<string | null>;
   /** Записывает учёт в каталог и возвращает ID текущего цикла вагона. */
   saveFleetRecord: (record: RefractoryWagonFleetRecord) => Promise<string>;
   findByIds: (ids: string[]) => Promise<RefractoryWagonReference[]>;
@@ -280,6 +282,16 @@ export function createRefractoryWagonsRepository(
       const row = rows[0];
       if (row === undefined) return undefined;
       return { asOfDate: formatOptionalCalendarDate(row.fleet_as_of) };
+    },
+
+    async readLatestFleetAsOf() {
+      const [rows] = await pool.query<Array<
+        RowDataPacket & { fleet_as_of: Date | string | null }
+      >>(
+        `select max(fleet_as_of) as fleet_as_of
+        from refractory_wagon_catalog`,
+      );
+      return formatOptionalCalendarDate(rows[0]?.fleet_as_of ?? null);
     },
 
     async saveFleetRecord(record) {

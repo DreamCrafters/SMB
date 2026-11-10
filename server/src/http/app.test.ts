@@ -367,13 +367,16 @@ const passthroughProductionBrands: ProductionBrandsDataSource = {
 
 const emptyRefractoryWagonFleet: Pick<
   RefractoryWagonsRepository,
-  "listFleet" | "readFleetState" | "saveFleetRecord"
+  "listFleet" | "readFleetState" | "readLatestFleetAsOf" | "saveFleetRecord"
 > = {
   async listFleet() {
     return [];
   },
   async readFleetState() {
     return undefined;
+  },
+  async readLatestFleetAsOf() {
+    return null;
   },
   async saveFleetRecord() {
     return "wagon-fleet";
@@ -2914,6 +2917,9 @@ test("refractory wagon journal creates real wagon options for green product qual
     },
     async readFleetState() {
       return undefined;
+    },
+    async readLatestFleetAsOf() {
+      return fleetRecord.asOfDate;
     },
     async saveFleetRecord() {
       return "wagon-16";

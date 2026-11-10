@@ -377,6 +377,22 @@ test("refractory wagon repository reads whether a number and its accounting exis
   assert.deepEqual(await repository.readFleetState("99"), { asOfDate: "2026-10-28" });
 });
 
+test("refractory wagon repository reads the latest loaded fleet ledger date", async () => {
+  const queries: string[] = [];
+  const answers = [[{ fleet_as_of: null }], [{ fleet_as_of: new Date("2026-10-28T00:00:00.000Z") }]];
+  const pool = {
+    async query(sql: string) {
+      queries.push(sql);
+      return [answers.shift(), []];
+    },
+  } as unknown as DatabasePool;
+  const repository = createRefractoryWagonsRepository(pool);
+
+  assert.equal(await repository.readLatestFleetAsOf(), null);
+  assert.equal(await repository.readLatestFleetAsOf(), "2026-10-28");
+  assert.match(queries[0]!, /max\(fleet_as_of\)[\s\S]*from refractory_wagon_catalog/u);
+});
+
 test("refractory wagon repository saves accounting on the catalog and returns the current cycle", async () => {
   const queries: Array<{ sql: string; parameters?: unknown[] }> = [];
   const pool = {

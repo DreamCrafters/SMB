@@ -37,6 +37,13 @@ function fakeRepositories(states: Record<string, { asOfDate: string | null }>) {
       async readFleetState(number: string) {
         return states[number];
       },
+      async readLatestFleetAsOf() {
+        const dates = Object.values(states)
+          .map((state) => state.asOfDate)
+          .filter((date): date is string => date !== null)
+          .sort();
+        return dates.at(-1) ?? null;
+      },
       async create(input: { wagon: { number: string } }) {
         calls.created.push(input.wagon.number);
         return {} as never;
@@ -193,10 +200,37 @@ test("a repeated wagon fleet import changes nothing, even for a wagon back from 
   assert.deepEqual(calls, { created: [], saved: [], inspections: [] });
 });
 
+test("an applied wagon fleet ledger is skipped whole, so a renamed wagon is not registered again", async () => {
+  // Вагон 124 после загрузки переименован в 124А; номера 124 в каталоге больше нет.
+  const { calls, wagons, inspections } = fakeRepositories({ "124А": { asOfDate: "2026-10-28" } });
+  const entries = [entry({ number: "124" }), entry({ number: "52", serviceable: false })];
+
+  assert.deepEqual(
+    await applyRefractoryWagonFleetImport({ wagons: wagons as never, inspections: inspections as never, entries, actor }),
+    { created: 0, updated: 0, skipped: 2, underRepair: 0 },
+  );
+  assert.deepEqual(await countRefractoryWagonFleetChanges(wagons, entries), { created: 0, updated: 0, skipped: 2 });
+  assert.deepEqual(calls, { created: [], saved: [], inspections: [] });
+});
+
+test("an older wagon fleet ledger does not overwrite a newer one", async () => {
+  const { calls, wagons, inspections } = fakeRepositories({ "39": { asOfDate: "2026-11-30" } });
+
+  const result = await applyRefractoryWagonFleetImport({
+    wagons: wagons as never,
+    inspections: inspections as never,
+    entries: [entry(), entry({ number: "61" })],
+    actor,
+  });
+
+  assert.deepEqual(result, { created: 0, updated: 0, skipped: 2, underRepair: 0 });
+  assert.deepEqual(calls, { created: [], saved: [], inspections: [] });
+});
+
 test("the wagon fleet dry run only counts what the import would do", async () => {
   const { calls, wagons } = fakeRepositories({
     "39": { asOfDate: null },
-    "61": { asOfDate: "2026-10-28" },
+    "61": { asOfDate: "2026-09-30" },
   });
 
   assert.deepEqual(
@@ -205,7 +239,7 @@ test("the wagon fleet dry run only counts what the import would do", async () =>
       entry({ number: "61" }),
       entry({ number: "78" }),
     ]),
-    { created: 1, updated: 1, skipped: 1 },
+    { created: 1, updated: 2, skipped: 0 },
   );
   assert.deepEqual(calls, { created: [], saved: [], inspections: [] });
 });

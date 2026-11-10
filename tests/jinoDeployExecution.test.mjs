@@ -71,6 +71,12 @@ test("dual deploy tests identical code once but validates, migrates and builds b
   assert.equal(result.calls.filter((c) => c.args === "run test:jino").length, 1);
   assert.equal(result.calls.filter((c) => c.args === "run typecheck").length, 2);
   assert.equal(result.calls.filter((c) => c.args === "--workspace server run db:migrate").length, 2);
+  for (const mode of ["test", "production"]) {
+    const args = result.calls.filter((c) => c.mode === mode).map((c) => c.args);
+    const importIndex = args.indexOf("--workspace server run wagons:import -- --apply");
+    assert.ok(importIndex > args.indexOf("--workspace server run db:migrate"), `${mode}: wagon fleet import after migrations`);
+    assert.ok(importIndex < args.indexOf(`run build:web:${mode}`), `${mode}: wagon fleet import before publishing`);
+  }
   assert.deepEqual(result.calls.filter((c) => c.args === "--workspace server run build").map((c) => c.mode), ["production"]);
   for (const mode of ["test", "production"]) {
     assert.ok(result.calls.some((c) => c.args === `run build:web:${mode}`));

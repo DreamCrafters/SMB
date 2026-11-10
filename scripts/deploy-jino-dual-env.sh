@@ -195,6 +195,8 @@ deploy_environment() {
   run_optional_tests
 
   SMB_SERVER_ENV_FILE="$app_dir/server/.env" npm --workspace server run db:migrate
+  # Ведомость учёта вагонов: уже применённая в этой БД пропускается целиком.
+  SMB_SERVER_ENV_FILE="$app_dir/server/.env" npm --workspace server run wagons:import -- --apply
   if [[ "$TESTS_BUILT_BACKEND" == "true" ]]; then
     log "build" "Using backend build produced by the successful tests in $label."
   else
