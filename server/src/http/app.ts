@@ -3,7 +3,7 @@ import { AccountPreviewError, buildConcreteAccountPreview } from "../domain/acco
 import { BoardAssignmentPdfError, selectBoardAssignmentsForPdf } from "../domain/boardAssignmentPdf.js";
 import { renderBoardAssignmentsPdf } from "../integrations/boardAssignmentsPdf.js";
 import { renderDirectorAssignmentsPdf } from "../integrations/directorAssignmentsPdf.js";
-import { assignmentInboxNavigationItem, assignmentInboxSourceOptions, assignmentRegistries, isAssignmentInboxAccess, type AssignmentRegistryId } from "../contracts/directorAssignments.js";
+import { assignmentInboxNavigationItem, assignmentInboxSourceOptions, assignmentRegistries, directorAssignmentAccessOptions, isAssignmentInboxAccess, isDirectorAssignmentAccess, type AssignmentRegistryId } from "../contracts/directorAssignments.js";
 import type { DirectorAssignmentsService } from "../domain/directorAssignmentsService.js";
 import { collegiumAttachmentLimits, collegiumInitiativeAccessOptions, collegiumInitiativesApiPath, collegiumMeetingsApiPath, collegiumSettingsApiPath, collegiumEffectGroupsApiPath, collegiumInitiativesNavigationItem, isCollegiumInitiativeAccess } from "../contracts/collegiumInitiatives.js";
 import type { CollegiumInitiativesService } from "../domain/collegiumInitiativesService.js";
@@ -10627,6 +10627,7 @@ function readNavigationAccessLevelLabel(
     "business.railway_wagons:logistics": "Директор по логистике",
     "business.railway_wagons:dispatcher": "Диспетчер",
     ...Object.fromEntries(assignmentInboxSourceOptions.map(({ id, label }) => [`${assignmentInboxNavigationItem}:${id}`, label])),
+    ...Object.fromEntries(directorAssignmentAccessOptions.map(({ id, label }) => [`${assignmentRegistries.director.navigationItem}:${id}`, label])),
     ...Object.fromEntries(collegiumInitiativeAccessOptions.map(({ id, label }) => [`${collegiumInitiativesNavigationItem}:${id}`, label])),
   };
 
@@ -13926,6 +13927,7 @@ function validateCreatePositionRequest(input: unknown):
       key !== "displayName" &&
       key !== "navigationItems" &&
       key !== "assignmentInboxAccess" &&
+      key !== "directorAssignmentAccess" &&
       key !== "boardAssignmentAccess" &&
       key !== "railwayWagonAccess" &&
       key !== "collegiumInitiativeAccess" &&
@@ -13946,6 +13948,10 @@ function validateCreatePositionRequest(input: unknown):
     : input.boardAssignmentAccess;
   const hasAssignmentInbox = navigationItems.includes(assignmentInboxNavigationItem);
   const assignmentInboxAccess = input.assignmentInboxAccess ?? "none";
+  // Задача 146: no default level. The tab used to mean control, so a request without the
+  // level is refused rather than silently narrowed to view or widened to control.
+  const hasDirectorAssignments = navigationItems.includes(assignmentRegistries.director.navigationItem);
+  const directorAssignmentAccess = input.directorAssignmentAccess ?? "none";
   const hasRailwayWagons = navigationItems.includes("business.railway_wagons");
   const railwayWagonAccess = input.railwayWagonAccess === undefined
     ? hasRailwayWagons
@@ -13980,6 +13986,13 @@ function validateCreatePositionRequest(input: unknown):
     !validatePositionNavigationItems(navigationItems)
   ) {
     errors.push("Выберите только доступные рабочие вкладки.");
+  }
+  if (!isDirectorAssignmentAccess(directorAssignmentAccess)) {
+    errors.push("Выберите поддерживаемый уровень доступа к поручениям генерального директора.");
+  } else if ((directorAssignmentAccess === "none") === hasDirectorAssignments) {
+    errors.push(
+      "Уровень доступа к поручениям генерального директора не соответствует выбранным вкладкам.",
+    );
   }
   if (!isBoardAssignmentAccess(boardAssignmentAccess)) {
     errors.push("Выберите поддерживаемый вариант доступа к поручениям.");
@@ -14034,6 +14047,9 @@ function validateCreatePositionRequest(input: unknown):
             collegiumInitiativeAccess,
           )
             ? collegiumInitiativeAccess
+            : "none",
+          directorAssignmentAccess: isDirectorAssignmentAccess(directorAssignmentAccess)
+            ? directorAssignmentAccess
             : "none",
           boardAssignmentAccess: validatedBoardAssignmentAccess,
           adminNavigationItems: [],

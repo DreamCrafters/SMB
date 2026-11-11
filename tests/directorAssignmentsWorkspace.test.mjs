@@ -43,7 +43,7 @@ for (const mode of ["send", "send-linked", "send-unlinked", "both"]) {
       }
       assert.ok(["/api/director-assignments", "/api/director-assignments/old-assignment"].includes(new URL(String(url), "http://127.0.0.1:5173").pathname));
       if (options.method === "POST" || options.method === "PATCH") submitted = JSON.parse(options.body);
-      return new Response(JSON.stringify({ assignments: mode === "both" ? [oldAssignment, { ...oldAssignment, id: "foreign", number: "ГД-2" }, { ...oldAssignment, id: "own-future", number: "ГД-3" }] : mode === "send-linked" ? [oldAssignment, { ...oldAssignment, id: "review", number: "ГД-2", status: "under_review" }, { ...oldAssignment, id: "clarify", number: "ГД-3", status: "in_progress", needsClarification: true }] : (mode.startsWith("send-") || mode === "receive") ? [oldAssignment] : [], ownAssignmentIds: mode === "both" ? ["old-assignment", "own-future"] : [], executableAssignmentIds: [], responsibleAccountLinks: { "old-assignment": "linked", review: "unlinked", clarify: "unavailable" }, employees: mode !== "receive" ? employees : [], permissions: { canView: true, canManage: mode !== "receive", canExecute: mode === "receive" || mode === "both", canManagePersonnel: false }, today: "2026-09-15" }), { headers: { "Content-Type": "application/json" } });
+      return new Response(JSON.stringify({ assignments: mode === "both" ? [oldAssignment, { ...oldAssignment, id: "foreign", number: "ГД-2" }, { ...oldAssignment, id: "own-future", number: "ГД-3" }] : mode === "send-linked" ? [oldAssignment, { ...oldAssignment, id: "review", number: "ГД-2", status: "under_review" }, { ...oldAssignment, id: "clarify", number: "ГД-3", status: "in_progress", needsClarification: true }] : (mode.startsWith("send-") || mode === "receive") ? [oldAssignment] : [], ownAssignmentIds: mode === "both" ? ["old-assignment", "own-future"] : [], executableAssignmentIds: [], responsibleAccountLinks: { "old-assignment": "linked", review: "unlinked", clarify: "unavailable" }, employees: mode !== "receive" ? employees : [], permissions: { canView: true, canViewRegistry: mode !== "receive", canManage: mode !== "receive", canExecute: mode === "receive" || mode === "both", canManagePersonnel: false }, today: "2026-09-15" }), { headers: { "Content-Type": "application/json" } });
     };
     try {
       const { DirectorAssignmentsWorkspace } = await vite.ssrLoadModule("/src/DirectorAssignments.tsx");
@@ -222,7 +222,7 @@ for (const canManage of [true]) {
         return new Response(JSON.stringify(assignment));
       }
       assert.equal(path, "/api/director-assignments");
-      return new Response(JSON.stringify({ assignments: canManage ? [assignment, other] : [assignment], executableAssignmentIds: canManage || assignment.status !== "in_progress" ? [] : [assignment.id], employees: [], permissions: { canView: true, canManage, canExecute: !canManage }, today: "2026-09-15" }));
+      return new Response(JSON.stringify({ assignments: canManage ? [assignment, other] : [assignment], executableAssignmentIds: canManage || assignment.status !== "in_progress" ? [] : [assignment.id], employees: [], permissions: { canView: true, canViewRegistry: canManage, canManage, canExecute: !canManage }, today: "2026-09-15" }));
     };
     const button = label => [...rootElement.querySelectorAll("button")].find(item => item.textContent === label);
     try {
@@ -308,7 +308,7 @@ test("collegium workspace uses its own API, title and protocol fields without a 
     const path = new URL(String(url), "http://127.0.0.1:5173").pathname;
     paths.push(path);
     if (options.method === "POST") submitted = JSON.parse(options.body);
-    return new Response(JSON.stringify({ assignments: [], employees: [{ id: "account:employee-1", userId: "employee-1", fullName: "Сотрудник", position: "Инженер", active: true, canReceive: true }, { id: "account:chair", userId: "chair", fullName: "Председатель", position: "Председатель Коллегии", active: true, canReceive: false }], permissions: { canView: true, canManage: true, canExecute: false }, today: "2026-09-15" }));
+    return new Response(JSON.stringify({ assignments: [], employees: [{ id: "account:employee-1", userId: "employee-1", fullName: "Сотрудник", position: "Инженер", active: true, canReceive: true }, { id: "account:chair", userId: "chair", fullName: "Председатель", position: "Председатель Коллегии", active: true, canReceive: false }], permissions: { canView: true, canViewRegistry: true, canManage: true, canExecute: false }, today: "2026-09-15" }));
   };
   try {
     const { DirectorAssignmentsWorkspace } = await vite.ssrLoadModule("/src/DirectorAssignments.tsx");
@@ -355,7 +355,7 @@ test("«Создание» lists the director register read-only: decisions and 
   const rootElement = document.getElementById("root");
   const root = createRoot(rootElement);
   const assignment = { id: "review", number: "ГД-7", revision: 1, assignedOn: "2026-09-10", kind: "Поручение", summary: "Отчёт на проверке", department: "", project: "", responsibleId: "account:employee-1", responsible: { fullName: "Сотрудник" }, coExecutorIds: [], coExecutors: [], recurrence: "once", activeFrom: "2026-09-10", activeTo: "2026-09-10", currentOccurrenceDate: "2026-09-10", urgency: "", importance: "", progress: "", note: "", incomingNumber: "", completedOn: "", status: "under_review", comments: [], documents: [], source: null, sourceBoardAssignmentId: null, postponedUntil: "" };
-  globalThis.fetch = async () => new Response(JSON.stringify({ assignments: [assignment], employees: [], permissions: { canView: true, canManage: true, canExecute: false }, today: "2026-09-15" }));
+  globalThis.fetch = async () => new Response(JSON.stringify({ assignments: [assignment], employees: [], permissions: { canView: true, canViewRegistry: true, canManage: true, canExecute: false }, today: "2026-09-15" }));
   try {
     const { DirectorAssignmentsWorkspace } = await vite.ssrLoadModule("/src/DirectorAssignments.tsx");
     await React.act(async () => root.render(React.createElement(DirectorAssignmentsWorkspace, { mode: "create", onShowToast() {} })));
@@ -366,6 +366,62 @@ test("«Создание» lists the director register read-only: decisions and 
     assert.ok(rootElement.querySelector(".director-assignment-detail"));
     for (const action of ["Принять исполнение", "Вернуть на доработку", "Редактировать"]) assert.equal(buttons.includes(action), false, action);
     assert.equal(rootElement.querySelector('.director-assignment-documents input[type="file"]'), null);
+  } finally {
+    await React.act(async () => root.unmount());
+    globalThis.fetch = oldFetch;
+    for (const [name, descriptor] of descriptors) {
+      if (descriptor) Object.defineProperty(globalThis, name, descriptor);
+      else delete globalThis[name];
+    }
+    dom.window.close();
+  }
+});
+
+test("the registry view level reads the register, history and PDF without decisions, edits or documents (задача 146)", async () => {
+  const dom = new JSDOM('<div id="root"></div>', { url: "http://127.0.0.1:5173/" });
+  const descriptors = new Map(globalNames.map(name => [name, Object.getOwnPropertyDescriptor(globalThis, name)]));
+  const oldFetch = globalThis.fetch;
+  for (const name of globalNames) Object.defineProperty(globalThis, name, { value: name === "IS_REACT_ACT_ENVIRONMENT" ? true : dom.window[name], configurable: true, writable: true });
+  dom.window.HTMLElement.prototype.scrollIntoView = () => {};
+  const React = await import("react");
+  const { createRoot } = await import("react-dom/client");
+  const rootElement = document.getElementById("root");
+  const root = createRoot(rootElement);
+  const base = { revision: 1, assignedOn: "2026-09-10", kind: "Поручение", department: "", project: "", responsibleId: "account:employee-1", responsible: { fullName: "Сотрудник" }, coExecutorIds: [], coExecutors: [], recurrence: "once", activeFrom: "2026-09-10", activeTo: "2026-09-10", currentOccurrenceDate: "2026-09-10", urgency: "", importance: "", progress: "", note: "", incomingNumber: "", completedOn: "", comments: [], documents: [{ id: "doc-1", fileName: "Приказ.pdf", sizeBytes: 1000 }], source: null, sourceBoardAssignmentId: null, postponedUntil: "" };
+  const review = { ...base, id: "review", number: "ГД-7", summary: "Отчёт на проверке", status: "under_review" };
+  const open = { ...base, id: "open", number: "ГД-8", summary: "Поручение в работе", status: "in_progress" };
+  const requests = [];
+  globalThis.fetch = async (url, options = {}) => {
+    const path = new URL(String(url), "http://127.0.0.1:5173").pathname;
+    requests.push(`${options.method ?? "GET"} ${path}`);
+    if (path === "/api/director-assignments/completions") return new Response(JSON.stringify({ completions: [{ id: "completion-1", assignment: { ...open, summary: "Принятый период", status: "completed", completedOn: "2026-09-12" } }] }));
+    return new Response(JSON.stringify({ assignments: [review, open], ownAssignmentIds: [], executableAssignmentIds: [], employees: [], permissions: { canView: true, canViewRegistry: true, canManage: false, canExecute: false, canManagePersonnel: false }, today: "2026-09-15" }));
+  };
+  try {
+    const { DirectorAssignmentsWorkspace } = await vite.ssrLoadModule("/src/DirectorAssignments.tsx");
+    await React.act(async () => root.render(React.createElement(DirectorAssignmentsWorkspace, { mode: "control", onShowToast() {} })));
+    assert.match(rootElement.querySelector(".director-assignment-heading").textContent, /Просмотр реестра/u);
+    assert.match(rootElement.querySelector(".director-assignment-heading").textContent, /только для просмотра/u);
+    assert.doesNotMatch(rootElement.textContent, /Контроль исполнения/u);
+    // A submitted result is not queued for a viewer: only controllers decide.
+    assert.equal(rootElement.querySelector(".board-assignment-review-queue"), null);
+    assert.deepEqual([...rootElement.querySelectorAll("tbody tr")].map(row => row.querySelector("td").textContent), ["ГД-7", "ГД-8"]);
+    for (const index of [0, 1]) {
+      await React.act(async () => rootElement.querySelectorAll(".table-text-action")[index].click());
+      const detail = rootElement.querySelector(".director-assignment-detail");
+      assert.ok(detail);
+      const buttons = [...rootElement.querySelectorAll("button")].map(button => button.textContent);
+      for (const action of ["Принять исполнение", "Вернуть на доработку", "Закрыть как выполненное", "Редактировать", "Удалить"]) assert.equal(buttons.includes(action), false, action);
+      assert.ok(buttons.includes("Скачать поручение в PDF"));
+      assert.equal(detail.querySelector(".board-assignment-decision"), null);
+      assert.equal(detail.querySelector('.director-assignment-documents input[type="file"]'), null);
+      assert.match(detail.querySelector(".director-assignment-documents").textContent, /Приказ\.pdf/u);
+      assert.doesNotMatch(detail.textContent, /Принять исполнение или вернуть/u);
+    }
+    await React.act(async () => [...rootElement.querySelectorAll("button")].find(button => button.textContent === "История исполнений").click());
+    assert.match(rootElement.querySelector(".director-register-heading").textContent, /История исполнений/u);
+    assert.match(rootElement.querySelector("tbody").textContent, /Принятый период/u);
+    assert.deepEqual(requests.filter(request => !request.startsWith("GET ")), []);
   } finally {
     await React.act(async () => root.unmount());
     globalThis.fetch = oldFetch;
@@ -398,7 +454,7 @@ test("a controller responsible for a submitted assignment sees no decision on it
       return new Response(JSON.stringify({ error: { message: "Поручение уже изменено. Обновите список." } }), { status: 409 });
     }
     assert.equal(path, "/api/collegium-assignments");
-    return new Response(JSON.stringify({ assignments: [own, foreign], ownAssignmentIds: ["own"], executableAssignmentIds: ["own"], employees: [], permissions: { canView: true, canManage: true, canExecute: true }, today: "2026-10-15" }));
+    return new Response(JSON.stringify({ assignments: [own, foreign], ownAssignmentIds: ["own"], executableAssignmentIds: ["own"], employees: [], permissions: { canView: true, canViewRegistry: true, canManage: true, canExecute: true }, today: "2026-10-15" }));
   };
   const button = label => [...rootElement.querySelectorAll("button")].find(item => item.textContent === label);
   try {
@@ -452,7 +508,7 @@ test("a director controller closes an unsubmitted assignment with the actual dat
       return new Response(JSON.stringify(open));
     }
     assert.equal(path, "/api/director-assignments");
-    return new Response(JSON.stringify({ assignments: [open, future, own], ownAssignmentIds: ["own"], executableAssignmentIds: [], employees: [], permissions: { canView: true, canManage: true, canExecute: false }, today: "2026-10-15" }));
+    return new Response(JSON.stringify({ assignments: [open, future, own], ownAssignmentIds: ["own"], executableAssignmentIds: [], employees: [], permissions: { canView: true, canViewRegistry: true, canManage: true, canExecute: false }, today: "2026-10-15" }));
   };
   const button = label => [...rootElement.querySelectorAll("button")].find(item => item.textContent === label);
   const openRow = summary => React.act(async () => [...rootElement.querySelectorAll(".table-text-action")].find(item => item.textContent === summary).click());
@@ -531,7 +587,7 @@ test("collegium assignments keep the review cycle without closing an unsubmitted
   const rootElement = document.getElementById("root");
   const root = createRoot(rootElement);
   const assignment = { id: "work", number: "К-3", revision: 1, assignedOn: "2026-10-01", kind: "Поручение", summary: "Поручение Коллегии в работе", department: "", project: "", responsibleId: "account:worker", responsible: { fullName: "Исполнитель" }, coExecutorIds: [], coExecutors: [], recurrence: "once", activeFrom: "2026-10-10", activeTo: "2026-10-10", currentOccurrenceDate: "2026-10-10", urgency: "", importance: "", progress: "", note: "", incomingNumber: "", completedOn: "", status: "in_progress", comments: [], documents: [], source: null, sourceBoardAssignmentId: null, postponedUntil: "" };
-  globalThis.fetch = async () => new Response(JSON.stringify({ assignments: [assignment], employees: [], permissions: { canView: true, canManage: true, canExecute: false }, today: "2026-10-15" }));
+  globalThis.fetch = async () => new Response(JSON.stringify({ assignments: [assignment], employees: [], permissions: { canView: true, canViewRegistry: true, canManage: true, canExecute: false }, today: "2026-10-15" }));
   try {
     const { DirectorAssignmentsWorkspace } = await vite.ssrLoadModule("/src/DirectorAssignments.tsx");
     await React.act(async () => root.render(React.createElement(DirectorAssignmentsWorkspace, { registryId: "collegium", onShowToast() {} })));

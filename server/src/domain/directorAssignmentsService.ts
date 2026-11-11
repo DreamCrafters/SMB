@@ -15,6 +15,8 @@ export function directorAssignmentPermissions(profile: ServerUserProfile, regist
   const canManage = hasProfileCapability(profile, registry.manageCapability);
   return {
     canView,
+    // Задача 146: control includes the whole registry; the view level gives only that.
+    canViewRegistry: canView && (canManage || (registry.registryViewCapability !== null && hasProfileCapability(profile, registry.registryViewCapability))),
     canManage,
     // Execution comes only from a «Поручения» source; the registry tab is sending and control.
     canExecute: canView && hasProfileCapability(profile, registry.executeCapability),
@@ -71,7 +73,7 @@ export function createDirectorAssignmentsService({ repository, boardAssignments,
     const permissions = permissionsOf(profile);
     requirePermission(permissions.canView);
     const assignment = await repository.read(id, lock);
-    if (!assignment || (!permissions.canManage && !canViewDirectorAssignment(await effectiveAssignment(assignment), profile.userId))) {
+    if (!assignment || (!permissions.canViewRegistry && !canViewDirectorAssignment(await effectiveAssignment(assignment), profile.userId))) {
       throw new DirectorAssignmentError("Поручение недоступно.", 404);
     }
     return assignment;
@@ -141,7 +143,7 @@ export function createDirectorAssignmentsService({ repository, boardAssignments,
         if (permissions.canExecute && canExecuteDirectorAssignment(effective, profile.userId, today())) executableAssignmentIds.push(assignment.id);
         const isOwn = canViewDirectorAssignment(effective, profile.userId);
         if (isOwn) ownAssignmentIds.push(assignment.id);
-        if (permissions.canManage || isOwn) {
+        if (permissions.canViewRegistry || isOwn) {
           assignments.push(assignment);
           responsibleAccountLinks[assignment.id] = account.link;
         }
@@ -162,7 +164,7 @@ export function createDirectorAssignmentsService({ repository, boardAssignments,
         return { id: entry.id, revision: entry.revision };
       });
       if (new Set(entries.map(entry => entry.id)).size !== entries.length) throw new DirectorAssignmentError("Проверьте выбор поручений.");
-      if (request.source === "history") requirePermission(permissions.canManage);
+      if (request.source === "history") requirePermission(permissions.canViewRegistry);
       const snapshots = request.source === "history" ? new Map((await repository.listCompletions()).map(item => [item.id, item.assignment])) : null;
       const assignments: DirectorAssignment[] = [];
       for (const entry of entries) {
@@ -308,8 +310,7 @@ export function createDirectorAssignmentsService({ repository, boardAssignments,
     /** Controllers of this registry who receive the "submitted for review" signal. */
     reviewerUserIds: () => repository.listManagerUserIds(),
     async completions(profile: ServerUserProfile) {
-      const permissions = permissionsOf(profile);
-      requirePermission(permissions.canView && permissions.canManage);
+      requirePermission(permissionsOf(profile).canViewRegistry);
       return (await repository.listCompletions()).map(item => ({ ...item, assignment: { ...item.assignment,
         durationWorkdays: directorWorkdays(item.assignment.assignedOn, item.assignment.currentOccurrenceDate),
         remainingWorkdays: directorWorkdays(item.assignment.completedOn, item.assignment.currentOccurrenceDate),
@@ -317,8 +318,7 @@ export function createDirectorAssignmentsService({ repository, boardAssignments,
     },
     /** Registry-wide counts only for users who see the whole registry; otherwise undefined. */
     async overviewSummary(profile: ServerUserProfile, period: { monthStart: string; today: string }) {
-      const permissions = permissionsOf(profile);
-      if (!permissions.canView || !permissions.canManage) return undefined;
+      if (!permissionsOf(profile).canViewRegistry) return undefined;
       const [assignments, completions] = await Promise.all([repository.list(), repository.listCompletions()]);
       return buildAssignmentOverviewSummary({
         liveRows: assignments,
@@ -328,7 +328,8 @@ export function createDirectorAssignmentsService({ repository, boardAssignments,
     },
     async document(profile: ServerUserProfile, id: string, documentId: string) {
       const assignment = await requireAssignment(profile, id);
-      if (!permissionsOf(profile).canManage && !assignment.documents.some(document => document.id === documentId)) throw new DirectorAssignmentError("Документ недоступен.", 404);
+      // Documents removed from the live card stay readable from the history snapshots.
+      if (!permissionsOf(profile).canViewRegistry && !assignment.documents.some(document => document.id === documentId)) throw new DirectorAssignmentError("Документ недоступен.", 404);
       const document = await repository.readDocument(id, documentId);
       if (!document) throw new DirectorAssignmentError("Документ не найден.", 404);
       return document;

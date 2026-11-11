@@ -28,6 +28,7 @@ function fixture(registryId: AssignmentRegistryId = "director", initiativeLinks?
     update: async (record: DirectorAssignment, previous: DirectorAssignment) => { revisions.push(structuredClone(previous)); records.set(record.id, structuredClone(record)); return structuredClone(record); },
     addCompletion: async (record: DirectorAssignment) => { completions.push(structuredClone(record)); },
     listCompletions: async () => completions.map((assignment, index) => ({ id: String(index), assignment: structuredClone(assignment) })),
+    readDocument: async (_id: string, documentId: string) => ({ id: documentId, fileName: "Документ.pdf", pdf: Buffer.from("%PDF-1.4") }),
   } as unknown as DirectorAssignmentsRepository;
   const service = createDirectorAssignmentsService({
     repository,
@@ -93,6 +94,60 @@ test("overview summary counts accepted periods for managers and is hidden from e
     month: { total: 2, completed: 1, overdue: 1 },
   });
   assert.equal(await service.overviewSummary(profile("worker"), { monthStart: "2026-09-01", today: "2026-09-14" }), undefined);
+});
+
+test("the registry view level reads the whole registry, history and PDF without control (задача 146)", async () => {
+  const { service, profile, input } = fixture();
+  const manager = profile("director", true);
+  const executor = profile("worker");
+  const viewer = profile("board-member");
+  viewer.activeAccess.navigationItems = ["business.director_assignments"];
+  viewer.activeAccess.capabilities = ["business.view_director_assignments", "business.view_director_assignment_registry"];
+  const accepted = await service.save(manager, { assignment: input, comment: "Создано" });
+  await submitAndAccept(service, manager, executor, accepted);
+  const pending = await service.save(manager, { assignment: { ...input, recurrence: "once", activeFrom: "2026-09-10", activeTo: "2026-09-10" }, comment: "Создано" });
+  const submitted = await service.action(executor, pending.id, { action: "submit_for_review", comment: "Готово", revision: pending.revision });
+
+  const list = await service.list(viewer);
+  assert.deepEqual(list.assignments.map(item => item.id).sort(), [accepted.id, pending.id].sort());
+  assert.deepEqual(list.permissions, { canView: true, canViewRegistry: true, canManage: false, canExecute: false, canManagePersonnel: false });
+  assert.deepEqual(list.ownAssignmentIds, []);
+  assert.deepEqual(list.employees, []);
+  assert.equal((await service.read(viewer, pending.id)).id, pending.id);
+  const history = await service.completions(viewer);
+  assert.equal(history.length, 1);
+  assert.equal((await service.exportSelection(viewer, { mode: "register", source: "history", entries: [{ id: history[0].id, revision: history[0].assignment.revision }] })).assignments.length, 1);
+  assert.notEqual(await service.overviewSummary(viewer, { monthStart: "2026-09-01", today: "2026-09-14" }), undefined);
+
+  await assert.rejects(service.save(viewer, { assignment: input, comment: "Создано" }), /прав/u);
+  await assert.rejects(service.save(viewer, { assignment: input, comment: "Правка", revision: submitted.revision }, pending.id), /прав/u);
+  for (const action of ["complete", "return_for_revision"]) {
+    await assert.rejects(service.action(viewer, pending.id, { action, comment: "Решение", revision: submitted.revision }), /недоступно для исполнения/u);
+  }
+  await assert.rejects(service.action(viewer, accepted.id, { action: "close", comment: "Закрыто", completedOn: "2026-09-14", revision: (await service.read(viewer, accepted.id)).revision }), /недоступно для исполнения/u);
+  await assert.rejects(service.changeDocument(viewer, pending.id, { fileName: "a.pdf", pdf: Buffer.from("%PDF-1.4") }), /прав/u);
+  // A document removed from the live card stays readable for the whole-registry view (history snapshots), not for the executor.
+  assert.equal((await service.document(viewer, pending.id, "removed-document")).fileName, "Документ.pdf");
+  await assert.rejects(service.document(executor, pending.id, "removed-document"), /Документ недоступен/u);
+  assert.equal((await service.read(manager, pending.id)).status, "under_review");
+
+  // The tab's view right alone (an executor's «Поручения» source) still shows only own assignments.
+  const inboxOnly = profile("other");
+  assert.deepEqual((await service.list(inboxOnly)).assignments, []);
+  await assert.rejects(service.completions(inboxOnly), /прав/u);
+  await assert.rejects(service.read(inboxOnly, pending.id), /недоступно/u);
+});
+
+test("the director registry view level does not open the collegium registry", async () => {
+  const { service, profile, input } = fixture("collegium");
+  await service.save(profile("chair", true), { assignment: input, comment: "Создано" });
+  const viewer = profile("board-member");
+  viewer.activeAccess.navigationItems = ["business.collegium_assignments"];
+  viewer.activeAccess.capabilities = ["business.view_collegium_assignments", "business.view_director_assignment_registry"];
+  const list = await service.list(viewer);
+  assert.equal(list.permissions.canViewRegistry, false);
+  assert.deepEqual(list.assignments, []);
+  await assert.rejects(service.completions(viewer), /прав/u);
 });
 
 for (const actor of ["director", "assistant"]) {

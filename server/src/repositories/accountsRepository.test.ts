@@ -2733,3 +2733,65 @@ test("collegium chair level survives admin rights and other tab toggles", async 
   assert.ok(capabilities.includes("business.participate_collegium_initiatives"));
   assert.equal(capabilities.includes("business.manage_collegium_initiatives"), false);
 });
+
+test("director registry level survives other position mutations and changes only by its own level (задача 146)", async () => {
+  // Stored before the level existed: control without the registry view right.
+  let navigationItems = ["business.director_assignments", "business.settings"];
+  let capabilities = ["business.view_director_assignments", "business.manage_director_assignments", "business.manage_notification_settings"];
+  const positionRow = () => ({
+    id: "assistant", display_name: "Помощник генерального директора", account_type: "business_owner",
+    navigation_items: JSON.stringify(navigationItems), capabilities: JSON.stringify(capabilities),
+    is_protected: 0, is_admin_protected: 0, admin_navigation_items: "[]",
+    can_review_raw_material_warehouse: 0, created_at: "2026-11-11T00:00:00.000Z", usage_count: 1,
+  });
+  const connection = {
+    async beginTransaction() {},
+    async commit() {},
+    async rollback() {},
+    release() {},
+    async query(sql: string, params?: unknown[]) {
+      const normalized = sql.replace(/\s+/g, " ").trim();
+      if (normalized.startsWith("select is_root_admin, status from app_users")) {
+        return [[{ is_root_admin: 1, status: "active" }], []];
+      }
+      if (normalized.startsWith("select positions.id, positions.display_name") || normalized.startsWith("select id, display_name, account_type")) {
+        return [[positionRow()], []];
+      }
+      if (normalized.startsWith("update account_positions set navigation_items")) {
+        navigationItems = JSON.parse(String(params?.[0]));
+        capabilities = JSON.parse(String(params?.[1]));
+      }
+      if (normalized.startsWith("update account_positions set admin_navigation_items")) {
+        navigationItems = JSON.parse(String(params?.[2]));
+        capabilities = JSON.parse(String(params?.[3]));
+      }
+      return [[], []];
+    },
+  };
+  const repository = createAccountsRepository({ async getConnection() { return connection; } } as unknown as DatabasePool);
+  const actor = { userId: "root-admin-user", isDevRootAdmin: false };
+  const hasControl = () => capabilities.includes("business.manage_director_assignments");
+
+  await repository.setPositionNavigationAccess({ navigationItem: "business.settings", positionIds: ["assistant"], enabled: false }, actor);
+  assert.ok(hasControl());
+  assert.ok(capabilities.includes("business.view_director_assignment_registry"));
+  await repository.setPositionAdminNavigation({ id: "assistant", adminNavigationItems: ["admin.accounts"] }, actor);
+  assert.ok(hasControl());
+  await repository.setPositionNavigationAccess({ navigationItem: "business.director_assignments", positionIds: ["assistant"], enabled: true }, actor);
+  assert.ok(hasControl(), "a bare checkbox keeps the stored level");
+
+  await repository.setPositionNavigationAccess({ navigationItem: "business.director_assignments", positionIds: ["assistant"], enabled: true, accessLevel: "view" }, actor);
+  assert.ok(!hasControl());
+  assert.ok(capabilities.includes("business.view_director_assignment_registry"));
+  await repository.setPositionAdminNavigation({ id: "assistant", adminNavigationItems: [] }, actor);
+  assert.ok(!hasControl(), "admin sections do not widen the view level");
+
+  await repository.setPositionNavigationAccess({ navigationItem: "business.director_assignments", positionIds: ["assistant"], enabled: false }, actor);
+  assert.ok(!capabilities.some((capability) => capability.includes("director_assignment")));
+  await repository.setPositionNavigationAccess({ navigationItem: "business.director_assignments", positionIds: ["assistant"], enabled: true }, actor);
+  assert.deepEqual(capabilities.filter((capability) => capability.includes("director_assignment")), [
+    "business.view_director_assignments", "business.view_director_assignment_registry",
+  ], "a newly enabled tab starts from view");
+  await repository.setPositionNavigationAccess({ navigationItem: "business.director_assignments", positionIds: ["assistant"], enabled: true, accessLevel: "manage" }, actor);
+  assert.ok(hasControl());
+});

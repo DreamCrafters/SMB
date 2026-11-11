@@ -99,7 +99,12 @@ test("position form edits working tabs while admin rights are managed separately
   // Режимы и уровни рабочих вкладок описаны одним каталогом.
   assert.deepEqual(
     Object.keys(navigationAccessLevels),
-    ["business.assignments", "business.board_assignments", "business.railway_wagons", "business.collegium_initiatives"],
+    ["business.assignments", "business.director_assignments", "business.board_assignments", "business.railway_wagons", "business.collegium_initiatives"],
+  );
+  // Задача 146: the director registry tab is either read-only or full control.
+  assert.deepEqual(
+    navigationAccessLevels["business.director_assignments"].options.map(({ id }) => id),
+    ["view", "manage"],
   );
   assert.equal(
     navigationAccessLevels["business.railway_wagons"].title,

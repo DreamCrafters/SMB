@@ -1,4 +1,4 @@
-import { assignmentInboxSourceOptions } from "../server/src/contracts/directorAssignments.js";
+import { assignmentInboxSourceOptions, directorAssignmentAccessOptions } from "../server/src/contracts/directorAssignments.js";
 import {
   collegiumInitiativeAccessOptions,
   collegiumInitiativesNavigationItem,
@@ -75,6 +75,11 @@ export const navigationAccessLevels: Partial<Record<AccountNavigationItem, {
   options: ReadonlyArray<{ id: string; label: string }>;
 }>> = {
   "business.assignments": { title: "Получение поручений", options: assignmentInboxSourceOptions },
+  // Задача 146: просмотр всего реестра ГД без постановки и контроля.
+  "business.director_assignments": {
+    title: "Уровень доступа",
+    options: directorAssignmentAccessOptions,
+  },
   "business.board_assignments": {
     title: "Уровень доступа",
     options: boardAssignmentAccessOptions,
@@ -229,7 +234,7 @@ export const navigationItemsByAccountType: Record<AccountType, NavigationItem[]>
       state: "active",
     },
     { id: "business.assignments", label: "Поручения", description: "Просмотр, исполнение, приёмка и создание поручений", state: "active" },
-    { id: "business.director_assignments", label: "Поручения генерального директора", description: "Создание и контроль в разделе «Поручения»", state: "active" },
+    { id: "business.director_assignments", label: "Поручения генерального директора", description: "Права реестра ГД в разделе «Поручения»", state: "active" },
     { id: "business.personnel", label: "Сотрудники", description: "Справочник АУП и ИТР", state: "active" },
     {
       id: "business.board_assignments",

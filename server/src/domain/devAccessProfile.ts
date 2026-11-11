@@ -104,7 +104,7 @@ function buildBoardDevAccessOption(definition: (typeof defaultPositionDefinition
   return {
     ...definition,
     navigationItems,
-    capabilities: resolveCapabilitiesForPosition(definition.position, navigationItems, isExecutor ? ["board"] : "none", { collegiumInitiativeAccess: "none" }),
+    capabilities: resolveCapabilitiesForPosition(definition.position, navigationItems, isExecutor ? ["board"] : "none", { collegiumInitiativeAccess: "none", directorAssignmentAccess: "none" }),
   };
 }
 

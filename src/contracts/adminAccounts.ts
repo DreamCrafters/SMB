@@ -1,4 +1,4 @@
-import type { AssignmentInboxAccess } from "../../server/src/contracts/directorAssignments.js";
+import type { AssignmentInboxAccess, DirectorAssignmentAccess } from "../../server/src/contracts/directorAssignments.js";
 import type {
   AccountCapability,
   BoardAssignmentAccess,
@@ -87,6 +87,8 @@ export type SaveAdminPositionRequest = {
   assignmentInboxAccess?: AssignmentInboxAccess;
   displayName: string;
   navigationItems: AccountNavigationItem[];
+  /** Без вкладки реестра ГД — `none`; с ней сервер не угадывает уровень: прежде вкладка означала управление. */
+  directorAssignmentAccess: DirectorAssignmentAccess;
   boardAssignmentAccess: BoardAssignmentAccess;
   railwayWagonAccess: RailwayWagonAccess;
   collegiumInitiativeAccess: CollegiumInitiativeAccess;
@@ -99,7 +101,7 @@ export type SetAdminPositionNavigationAccessRequest = {
   positionIds: AccountPosition[];
   enabled: boolean;
   /** Уровень внутри вкладки; без него у должности сохраняется текущий. */
-  accessLevel?: BoardAssignmentAccess | RailwayWagonAccess | AssignmentInboxAccess | CollegiumInitiativeAccess;
+  accessLevel?: BoardAssignmentAccess | DirectorAssignmentAccess | RailwayWagonAccess | AssignmentInboxAccess | CollegiumInitiativeAccess;
 };
 
 /** Набор админских разделов должности; меняет только главный администратор. */

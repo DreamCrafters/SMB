@@ -6923,7 +6923,7 @@ test("account preview navigation grants reads without business mutations", async
     "preview-only",
     profile.activeAccess.navigationItems,
     "none",
-    { collegiumInitiativeAccess: "none" },
+    { collegiumInitiativeAccess: "none", directorAssignmentAccess: "none" },
   );
   const repository: AccountsRepository = {
     ...accounts,
@@ -16635,9 +16635,23 @@ test("position API gives registry tabs sending and «Поручения» source
     const sessionId = await createDevSession(baseUrl, "admin");
     const headers = { "Content-Type": "application/json", "X-SMB-Dev-Session": sessionId };
     const create = (body: Record<string, unknown>) => fetch(`${baseUrl}/api/admin/positions`, { method: "POST", headers, body: JSON.stringify({ displayName: "Произвольная должность", ...body }) });
-    assert.equal((await create({ navigationItems: ["business.director_assignments"] })).status, 201);
+    assert.equal((await create({ navigationItems: ["business.director_assignments"], directorAssignmentAccess: "manage" })).status, 201);
+    assert.deepEqual(created.at(-1)?.capabilities, ["business.view_director_assignments", "business.view_director_assignment_registry", "business.manage_director_assignments"]);
+    // Задача 146: the view level shows the whole registry without control.
+    assert.equal((await create({ navigationItems: ["business.director_assignments"], directorAssignmentAccess: "view" })).status, 201);
+    assert.deepEqual(created.at(-1)?.capabilities, ["business.view_director_assignments", "business.view_director_assignment_registry"]);
     assert.equal((await create({ navigationItems: ["business.assignments"], assignmentInboxAccess: ["director"] })).status, 201);
-    assert.equal((await create({ navigationItems: ["business.director_assignments", "business.assignments"], assignmentInboxAccess: ["director"] })).status, 201);
+    assert.equal((await create({ navigationItems: ["business.director_assignments", "business.assignments"], assignmentInboxAccess: ["director"], directorAssignmentAccess: "manage" })).status, 201);
+    // The tab used to mean control, so a missing level is refused instead of guessed.
+    const createdCount = created.length;
+    assert.equal((await create({ navigationItems: ["business.director_assignments"] })).status, 400);
+    assert.equal((await create({ navigationItems: ["business.settings"], directorAssignmentAccess: "view" })).status, 400);
+    assert.equal((await create({ navigationItems: ["business.director_assignments"], directorAssignmentAccess: "none" })).status, 400);
+    assert.equal(created.length, createdCount);
+    // Editing goes through the same validation before the repository is touched.
+    const edit = (body: Record<string, unknown>) => fetch(`${baseUrl}/api/admin/positions/dispatcher`, { method: "PATCH", headers, body: JSON.stringify({ displayName: "Произвольная должность", ...body }) });
+    assert.equal((await edit({ navigationItems: ["business.director_assignments"] })).status, 400);
+    assert.equal((await edit({ navigationItems: ["business.director_assignments"], directorAssignmentAccess: "receive" })).status, 400);
     // The old receive modes and a tab without sources are refused.
     assert.equal((await create({ navigationItems: ["business.director_assignments"], directorAssignmentAccess: "receive" })).status, 400);
     // Задача 131: «Поручения» alone shows the controlled registers, without receiving.
@@ -16651,9 +16665,10 @@ test("position API gives registry tabs sending and «Поручения» source
     assert.equal((await create({ navigationItems: ["business.assignments"], assignmentInboxAccess: ["board"] })).status, 201);
   }, dispatcherSubmissions, emptyReferenceDataSource, undefined, undefined, adminDatabase, config, undefined, repository);
   assert.deepEqual(created.map(position => position.capabilities), [
-    ["business.view_director_assignments", "business.manage_director_assignments"],
+    ["business.view_director_assignments", "business.view_director_assignment_registry", "business.manage_director_assignments"],
+    ["business.view_director_assignments", "business.view_director_assignment_registry"],
     ["business.view_director_assignments", "business.execute_director_assignments"],
-    ["business.view_director_assignments", "business.manage_director_assignments", "business.execute_director_assignments"],
+    ["business.view_director_assignments", "business.view_director_assignment_registry", "business.manage_director_assignments", "business.execute_director_assignments"],
     [],
     ["business.view_board_assignments", "business.create_board_assignments", "business.review_board_assignments", "business.execute_board_assignments"],
     ["business.view_board_assignments", "business.execute_board_assignments"],

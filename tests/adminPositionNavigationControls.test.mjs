@@ -219,6 +219,7 @@ test("delegated manager edits working tabs and combines railway roles without lo
         "business.settings",
       ],
       assignmentInboxAccess: "none", collegiumInitiativeAccess: "none",
+      directorAssignmentAccess: "none",
       boardAssignmentAccess: "create",
       railwayWagonAccess: ["sales", "carrier"],
       showOverviewVisitors: true,
@@ -361,6 +362,115 @@ test("delegated manager edits working tabs and combines railway roles without lo
     } else {
       process.env.VITE_SMB_REMOTE_API_URL = previousRemoteApiUrl;
     }
+    dom.window.close();
+    restoreDomGlobals(previousGlobals);
+  }
+});
+
+test("position form grants the director registry as view only and changes it only by its level (задача 146)", async () => {
+  const dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>', { url: "http://127.0.0.1:5173/" });
+  dom.window.matchMedia = () => ({ matches: false, media: "", onchange: null, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {}, dispatchEvent() { return false; } });
+  dom.window.requestAnimationFrame = (callback) => setTimeout(() => callback(Date.now()), 0);
+  dom.window.cancelAnimationFrame = (frameId) => clearTimeout(frameId);
+  const previousGlobals = captureDomGlobals();
+  const previousFetch = globalThis.fetch;
+  const previousRemoteApiUrl = process.env.VITE_SMB_REMOTE_API_URL;
+  process.env.VITE_SMB_REMOTE_API_URL = "http://127.0.0.1:5173";
+  installDomGlobals(dom.window);
+  const React = await import("react");
+  const { createRoot } = await import("react-dom/client");
+  const vite = await getVite();
+  const position = {
+    ...buildHybridPosition(),
+    id: "board-member",
+    displayName: "Член совета директоров",
+    navigationItems: ["business.board_assignments", "business.settings"],
+    capabilities: ["business.view_board_assignments", "business.create_board_assignments", "business.manage_notification_settings"],
+    railwayWagonAccess: "none",
+  };
+  const saved = [];
+  let root;
+
+  try {
+    globalThis.fetch = async (input, init = {}) => {
+      const url = new URL(String(input), "http://127.0.0.1:5173/");
+      const method = init.method ?? "GET";
+      if (url.pathname === "/api/navigation-order") return jsonResponse({ navigationOrder: defaultNavigationOrder });
+      if (url.pathname === "/api/access/profile") return jsonResponse({ profile: buildDelegatedProfile() });
+      if (url.pathname === "/api/admin/accounts" && method === "GET") return jsonResponse({ accounts: [], canManageProtectedAccounts: false });
+      if (url.pathname === "/api/admin/positions" && method === "GET") {
+        return jsonResponse({ positions: [buildAdministratorPosition(), position], canAssignAdminNavigation: false, canManageProtectedPositions: false });
+      }
+      if (url.pathname === "/api/admin/positions/board-member" && method === "PATCH") {
+        const body = JSON.parse(String(init.body));
+        saved.push(body);
+        // The server stores the level in the capabilities; the form reads it back from there.
+        const director = body.directorAssignmentAccess === "none" ? [] : [
+          "business.view_director_assignments", "business.view_director_assignment_registry",
+          ...(body.directorAssignmentAccess === "manage" ? ["business.manage_director_assignments"] : []),
+        ];
+        Object.assign(position, { navigationItems: body.navigationItems, capabilities: [...position.capabilities.filter((capability) => !capability.includes("director_assignment")), ...director] });
+        return jsonResponse({ position });
+      }
+      if (url.pathname === "/api/audit/events" && method === "POST") return jsonResponse({ ok: true });
+      throw new Error(`Unexpected request: ${method} ${url.pathname}`);
+    };
+
+    const { default: App } = await vite.ssrLoadModule("/src/App.tsx");
+    const rootElement = dom.window.document.getElementById("root");
+    root = createRoot(rootElement);
+    await React.act(async () => root.render(React.createElement(App)));
+    await waitFor(React, () => rootElement.querySelector(".admin-accounts-table tbody tr") !== null);
+    await React.act(async () => rootElement.querySelector('button[role="tab"][aria-controls="admin-accounts-panel-positions"]')?.click());
+    await waitFor(React, () => rootElement.querySelector(".admin-positions-table tbody tr") !== null);
+    const positionRow = () => Array.from(rootElement.querySelectorAll(".admin-positions-table tbody tr"))
+      .find((row) => row.textContent?.includes("Член совета директоров"));
+    const openForm = async () => {
+      await React.act(async () => Array.from(positionRow().querySelectorAll("button")).find((button) => button.textContent?.trim() === "Изменить").click());
+      return rootElement.querySelector('[role="dialog"]');
+    };
+    const directorRow = (dialog) => findCheckbox(dialog, "Поручения генерального директора (").closest(".admin-account-navigation-row");
+    const save = async (dialog) => {
+      const count = saved.length;
+      await React.act(async () => dialog.querySelector('button[type="submit"]').click());
+      await waitFor(React, () => saved.length > count);
+    };
+
+    let dialog = await openForm();
+    let level = directorRow(dialog).querySelector("select");
+    assert.ok(level);
+    assert.equal(level.disabled, true);
+    assert.deepEqual(Array.from(level.options, (option) => option.textContent), ["Только просмотр", "Постановка, приёмка и закрытие поручений"]);
+    await React.act(async () => findCheckbox(dialog, "Поручения генерального директора (").click());
+    assert.equal(level.disabled, false);
+    assert.equal(level.value, "view");
+    await save(dialog);
+    assert.equal(saved.at(-1).directorAssignmentAccess, "view");
+    assert.ok(saved.at(-1).navigationItems.includes("business.director_assignments"));
+    await waitFor(React, () => /Поручения генерального директора — Только просмотр/u.test(positionRow()?.textContent ?? ""));
+
+    dialog = await openForm();
+    level = directorRow(dialog).querySelector("select");
+    assert.equal(level.value, "view");
+    await React.act(async () => {
+      level.value = "manage";
+      level.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
+    });
+    await save(dialog);
+    assert.equal(saved.at(-1).directorAssignmentAccess, "manage");
+    await waitFor(React, () => /Поручения генерального директора — Постановка, приёмка и закрытие поручений/u.test(positionRow()?.textContent ?? ""));
+
+    dialog = await openForm();
+    assert.equal(directorRow(dialog).querySelector("select").value, "manage");
+    await React.act(async () => findCheckbox(dialog, "Поручения генерального директора (").click());
+    await save(dialog);
+    assert.equal(saved.at(-1).directorAssignmentAccess, "none");
+    assert.equal(saved.at(-1).navigationItems.includes("business.director_assignments"), false);
+  } finally {
+    if (root) await React.act(async () => root.unmount());
+    globalThis.fetch = previousFetch;
+    if (previousRemoteApiUrl === undefined) delete process.env.VITE_SMB_REMOTE_API_URL;
+    else process.env.VITE_SMB_REMOTE_API_URL = previousRemoteApiUrl;
     dom.window.close();
     restoreDomGlobals(previousGlobals);
   }

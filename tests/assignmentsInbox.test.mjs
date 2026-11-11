@@ -212,10 +212,10 @@ test("«Поручения» merges own assignments of every source, filters the
         directorRequests += 1;
         // A controller receives the whole register; «Поручения» keeps only own rows.
         return jsonResponse({ assignments: [own, foreign, future], ownAssignmentIds: ["gd-1", "gd-3"], executableAssignmentIds: failAction || !submitted ? ["gd-1"] : [], employees: [],
-          permissions: { canView: true, canManage: true, canExecute: true, canManagePersonnel: false }, today: "2026-09-15" });
+          permissions: { canView: true, canViewRegistry: true, canManage: true, canExecute: true, canManagePersonnel: false }, today: "2026-09-15" });
       }
       if (url.pathname === "/api/collegium-assignments") {
-        return jsonResponse({ assignments: [collegium], executableAssignmentIds: [], employees: [], permissions: { canView: true, canManage: false, canExecute: true, canManagePersonnel: false }, today: "2026-09-15" });
+        return jsonResponse({ assignments: [collegium], executableAssignmentIds: [], employees: [], permissions: { canView: true, canViewRegistry: false, canManage: false, canExecute: true, canManagePersonnel: false }, today: "2026-09-15" });
       }
       if (url.pathname === "/api/board-assignments") return jsonResponse({ error: { message: "Сервис недоступен." } }, 503);
       if (url.pathname === "/api/director-assignments/export.pdf" || url.pathname === "/api/collegium-assignments/export.pdf") {
@@ -369,12 +369,28 @@ function restoreDomGlobals(previous) {
   }
 }
 
+test("«Поручения мне» keeps only own director rows when the register is visible without control (задача 146)", async () => {
+  const { directorInboxRows } = await vite.ssrLoadModule("/src/AssignmentsInbox.tsx");
+  const own = directorAssignment({ id: "own", number: "ГД-1" });
+  const foreign = directorAssignment({ id: "foreign", number: "ГД-2" });
+  const response = (permissions) => ({ assignments: [own, foreign], ownAssignmentIds: ["own"], employees: [], today: "2026-09-15",
+    permissions: { canView: true, canExecute: true, canManagePersonnel: false, ...permissions } });
+  // The view level returns the whole register like control does: only own rows are received.
+  assert.deepEqual(directorInboxRows("director", response({ canViewRegistry: true, canManage: false })).map(row => row.id), ["own"]);
+  assert.deepEqual(directorInboxRows("director", response({ canViewRegistry: true, canManage: true })).map(row => row.id), ["own"]);
+  // Without the register the server has already narrowed the list to own assignments.
+  assert.deepEqual(directorInboxRows("director", { ...response({ canViewRegistry: false, canManage: false }), assignments: [own], ownAssignmentIds: undefined }).map(row => row.id), ["own"]);
+});
+
 test("«Поручения → Просмотр» opens own assignments and every register the profile controls", async () => {
   const { readAssignmentsSections } = await vite.ssrLoadModule("/src/AssignmentsInbox.tsx");
   const sections = (...capabilities) => readAssignmentsSections({ activeAccess: { capabilities } });
   assert.deepEqual(sections(), []);
   assert.deepEqual(sections("business.view_director_assignments", "business.execute_director_assignments"), ["mine"]);
   assert.deepEqual(sections("business.view_director_assignments", "business.manage_director_assignments"), ["director"]);
+  // Задача 146: a board member with the view level reads the director register next to the board one.
+  assert.deepEqual(sections("business.view_director_assignments", "business.view_director_assignment_registry", "business.execute_director_assignments",
+    "business.view_board_assignments", "business.create_board_assignments"), ["mine", "director", "board"]);
   assert.deepEqual(sections("business.view_collegium_assignments", "business.manage_collegium_assignments", "business.execute_collegium_assignments"), ["mine", "collegium"]);
   // Board execution alone narrows the register to what «Поручения мне» lists.
   assert.deepEqual(sections("business.view_board_assignments", "business.execute_board_assignments"), ["mine"]);
@@ -393,6 +409,8 @@ test("«Поручения → Создание» lists only the registries the 
   assert.deepEqual(sections("business.view_board_assignments", "business.create_board_assignments", "business.review_board_assignments",
     "business.view_collegium_assignments", "business.manage_collegium_assignments",
     "business.view_director_assignments", "business.manage_director_assignments"), ["director", "collegium", "board"]);
+  // The registry view level never opens creation.
+  assert.deepEqual(sections("business.view_director_assignments", "business.view_director_assignment_registry"), []);
 });
 
 test("«Поручения» shows «Создание» next to «Просмотр» only to senders and returns to «Просмотр» from the Overview", async () => {
@@ -409,10 +427,10 @@ test("«Поручения» shows «Создание» next to «Просмот
     requests.push(url.pathname);
     if (url.pathname === "/api/director-assignments") {
       return jsonResponse({ assignments: [directorAssignment({ responsibleId: "account:other", responsible: { id: "account:other", fullName: "Сотрудник" } })], ownAssignmentIds: [], executableAssignmentIds: [], employees: [],
-        permissions: { canView: true, canManage: true, canExecute: false, canManagePersonnel: false }, today: "2026-09-15" });
+        permissions: { canView: true, canViewRegistry: true, canManage: true, canExecute: false, canManagePersonnel: false }, today: "2026-09-15" });
     }
     if (url.pathname === "/api/collegium-assignments") {
-      return jsonResponse({ assignments: [], executableAssignmentIds: [], employees: [], permissions: { canView: true, canManage: false, canExecute: true, canManagePersonnel: false }, today: "2026-09-15" });
+      return jsonResponse({ assignments: [], executableAssignmentIds: [], employees: [], permissions: { canView: true, canViewRegistry: false, canManage: false, canExecute: true, canManagePersonnel: false }, today: "2026-09-15" });
     }
     throw new Error(`Unexpected request: ${url.pathname}`);
   };

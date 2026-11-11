@@ -63,6 +63,8 @@ export const assignmentRegistries = {
     id: "director",
     navigationItem: "business.director_assignments",
     viewCapability: "business.view_director_assignments",
+    // Задача 146: the registry tab's view level shows the whole registry without control.
+    registryViewCapability: "business.view_director_assignment_registry",
     manageCapability: "business.manage_director_assignments",
     executeCapability: "business.execute_director_assignments",
     notificationType: "general_director_assignments",
@@ -82,6 +84,8 @@ export const assignmentRegistries = {
     id: "collegium",
     navigationItem: "business.collegium_assignments",
     viewCapability: "business.view_collegium_assignments",
+    // The collegium tab has no view level: the whole registry comes with control.
+    registryViewCapability: null,
     manageCapability: "business.manage_collegium_assignments",
     executeCapability: "business.execute_collegium_assignments",
     notificationType: "collegium_assignments",
@@ -106,6 +110,28 @@ export const assignmentRegistryIds = Object.keys(assignmentRegistries) as Assign
 export function readAssignmentRegistry(registryId: unknown): AssignmentRegistry {
   if (!assignmentRegistryIds.includes(registryId as AssignmentRegistryId)) throw new Error("Unknown assignment registry.");
   return assignmentRegistries[registryId as AssignmentRegistryId];
+}
+
+/**
+ * Задача 146: level of the director registry tab. `view` opens the whole registry, its
+ * history and PDF read-only; `manage` keeps creating, editing, accepting and closing.
+ * The level is read back from the capabilities, so a tab without `manage` is `view`.
+ */
+export const directorAssignmentAccessLevels = ["view", "manage"] as const;
+export type DirectorAssignmentAccess = "none" | (typeof directorAssignmentAccessLevels)[number];
+export const directorAssignmentAccessOptions: ReadonlyArray<{ id: (typeof directorAssignmentAccessLevels)[number]; label: string }> = [
+  { id: "view", label: "Только просмотр" },
+  { id: "manage", label: "Постановка, приёмка и закрытие поручений" },
+];
+
+export function isDirectorAssignmentAccess(value: unknown): value is DirectorAssignmentAccess {
+  return value === "none" || (directorAssignmentAccessLevels as readonly unknown[]).includes(value);
+}
+
+export function readDirectorAssignmentAccess(capabilities: readonly string[], navigation: readonly string[]): DirectorAssignmentAccess {
+  const { navigationItem, manageCapability } = assignmentRegistries.director;
+  if (!navigation.includes(navigationItem)) return "none";
+  return capabilities.includes(manageCapability) ? "manage" : "view";
 }
 
 export type PersonnelEmployee = {
@@ -191,6 +217,8 @@ export type DirectorAssignmentAccountLink = "linked" | "unlinked" | "unavailable
 
 export type DirectorAssignmentPermissions = {
   canView: boolean;
+  /** The whole registry, its history and PDF, read-only unless `canManage` (задача 146). */
+  canViewRegistry: boolean;
   canManage: boolean;
   canExecute: boolean;
   canManagePersonnel: boolean;

@@ -1,4 +1,4 @@
-import { assignmentInboxNavigationItem, readAssignmentInboxAccess, type AssignmentInboxAccess } from "../contracts/directorAssignments.js";
+import { assignmentInboxNavigationItem, assignmentRegistries, readAssignmentInboxAccess, readDirectorAssignmentAccess, type AssignmentInboxAccess, type DirectorAssignmentAccess } from "../contracts/directorAssignments.js";
 import { randomUUID } from "node:crypto";
 import type { PoolConnection, RowDataPacket } from "mysql2/promise";
 import type { DatabasePool } from "../db/pool.js";
@@ -535,6 +535,10 @@ export function createAccountsRepository(
             input.capabilities,
             input.navigationItems,
           ),
+          directorAssignmentAccess: readDirectorAssignmentAccess(
+            input.capabilities,
+            input.navigationItems,
+          ),
           boardAssignmentAccess,
           adminNavigationItems,
           showOverviewVisitors,
@@ -789,6 +793,10 @@ export function createAccountsRepository(
             storedCapabilities,
             storedNavigationItems,
           ),
+          directorAssignmentAccess: readDirectorAssignmentAccess(
+            storedCapabilities,
+            storedNavigationItems,
+          ),
           boardAssignmentAccess: readBoardAssignmentAccess(
             storedCapabilities,
             storedNavigationItems,
@@ -956,6 +964,11 @@ export function createAccountsRepository(
           storedCapabilities,
           currentNavigationItems,
         );
+        // A bare checkbox keeps the stored level; a new director tab starts from view.
+        const nextDirectorAssignmentAccess: DirectorAssignmentAccess =
+          navigationItem === assignmentRegistries.director.navigationItem && accessLevel !== undefined
+            ? accessLevel as DirectorAssignmentAccess
+            : readDirectorAssignmentAccess(storedCapabilities, currentNavigationItems);
         const capabilities = resolveCapabilitiesForPosition(
           row.id,
           navigationItems,
@@ -967,6 +980,7 @@ export function createAccountsRepository(
                 accessLevel !== undefined
                 ? accessLevel as CollegiumInitiativeAccess
                 : storedCollegiumInitiativeAccess,
+            directorAssignmentAccess: nextDirectorAssignmentAccess,
             boardAssignmentAccess: nextBoardAssignmentAccess,
             adminNavigationItems,
             showOverviewVisitors: readOverviewVisitorsAccess(storedCapabilities),

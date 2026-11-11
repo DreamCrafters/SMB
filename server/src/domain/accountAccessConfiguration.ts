@@ -5,7 +5,7 @@ import {
   resolveCollegiumInitiativeCapabilities,
   type CollegiumInitiativeAccess,
 } from "../contracts/collegiumInitiatives.js";
-import { assignmentInboxNavigationItem, assignmentInboxSourceCapabilities, assignmentInboxSources, isAssignmentInboxAccess, type AssignmentInboxAccess } from "../contracts/directorAssignments.js";
+import { assignmentInboxNavigationItem, assignmentInboxSourceCapabilities, assignmentInboxSources, assignmentRegistries, directorAssignmentAccessLevels, isAssignmentInboxAccess, type AssignmentInboxAccess, type DirectorAssignmentAccess } from "../contracts/directorAssignments.js";
 import {
   isRailwayWagonRole,
   isRailwayWagonAccess,
@@ -191,7 +191,8 @@ const capabilitiesByNavigationItem: Record<
   "business.laboratory_review": ["business.view_laboratory_results"],
   "business.board_assignments": ["business.view_board_assignments"],
   // Registry tabs are sending and control only; execution comes from «Поручения» sources.
-  "business.director_assignments": ["business.view_director_assignments", "business.manage_director_assignments"],
+  // Задача 146: the director tab itself shows the whole registry, its level adds control.
+  "business.director_assignments": ["business.view_director_assignments", "business.view_director_assignment_registry"],
   "business.collegium_assignments": ["business.view_collegium_assignments", "business.manage_collegium_assignments"],
   // The level inside the tab adds the higher initiative rights cumulatively.
   "business.collegium_initiatives": ["business.view_collegium_initiatives"],
@@ -231,6 +232,11 @@ function resolveAssignmentInboxCapabilities(
  */
 export type PositionAccessLevels = {
   collegiumInitiativeAccess: CollegiumInitiativeAccess;
+  /**
+   * Задача 146: обязателен по той же причине — пропуск в любой мутации должности
+   * молча поднял бы просмотр реестра ГД до управления или снял бы управление.
+   */
+  directorAssignmentAccess: DirectorAssignmentAccess;
   boardAssignmentAccess?: BoardAssignmentAccess;
   /** Админские разделы, выданные должности главным администратором. */
   adminNavigationItems?: readonly AccountNavigationItem[];
@@ -245,6 +251,7 @@ export function resolveCapabilitiesForPosition(
   assignmentInboxAccess: AssignmentInboxAccess,
   {
     collegiumInitiativeAccess,
+    directorAssignmentAccess,
     boardAssignmentAccess = getDefaultBoardAssignmentAccess(position),
     adminNavigationItems = [],
     showOverviewVisitors = true,
@@ -278,6 +285,13 @@ export function resolveCapabilitiesForPosition(
             ? ["business.create_board_assignments"]
             : [];
 
+  // A tab without a level (a bare checkbox) stays at view, like the board register.
+  const directorCapabilities: AccountCapability[] =
+    directorAssignmentAccess === "manage" &&
+      resolvedNavigationItems.includes(assignmentRegistries.director.navigationItem)
+      ? [assignmentRegistries.director.manageCapability]
+      : [];
+
   const overviewVisitorsCapabilities: AccountCapability[] =
     showOverviewVisitors &&
       resolvedNavigationItems.includes("business.overview")
@@ -307,6 +321,7 @@ export function resolveCapabilitiesForPosition(
   return Array.from(new Set([
     ...capabilities,
     ...boardCapabilities,
+    ...directorCapabilities,
     ...resolveAssignmentInboxCapabilities(assignmentInboxAccess, resolvedNavigationItems),
     ...overviewVisitorsCapabilities,
     ...rawMaterialWarehouseCapabilities,
@@ -338,6 +353,7 @@ export function readRailwayWagonAccess(
 export const navigationAccessLevelsByItem = {
   "business.assignments": assignmentInboxSources,
   "business.board_assignments": boardAssignmentAccessLevels,
+  "business.director_assignments": directorAssignmentAccessLevels,
   "business.railway_wagons": railwayWagonAccessLevels,
   "business.collegium_initiatives": collegiumInitiativeAccessLevels,
 } as const satisfies Partial<
@@ -347,7 +363,7 @@ export const navigationAccessLevelsByItem = {
 export type NavigationAccessLevelItem =
   keyof typeof navigationAccessLevelsByItem;
 
-export type NavigationAccessLevel = BoardAssignmentAccess | RailwayWagonAccess | AssignmentInboxAccess | CollegiumInitiativeAccess;
+export type NavigationAccessLevel = BoardAssignmentAccess | DirectorAssignmentAccess | RailwayWagonAccess | AssignmentInboxAccess | CollegiumInitiativeAccess;
 
 export function hasNavigationAccessLevels(
   navigationItem: AccountNavigationItem,
@@ -403,6 +419,10 @@ export function resolveMaximumCapabilitiesForNavigation(
       "business.create_board_assignments",
       "business.review_board_assignments",
     ]));
+  }
+
+  if (navigationItem === assignmentRegistries.director.navigationItem) {
+    return [...base, assignmentRegistries.director.manageCapability];
   }
 
   if (navigationItem === "business.railway_wagons") {
@@ -466,6 +486,10 @@ export function resolveCapabilitiesForNavigationLevel(
 
   if (navigationItem === collegiumInitiativesNavigationItem) {
     return resolveCollegiumInitiativeCapabilities(level as CollegiumInitiativeAccess);
+  }
+
+  if (navigationItem === assignmentRegistries.director.navigationItem) {
+    return level === "manage" ? [...base, assignmentRegistries.director.manageCapability] : base;
   }
 
   if (navigationItem === "business.railway_wagons") {

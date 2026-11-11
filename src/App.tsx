@@ -1,7 +1,7 @@
 import { AssignmentInboxSourcePicker } from "./AssignmentInboxSourcePicker";
 import { RowDragHandle } from "./RowDragHandle";
 import type { AssignmentsSectionId } from "./AssignmentsInbox";
-import { assignmentInboxSourceOptions, hasAssignmentsSection, isAssignmentRegistryNavigationItem, readSectionNavigationItems, type AssignmentInboxAccess } from "../server/src/contracts/directorAssignments.js";
+import { assignmentInboxSourceOptions, assignmentRegistries, directorAssignmentAccessOptions, hasAssignmentsSection, isAssignmentRegistryNavigationItem, readDirectorAssignmentAccess, readSectionNavigationItems, type AssignmentInboxAccess, type DirectorAssignmentAccess } from "../server/src/contracts/directorAssignments.js";
 import { WorkspaceBoundary } from "./WorkspaceBoundary";
 import { TableLayoutProvider } from "./TableLayoutProvider";
 import { RailwayWagonAccessPicker } from "./RailwayWagonAccessPicker";
@@ -11437,6 +11437,7 @@ type AdminPositionFormState = {
   id?: string;
   displayName: string;
   navigationItems: AccountNavigationItem[];
+  directorAssignmentAccess: DirectorAssignmentAccess;
   boardAssignmentAccess: BoardAssignmentAccess;
   railwayWagonAccess: RailwayWagonAccess;
   collegiumInitiativeAccess: CollegiumInitiativeAccess;
@@ -11451,6 +11452,7 @@ const emptyAdminPositionForm: AdminPositionFormState = {
   assignmentInboxAccess: "none",
   displayName: "",
   navigationItems: ["business.settings"],
+  directorAssignmentAccess: "none",
   boardAssignmentAccess: "none",
   railwayWagonAccess: "none",
   collegiumInitiativeAccess: "none",
@@ -11468,6 +11470,8 @@ function readPositionFormAccess(
       nonAdminNavigationItems.some((item) => item.id === id),
     ),
     assignmentInboxAccess: position.assignmentInboxAccess,
+    // Уровень реестра ГД сервер хранит в правах должности и читает оттуда же.
+    directorAssignmentAccess: readDirectorAssignmentAccess(position.capabilities, position.navigationItems),
     boardAssignmentAccess: position.boardAssignmentAccess,
     railwayWagonAccess: position.railwayWagonAccess,
     collegiumInitiativeAccess: position.collegiumInitiativeAccess,
@@ -11540,6 +11544,12 @@ function formatPositionNavigationItem(
 
   // У вкладки с уровнями подпись показывает и вкладку, и уровень: сама вкладка
   // без уровня ничего не говорит о том, что должность может внутри неё делать.
+  if (navigationItemId === assignmentRegistries.director.navigationItem) {
+    const access = readDirectorAssignmentAccess(position.capabilities, position.navigationItems);
+    const level = directorAssignmentAccessOptions.find(({ id }) => id === access)?.label;
+    return level === undefined ? label : `${label} — ${level}`;
+  }
+
   if (navigationItemId === "business.board_assignments") {
     const level = boardAssignmentAccessOptions.find(
       ({ id }) => id === position.boardAssignmentAccess,
@@ -11961,6 +11971,15 @@ function AdminAccountsWorkspace({
       // The tab alone shows the controlled registers; receiving stays a separate choice.
       return { assignmentInboxAccess: !isChecked ? "none" : current.assignmentInboxAccess };
     }
+    if (navigationItemId === assignmentRegistries.director.navigationItem) {
+      return {
+        directorAssignmentAccess: !isChecked
+          ? "none"
+          : current.directorAssignmentAccess === "none"
+            ? "view"
+            : current.directorAssignmentAccess,
+      };
+    }
     if (navigationItemId === "business.board_assignments") {
       return {
         boardAssignmentAccess: !isChecked
@@ -12024,9 +12043,13 @@ function AdminAccountsWorkspace({
     }
     const isCollegiumInitiatives =
       navigationItemId === collegiumInitiativesNavigationItem;
+    const isDirectorAssignments =
+      navigationItemId === assignmentRegistries.director.navigationItem;
     const value = isCollegiumInitiatives
       ? positionForm.collegiumInitiativeAccess
-      : positionForm.boardAssignmentAccess;
+      : isDirectorAssignments
+        ? positionForm.directorAssignmentAccess
+        : positionForm.boardAssignmentAccess;
 
     return (
       <label className="admin-account-navigation-level">
@@ -12041,10 +12064,15 @@ function AdminAccountsWorkspace({
                   ...current,
                   collegiumInitiativeAccess: level as CollegiumInitiativeAccess,
                 }
-              : {
-                  ...current,
-                  boardAssignmentAccess: level as BoardAssignmentAccess,
-                });
+              : isDirectorAssignments
+                ? {
+                    ...current,
+                    directorAssignmentAccess: level as DirectorAssignmentAccess,
+                  }
+                : {
+                    ...current,
+                    boardAssignmentAccess: level as BoardAssignmentAccess,
+                  });
           }}
         >
           {levels.options.map((option) => (
@@ -12068,6 +12096,7 @@ function AdminAccountsWorkspace({
       displayName: positionForm.displayName.trim(),
       navigationItems: positionForm.navigationItems,
       assignmentInboxAccess: positionForm.assignmentInboxAccess,
+      directorAssignmentAccess: positionForm.directorAssignmentAccess,
       boardAssignmentAccess: positionForm.boardAssignmentAccess,
       railwayWagonAccess: positionForm.railwayWagonAccess,
       collegiumInitiativeAccess: positionForm.collegiumInitiativeAccess,
@@ -12184,7 +12213,7 @@ function AdminAccountsWorkspace({
   async function handleSetPositionNavigationAccess(
     positionIds: AccountPosition[],
     enabled: boolean,
-    accessLevel?: BoardAssignmentAccess | RailwayWagonAccess | AssignmentInboxAccess | CollegiumInitiativeAccess,
+    accessLevel?: BoardAssignmentAccess | DirectorAssignmentAccess | RailwayWagonAccess | AssignmentInboxAccess | CollegiumInitiativeAccess,
   ) {
     if (
       !canAssignAdminNavigation ||
@@ -13499,6 +13528,9 @@ function AdminAccountsWorkspace({
                 Отдельного пункта меню у реестра нет: его права работают в
                 разделе «Поручения» — создание во вкладке «Создание», приёмка и
                 правка во вкладке «Просмотр». Раздел появляется в меню сам.
+                {selectedPositionNavigationItem === "business.director_assignments"
+                  ? " Включённая галочка выдаёт только просмотр реестра; постановку и приёмку выберите в уровне."
+                  : null}
               </p>
             ) : selectedPositionNavigationItem === "business.assignments" ? (
               <p className="admin-position-navigation-access-hint">
@@ -13526,7 +13558,10 @@ function AdminAccountsWorkspace({
                     const level = selectedPositionNavigationItem ===
                         collegiumInitiativesNavigationItem
                       ? position.collegiumInitiativeAccess
-                      : position.boardAssignmentAccess;
+                      : selectedPositionNavigationItem ===
+                          assignmentRegistries.director.navigationItem
+                        ? readDirectorAssignmentAccess(position.capabilities, position.navigationItems)
+                        : position.boardAssignmentAccess;
                     return (
                       <tr key={position.id}>
                         <TableCell>{position.displayName}</TableCell>
@@ -13578,6 +13613,7 @@ function AdminAccountsWorkspace({
                                     true,
                                     event.currentTarget.value as
                                       | BoardAssignmentAccess
+                                      | DirectorAssignmentAccess
                                       | CollegiumInitiativeAccess,
                                   );
                                 }}

@@ -50,8 +50,8 @@ const emptyFilters: AssignmentInboxFilters = { query: "", sources: [], statuses:
 const formatDate = (value: string) => value ? value.slice(0, 10).split("-").reverse().join(".") : "";
 
 export function directorInboxRows(source: "director" | "collegium", response: DirectorAssignmentListResponse): AssignmentInboxRow[] {
-  // A controller also receives the whole register; «Поручения» shows only own assignments.
-  const own = response.permissions.canManage ? new Set(response.ownAssignmentIds ?? []) : undefined;
+  // A controller or a registry viewer (задача 146) also receives the whole register; «Поручения» shows only own assignments.
+  const own = response.permissions.canViewRegistry ? new Set(response.ownAssignmentIds ?? []) : undefined;
   return response.assignments.filter(row => own === undefined || own.has(row.id)).map(row => ({
     source, id: row.id, number: row.number, summary: row.summary, assignedOn: row.assignedOn, deadline: row.currentOccurrenceDate,
     status: row.status, needsClarification: row.needsClarification, progress: row.progress,
@@ -228,9 +228,11 @@ const hasCapability = (profile: ServerUserProfile, capability: string) => profil
 export function readAssignmentsSections(profile: ServerUserProfile): AssignmentsSectionId[] {
   const has = (capability: string) => hasCapability(profile, capability);
   const executorOnly = has("business.execute_board_assignments") && !has("business.create_board_assignments") && !has("business.review_board_assignments");
+  // Задача 146: the director registry also opens read-only from its tab's view level.
+  const viewsDirectorRegistry = has(assignmentRegistries.director.manageCapability) || has(assignmentRegistries.director.registryViewCapability);
   return [
     ...(assignmentInboxSources.some(source => has(assignmentInboxSourceCapabilities[source][1])) ? ["mine" as const] : []),
-    ...(has(assignmentRegistries.director.manageCapability) ? ["director" as const] : []),
+    ...(viewsDirectorRegistry ? ["director" as const] : []),
     ...(has(assignmentRegistries.collegium.manageCapability) ? ["collegium" as const] : []),
     ...(has("business.view_board_assignments") && !executorOnly ? ["board" as const] : []),
   ];

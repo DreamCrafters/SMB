@@ -274,6 +274,8 @@ export function DirectorAssignmentsWorkspace({ onShowToast, registryId = "direct
   }
   if (!data) return <section className="workspace-panel">{error ? <p role="alert">{error}</p> : <LoadingIndicator label="Загрузка поручений" />}</section>;
   const canManage = data.permissions.canManage;
+  // Задача 146: the view level reads the registry, its history and PDF without any control.
+  const canViewRegistry = data.permissions.canViewRegistry;
   const isCreateMode = mode === "create";
   // Same decision rule as the board: only a controller decides, and only on a submitted result.
   // «Создание» lists the register read-only: decisions and edits live in «Просмотр».
@@ -295,12 +297,14 @@ export function DirectorAssignmentsWorkspace({ onShowToast, registryId = "direct
   });
   const visibleColumns = showAllColumns ? columns : defaultColumns;
   return <section ref={workspaceRef} className="board-assignments-workspace director-assignments">
-    <header className="director-assignment-heading"><div><span className="eyebrow">{isCreateMode ? "Создание поручений" : "Контроль исполнения"}</span><h2>{registry.title}</h2>{!isCreateMode && <p>Проверяйте результат исполнения, принимайте работу или возвращайте её на доработку. Новые поручения создаются во вкладке «Создание».</p>}</div></header>
+    <header className="director-assignment-heading"><div><span className="eyebrow">{isCreateMode ? "Создание поручений" : canManage ? "Контроль исполнения" : "Просмотр реестра"}</span><h2>{registry.title}</h2>{!isCreateMode && <p>{canManage
+      ? "Проверяйте результат исполнения, принимайте работу или возвращайте её на доработку. Новые поручения создаются во вкладке «Создание»."
+      : "Реестр открыт только для просмотра: поручения, ход исполнения, история и PDF. Ставят и принимают поручения руководители реестра."}</p>}</div></header>
     {error && <p role="alert">{error}</p>}
     {isCreateMode && !history && <AssignmentCreateOverview canCreate={canManage} count={visible.length}
       text="Поставьте задачу сотруднику и укажите срок. Принимать и править поручения можно во вкладке «Просмотр»."
       onCreate={() => { setSelected(undefined); setForm(createDirectorAssignmentInput(data.today, registryId)); setComment(""); setContentOpenCount(count => count + 1); }} />}
-    {canManage && <div className="form-actions director-assignment-actions">
+    {canViewRegistry && <div className="form-actions director-assignment-actions">
       <button type="button" onClick={() => { setHistory(null); setSelected(undefined); setForm(undefined); }}>Текущие поручения</button>
       <button type="button" onClick={() => { setSelected(undefined); setForm(undefined); void openHistory(); }}>История исполнений</button>
     </div>}
