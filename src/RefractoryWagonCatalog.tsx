@@ -155,7 +155,7 @@ export function RefractoryWagonCatalog({
               {formatDate(fleetAsOfDate)}.
             </p>
           )}
-          <div className="refractory-table-wrap refractory-table-wrap-full-height">
+          <div className="refractory-table-wrap history-table-scroll">
             <ManagedTable tableId="refractory.catalog" className="refractory-input-table refractory-wagon-catalog-table">
               <thead>
                 <tr>

@@ -569,7 +569,7 @@ test("refractory workspace opens shift reports and the wagon journal", async () 
     assert.ok(
       firingTable
         .closest(".refractory-table-wrap")
-        ?.classList.contains("refractory-table-wrap-full-height"),
+        ?.classList.contains("history-table-scroll"),
     );
     assert.deepEqual(
       Array.from(firingTable.querySelectorAll("thead th"), (cell) =>
@@ -732,12 +732,12 @@ test("refractory workspace opens shift reports and the wagon journal", async () 
       ["В-16", "07.08.2026", "до 12.2024", "ШБ 5б/к", "2", "Можно эксплуатировать"],
     );
     assert.ok(rootElement.textContent.includes("по учёту на 28.10.2026"));
-    // Стиль таблиц вкладки Вагоны повторяет Обжиг/Сортировка: без внутренней
-    // вертикальной прокрутки.
+    // Таблицы вкладки Вагоны прокручиваются внутри себя с закреплённой шапкой
+    // (доработка задачи 143), а не только вместе со всем разделом.
     assert.ok(
       catalogRow
         .closest(".refractory-table-wrap")
-        ?.classList.contains("refractory-table-wrap-full-height"),
+        ?.classList.contains("history-table-scroll"),
     );
     const turnoverButton = Array.from(
       rootElement.querySelectorAll(".refractory-wagon-journal-menu button"),
@@ -759,7 +759,7 @@ test("refractory workspace opens shift reports and the wagon journal", async () 
     assert.ok(
       wagonTable
         .closest(".refractory-table-wrap")
-        ?.classList.contains("refractory-table-wrap-full-height"),
+        ?.classList.contains("history-table-scroll"),
     );
     assert.deepEqual(
       Array.from(wagonTable.querySelectorAll("thead th"), (cell) =>
@@ -1049,7 +1049,7 @@ test("refractory workspace opens shift reports and the wagon journal", async () 
     assert.ok(
       inspectionTable
         ?.closest(".refractory-table-wrap")
-        ?.classList.contains("refractory-table-wrap-full-height"),
+        ?.classList.contains("history-table-scroll"),
     );
 
     await React.act(async () => root.unmount());

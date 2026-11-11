@@ -1739,7 +1739,7 @@ function FiringForm({
   return (
     <div className="refractory-form-sections">
       <ReportSection title="Выпуск обожжённых огнеупоров">
-        <div className="refractory-table-wrap refractory-table-wrap-full-height">
+        <div className="refractory-table-wrap history-table-scroll">
           <ManagedTable tableId="refractory.firing" className="refractory-input-table refractory-input-table-firing">
             <thead>
               <tr>

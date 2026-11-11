@@ -200,7 +200,7 @@ export function RefractoryWagonInspectionJournal({
           {inspections.length === 0 ? (
             <p className="laboratory-empty-note">Осмотров пока не было.</p>
           ) : (
-            <div className="refractory-table-wrap refractory-table-wrap-full-height">
+            <div className="refractory-table-wrap history-table-scroll">
               <ManagedTable tableId="refractory.inspections" className="refractory-input-table refractory-wagon-inspection-table">
                 <thead>
                   <tr>
