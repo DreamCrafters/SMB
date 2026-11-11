@@ -73,6 +73,7 @@ export const navigationItemsByAccountType: Record<
 export const nonAdminNavigationItems: AccountNavigationItem[] = [
   "business.overview",
   "business.dispatcher",
+  "business.production",
   "business.work",
   "business.user_actions",
   "business.production_plan",
@@ -176,6 +177,8 @@ const capabilitiesByNavigationItem: Record<
     "business.view_dispatcher_feed",
   ],
   "business.dispatcher": ["business.view_dispatcher_feed"],
+  // Read-only management view: wagon catalog GET only, no shop or laboratory actions.
+  "business.production": ["business.view_production"],
   "business.work": [
     "business.submit_forms",
     "business.view_notifications",

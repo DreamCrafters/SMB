@@ -193,6 +193,12 @@ export const navigationItemsByAccountType: Record<AccountType, NavigationItem[]>
       state: "pending",
     },
     {
+      id: "business.production",
+      label: "Производство",
+      description: "Просмотр каталога вагонов для руководства",
+      state: "active",
+    },
+    {
       id: "business.work",
       label: "Работа",
       description: "Рабочие формы отдельно",

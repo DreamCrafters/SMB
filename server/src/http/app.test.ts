@@ -3564,6 +3564,153 @@ test("refractory wagon journals stay closed without shop or laboratory capabilit
   }
 });
 
+test("production section reads the wagon catalog and changes nothing", async () => {
+  const profile = buildProductionProfile("business_owner");
+  profile.activeAccess.navigationItems = ["business.production"];
+  profile.activeAccess.capabilities = ["business.view_production"];
+  const wagon: RefractoryWagonRecord = {
+    id: "wagon-17",
+    number: "В-17",
+    loadingDate: "2026-07-20",
+    productBrand: "ША",
+    pressDate: null,
+    pieceCount: null,
+    setter: null,
+    pressOperator: null,
+    rawControlDate: null,
+    firingOperator: null,
+    firingDates: ["2026-07-22"],
+    sorter: null,
+    sortingDate: null,
+    postFiringCondition: "Можно эксплуатировать",
+    serviceApprovalDate: null,
+    createdAt: "2026-07-20T08:00:00.000Z",
+  };
+  const fleetRecord = {
+    number: "В-17",
+    onBoardDate: "2020-05-01",
+    capitalRepairPeriod: "до 12.2024",
+    load: "ША",
+    asOfDate: "2026-10-28",
+  };
+  const mutations: string[] = [];
+  const refractoryWagons: RefractoryWagonsRepository = {
+    ...emptyRefractoryWagonFleet,
+    async listFleet() {
+      return [fleetRecord];
+    },
+    async create() {
+      mutations.push("create");
+      throw new Error("not used");
+    },
+    async list() {
+      return [wagon];
+    },
+    async findByIds() {
+      return [];
+    },
+    async findBySortingDate() {
+      return undefined;
+    },
+    async replaceReportLifecycle() {
+      mutations.push("lifecycle");
+    },
+    async update() {
+      mutations.push("update");
+      return undefined;
+    },
+  };
+  const refractoryWagonInspections: RefractoryWagonInspectionsRepository = {
+    async list() {
+      mutations.push("inspections.list");
+      return [];
+    },
+    async create() {
+      mutations.push("inspections.create");
+      return undefined;
+    },
+  };
+  const headers = {
+    "Content-Type": "application/json",
+    Cookie: "smb_session=prod-session",
+  };
+  const wagonBody = JSON.stringify({
+    number: "В-20",
+    loadingDate: null,
+    productBrand: null,
+    pressDate: null,
+    pieceCount: null,
+    setter: null,
+    pressOperator: null,
+  });
+
+  await withApiServer(
+    async (baseUrl) => {
+      const listResponse = await fetch(`${baseUrl}/api/refractory-wagons`, {
+        headers,
+      });
+      assert.equal(listResponse.status, 200);
+      assert.deepEqual(await listResponse.json(), {
+        wagons: [wagon],
+        fleet: [fleetRecord],
+      });
+
+      for (const [method, path, body] of [
+        ["POST", "/api/refractory-wagons", wagonBody],
+        ["PATCH", "/api/refractory-wagons/wagon-17", wagonBody],
+        ["GET", "/api/refractory-wagons/wagon-17", undefined],
+        ["GET", "/api/refractory-wagon-inspections", undefined],
+        [
+          "POST",
+          "/api/refractory-wagon-inspections",
+          JSON.stringify({
+            wagonId: "wagon-17",
+            condition: "В ремонт",
+            approvalDate: "2026-07-20",
+          }),
+        ],
+        ["GET", "/api/refractory-reports?date=2026-07-20&shift=1", undefined],
+        ["GET", "/api/refractory-reports/own", undefined],
+      ] as const) {
+        const response = await fetch(`${baseUrl}${path}`, {
+          method,
+          headers,
+          body,
+        });
+        assert.equal(response.status, 403, `${method} ${path}`);
+      }
+      assert.deepEqual(mutations, []);
+    },
+    dispatcherSubmissions,
+    emptyReferenceDataSource,
+    undefined,
+    undefined,
+    adminDatabase,
+    productionConfig,
+    buildAuthService({ profile }),
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    passthroughProductionBrands,
+    undefined,
+    emptyRefractoryReports,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    refractoryWagons,
+    refractoryWagonInspections,
+  );
+});
+
 test("chemical analysis journal links available samples from both source journals", async () => {
   const profile: ServerUserProfile = {
     ...buildProductionProfile("business_owner"),

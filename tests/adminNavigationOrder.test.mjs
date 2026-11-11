@@ -21,6 +21,7 @@ const DOM_GLOBAL_NAMES = [
 const initialNavigationOrder = [
   "business.overview",
   "business.dispatcher",
+  "business.production",
   "business.work",
   "business.production_plan",
   "business.refractory_shop",

@@ -5103,6 +5103,43 @@ const migrations: Migration[] = [
       `,
     ],
   },
+  {
+    /**
+     * Задача 145, раздел `Производство` для руководства. Должностям вкладку
+     * выдаёт администратор (назначения — данные экземпляра, не миграции);
+     * здесь пункт только встаёт после `Диспетчерской` в сохранённом порядке,
+     * иначе сервер дописал бы его в конец, за `Настройки`.
+     */
+    id: "105_production_section_navigation_order",
+    statements: [
+      `
+      update app_navigation_settings
+      set navigation_order = case
+        when json_search(navigation_order, 'one', 'business.dispatcher') is null
+          then json_array_append(navigation_order, '$', 'business.production')
+        else json_array_insert(
+          navigation_order,
+          concat(
+            '$[',
+            substring_index(
+              substring_index(
+                json_unquote(json_search(navigation_order, 'one', 'business.dispatcher')),
+                '[',
+                -1
+              ),
+              ']',
+              1
+            ) + 1,
+            ']'
+          ),
+          'business.production'
+        )
+      end
+      where setting_key = 'left_rail'
+        and json_search(navigation_order, 'one', 'business.production') is null;
+      `,
+    ],
+  },
 ];
 
 function removePositionJsonValue(

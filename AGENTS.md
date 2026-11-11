@@ -17,7 +17,7 @@
 | Лаборатория: склад сырья и заявки | [raw-materials.md](docs/agent-instructions/raw-materials.md) |
 | Марки изделий, выбор марки в любой форме, слияние/архивирование | [brands.md](docs/agent-instructions/brands.md) |
 | Выработка, месячные планы, формовка/сортировка и фильтры марок | [production.md](docs/agent-instructions/production.md) |
-| Огнеупорный цех, ЦОШ, банки, замеры, вес и отгрузки | [refractory.md](docs/agent-instructions/refractory.md) |
+| Огнеупорный цех, ЦОШ, банки, вагоны ОЦ, раздел «Производство», замеры, вес и отгрузки | [refractory.md](docs/agent-instructions/refractory.md) |
 | Диспетчерские формы, оборудование, инциденты, посетители | [dispatcher.md](docs/agent-instructions/dispatcher.md) |
 | Руководительский Обзор/Диспетчерская, аналитика этих источников | [overview.md](docs/agent-instructions/overview.md) |
 | Поручения Совета директоров | [board.md](docs/agent-instructions/board.md) |

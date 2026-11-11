@@ -7526,7 +7526,12 @@ async function handleRefractoryWagonsRequest({
   });
   if (access === undefined) return;
 
-  if (!canOperateRefractoryWagons(access.profile)) {
+  const isCatalogRead =
+    req.method === "GET" && url.pathname === "/api/refractory-wagons";
+  if (
+    !canOperateRefractoryWagons(access.profile) &&
+    !(isCatalogRead && hasProfileCapability(access.profile, "business.view_production"))
+  ) {
     sendJson(res, 403, {
       error: {
         code: "access_denied",
@@ -7690,7 +7695,8 @@ async function handleRefractoryWagonsRequest({
 
 /**
  * Задача 133: всеми действиями с вагонами, как начальник ОЦ, оперирует и
- * лаборант — его раздел `Вагоны` открывает те же журналы.
+ * лаборант — его раздел `Вагоны` открывает те же журналы. Руководительский
+ * раздел `Производство` (задача 145) сюда не входит: он только читает каталог.
  */
 function canOperateRefractoryWagons(profile: ServerUserProfile) {
   return (
@@ -10636,6 +10642,7 @@ function readNavigationItemLabel(item: AccountNavigationItem) {
     "admin.user_actions": "Действия пользователей",
     "business.overview": "Обзор",
     "business.dispatcher": "Диспетчерская",
+    "business.production": "Производство",
     "business.work": "Работа",
     "business.user_actions": "Действия пользователей",
     "business.production_plan": "План выработки",

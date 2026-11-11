@@ -1422,6 +1422,92 @@ test("laboratory wagons variant opens only the wagon journals without banks", as
   }
 });
 
+test("production section shows the wagon catalog without registering wagons", async () => {
+  const dom = new JSDOM(
+    '<!doctype html><html><body><div id="root"></div></body></html>',
+    { url: "http://127.0.0.1:5173/" },
+  );
+  const previousGlobals = captureDomGlobals();
+  const previousFetch = globalThis.fetch;
+  installDomGlobals(dom.window);
+  const React = await import("react");
+  const { createRoot } = await import("react-dom/client");
+  const vite = await loadViteServer("production");
+
+  try {
+    const { ProductionWorkspace } = await vite.ssrLoadModule(
+      "/src/Production.tsx",
+    );
+    const requests = [];
+    const cycle = {
+      id: "wagon-17-cycle-1",
+      number: "17",
+      loadingDate: "2026-10-01",
+      productBrand: "ША",
+      pressDate: null,
+      pieceCount: null,
+      setter: null,
+      pressOperator: null,
+      rawControlDate: null,
+      firingOperator: null,
+      firingDates: ["2026-10-03", "2026-10-09"],
+      sorter: null,
+      sortingDate: null,
+      postFiringCondition: "Можно эксплуатировать",
+      serviceApprovalDate: null,
+      createdAt: "2026-10-01T08:00:00.000Z",
+    };
+    globalThis.fetch = async (input, init) => {
+      const url = new URL(String(input), "http://127.0.0.1:5173/");
+      requests.push(`${init?.method ?? "GET"} ${url.pathname}`);
+      return new Response(
+        JSON.stringify({
+          wagons: [
+            { ...cycle, id: "wagon-17-cycle-2", firingDates: ["2026-10-20"], postFiringCondition: "В ремонт" },
+            cycle,
+          ],
+          fleet: [{
+            number: "17",
+            onBoardDate: "2019-04-15",
+            capitalRepairPeriod: "до 12.2024",
+            load: "ША",
+            asOfDate: "2026-10-28",
+          }],
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    };
+    const rootElement = dom.window.document.getElementById("root");
+    const root = createRoot(rootElement);
+
+    await React.act(async () => {
+      root.render(React.createElement(ProductionWorkspace, { onShowToast() {} }));
+    });
+    await waitFor(React, () =>
+      rootElement.querySelector(".refractory-wagon-catalog-table") !== null);
+
+    assert.equal(rootElement.querySelector("h1")?.textContent, "Производство");
+    assert.equal(rootElement.querySelector("h2")?.textContent, "Каталог вагонов");
+    assert.equal(rootElement.querySelector(".refractory-wagon-form"), null);
+    assert.equal(rootElement.querySelector('input[name="wagonNumber"]'), null);
+    assert.equal(rootElement.querySelector("button"), null);
+    assert.deepEqual(
+      Array.from(
+        rootElement.querySelectorAll(".refractory-wagon-catalog-table tbody td"),
+      ).map((cell) => cell.textContent),
+      ["17", "15.04.2019", "до 12.2024", "ША", "3", "В ремонт"],
+    );
+    assert.match(rootElement.textContent, /по учёту на 28\.10\.2026/u);
+    assert.deepEqual(requests, ["GET /api/refractory-wagons"]);
+
+    await React.act(async () => root.unmount());
+  } finally {
+    globalThis.fetch = previousFetch;
+    dom.window.close();
+    restoreDomGlobals(previousGlobals);
+  }
+});
+
 test("refractory navigation shows the number of reports returned for correction", async () => {
   const dom = new JSDOM(
     '<!doctype html><html><body><div id="root"></div></body></html>',

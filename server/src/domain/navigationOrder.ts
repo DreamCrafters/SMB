@@ -7,6 +7,7 @@ import {
 export const defaultNavigationOrder: AccountNavigationItem[] = [
   "business.overview",
   "business.dispatcher",
+  "business.production",
   "business.work",
   "business.production_plan",
   "business.refractory_shop",

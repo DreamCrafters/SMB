@@ -154,6 +154,12 @@ test("executive positions use the business owner workspace", () => {
   assert.equal(accountTypeByPosition.economist, "business_owner");
 });
 
+test("production section grants only the read-only catalog capability", () => {
+  assert.deepEqual(resolveCapabilitiesForNavigation(["business.production"]), [
+    "business.view_production",
+  ]);
+});
+
 test("positions accept only working navigation selected by an administrator", () => {
   assert.equal(
     navigationItemsByAccountType.business_owner.includes("business.user_actions"),

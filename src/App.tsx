@@ -300,6 +300,9 @@ const LaboratoryResultsWorkspace = lazy(() =>
 const LaboratoryReviewWorkspace = lazy(() =>
   import("./LaboratoryReview").then((module) => ({ default: module.LaboratoryReviewWorkspace })),
 );
+const ProductionWorkspace = lazy(() =>
+  import("./Production").then((module) => ({ default: module.ProductionWorkspace })),
+);
 const Warehouse1cWorkspace = lazy(() =>
   import("./Warehouse1c").then((module) => ({ default: module.Warehouse1cWorkspace })),
 );
@@ -319,6 +322,7 @@ const NotificationSettingsWorkspace = lazy(() =>
 type BusinessTab =
   | "overview"
   | "dispatcher"
+  | "production"
   | "work"
   | "production_plan"
   | "refractory_shop"
@@ -342,6 +346,7 @@ type AdminTab =
 const navigationByBusinessTab: Record<BusinessTab, AccountNavigationItem> = {
   overview: "business.overview",
   dispatcher: "business.dispatcher",
+  production: "business.production",
   work: "business.work",
   production_plan: "business.production_plan",
   refractory_shop: "business.refractory_shop",
@@ -670,6 +675,8 @@ function getBusinessTabForNavigationItem(item: NavigationItem): BusinessTab | un
       return "overview";
     case "business.dispatcher":
       return "dispatcher";
+    case "business.production":
+      return "production";
     case "business.work":
       return "work";
     case "business.production_plan":
@@ -3259,6 +3266,9 @@ function RoleWorkspace({
   if (effectiveOwnerTab === "assignments") return <AssignmentsSection profile={profile} onShowToast={onShowToast} requestedSection={requestedAssignmentsSection} />;
   if (effectiveOwnerTab === "collegium_initiatives") return <CollegiumInitiativesWorkspace profile={profile} onShowToast={onShowToast} />;
   if (effectiveOwnerTab === "personnel") return <PersonnelWorkspace onShowToast={onShowToast} />;
+  if (effectiveOwnerTab === "production") {
+    return <ProductionWorkspace onShowToast={onShowToast} />;
+  }
   if (effectiveOwnerTab === "warehouse_1c") {
     return <Warehouse1cWorkspace />;
   }

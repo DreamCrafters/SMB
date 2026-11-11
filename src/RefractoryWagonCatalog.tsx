@@ -15,11 +15,15 @@ import type { ShowToast } from "./services/toastStack";
  * номеру. Остальные его поля заполняет исправлением журнал `Оборот вагонов`,
  * а счётчик обжига и текущее состояние всегда считает и подтягивает сервер.
  * Дата на борту, дата кап. и загрузка — снимок ведомости `Учёт вагонов`.
+ * `readOnly` — руководительский раздел `Производство` (задача 145): та же
+ * таблица без регистрации вагона; сервер открывает ему только чтение.
  */
 export function RefractoryWagonCatalog({
   onShowToast,
+  readOnly = false,
 }: {
   onShowToast: ShowToast;
+  readOnly?: boolean;
 }) {
   const [wagons, setWagons] = useState<RefractoryWagonRecord[]>([]);
   const [fleet, setFleet] = useState<RefractoryWagonFleetRecord[]>([]);
@@ -110,6 +114,7 @@ export function RefractoryWagonCatalog({
 
   return (
     <section className="refractory-wagon-catalog" aria-label="Каталог вагонов">
+      {readOnly ? null : (
       <form className="refractory-wagon-form" onSubmit={handleSubmit}>
         <fieldset disabled={isSubmitting}>
           <legend>Новый вагон</legend>
@@ -140,6 +145,7 @@ export function RefractoryWagonCatalog({
           ) : null}
         </div>
       </form>
+      )}
 
       {loadState === "loading" ? (
         <LoadingIndicator label="Загружаем каталог вагонов…" variant="panel" />
