@@ -55,6 +55,17 @@ test("another organization switches the NMOU reference workbook off explicitly (
   assert.equal(readServerConfig({ ...base, GOOGLE_SHEETS_REFERENCE_ENABLED: " FALSE " }).googleSheetsReference.enabled, false);
 });
 
+test("the instance section list switches off what depends on absent sections (задача 147)", () => {
+  const base = { DATABASE_URL: "mysql://user:secret@127.0.0.1:3306/smb" };
+  assert.equal(readServerConfig(base).instance?.navigation, undefined);
+  const foundation = readServerConfig({ ...base, SMB_INSTANCE_NAVIGATION: "business.assignments,business.settings" });
+  assert.deepEqual(foundation.instance?.navigation, ["business.assignments", "business.settings"]);
+  // No section reads the NMOU workbook, so it is off even without the explicit switch.
+  assert.equal(foundation.googleSheetsReference.enabled, false);
+  assert.equal(readServerConfig({ ...base, SMB_INSTANCE_NAVIGATION: "business.dispatcher_form" }).googleSheetsReference.enabled, true);
+  assert.throws(() => readServerConfig({ ...base, SMB_INSTANCE_NAVIGATION: "business.unknown" }), /SMB_INSTANCE_NAVIGATION/u);
+});
+
 test("google sheets reference uses the OC recipient column names by default", () => {
   const config = readServerConfig(baseEnv);
 

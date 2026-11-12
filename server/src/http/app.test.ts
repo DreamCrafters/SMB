@@ -17310,3 +17310,68 @@ test("collegium meetings API routes every meeting action to the service", async 
     await once(server, "close");
   }
 });
+
+test("another organization's instance has no NMOU sections in profiles, catalogs or API (задача 147)", async () => {
+  const instanceConfig: ServerConfig = {
+    ...config,
+    instance: { navigation: ["business.assignments", "business.director_assignments", "business.board_assignments", "business.collegium_assignments", "business.settings", "business.user_actions"] },
+  };
+  const created: Parameters<AccountsRepository["createPosition"]>[0][] = [];
+  const repository: AccountsRepository = {
+    ...accounts,
+    async createPosition(input) {
+      created.push(input);
+      return { id: "position-instance", accountType: "business_owner", ...input, boardAssignmentAccess: "none", railwayWagonAccess: "none", assignmentInboxAccess: "none", collegiumInitiativeAccess: "none", showOverviewVisitors: false, isProtected: false, usageCount: 0, createdAt: "2026-11-12T00:00:00Z" };
+    },
+  };
+  await withApiServer(async (baseUrl) => {
+    // A stored position still lists «Обзор» and «Диспетчерская»: the session gets neither them nor their rights.
+    const owner = { "X-SMB-Dev-Session": await createDevSession(baseUrl, "business_owner") };
+    const { profile } = await (await fetch(`${baseUrl}/api/access/profile`, { headers: owner })).json() as { profile: ServerUserProfile };
+    for (const absent of ["business.overview", "business.dispatcher", "business.work"] as const) {
+      assert.equal(profile.activeAccess.navigationItems.includes(absent), false, absent);
+    }
+    for (const absent of ["business.view_all_statistics", "business.view_dispatcher_feed", "business.submit_forms"] as const) {
+      assert.equal(profile.activeAccess.capabilities.includes(absent), false, absent);
+    }
+    // The API of an absent module answers as a missing address, before any right is checked.
+    for (const path of ["/api/business/overview", "/api/dispatcher/submissions", "/api/laboratory/results", "/api/refractory-wagons", "/api/railway-wagons"]) {
+      assert.equal((await fetch(`${baseUrl}${path}`, { headers: owner })).status, 404, path);
+    }
+
+    const admin = { "Content-Type": "application/json", "X-SMB-Dev-Session": await createDevSession(baseUrl, "admin") };
+    const order = await (await fetch(`${baseUrl}/api/navigation-order`, { headers: admin })).json() as { navigationOrder: string[] };
+    assert.deepEqual(order.navigationOrder, ["business.assignments", "business.director_assignments", "business.board_assignments", "business.collegium_assignments",
+      "business.settings", "business.user_actions", "admin.account_preview", "admin.accounts", "admin.navigation", "admin.user_actions", "admin.database"]);
+
+    const create = (body: Record<string, unknown>) => fetch(`${baseUrl}/api/admin/positions`, { method: "POST", headers: admin, body: JSON.stringify({ displayName: "Должность", ...body }) });
+    for (const absent of ["business.laboratory_results", "business.railway_wagons", "business.refractory_shop", "business.overview", "business.production"]) {
+      assert.equal((await create({ navigationItems: [absent, "business.settings"] })).status, 400, absent);
+    }
+    assert.equal(created.length, 0);
+    assert.equal((await create({ navigationItems: ["business.settings", "business.assignments"], assignmentInboxAccess: ["director"] })).status, 201);
+    const matrix = (navigationItem: string) => fetch(`${baseUrl}/api/admin/positions/navigation-access`, { method: "PUT", headers: admin, body: JSON.stringify({ navigationItem, positionIds: ["dispatcher"], enabled: true }) });
+    assert.equal((await matrix("business.railway_wagons")).status, 400);
+
+    const positions = await (await fetch(`${baseUrl}/api/admin/positions`, { headers: admin })).json() as { positions: Array<{ navigationItems: string[] }> };
+    assert.equal(positions.positions.some(({ navigationItems }) => navigationItems.some((item) => ["business.dispatcher", "business.dispatcher_form", "business.overview"].includes(item))), false);
+
+    // Not even the administrator's preview right reads an absent module.
+    for (const path of ["/api/business/overview", "/api/laboratory/results", "/api/admin/database/imports/dispatcher/preview"]) {
+      assert.equal((await fetch(`${baseUrl}${path}`, { headers: admin })).status, 404, path);
+    }
+    // «БД» keeps no dispatcher records where there are no dispatcher sections.
+    assert.deepEqual((await (await fetch(`${baseUrl}/api/admin/database`, { headers: admin })).json() as { tables: unknown[] }).tables, []);
+    assert.equal((await fetch(`${baseUrl}/api/admin/database/tables/dispatcher_submissions/rows`, { headers: admin })).status, 404);
+  }, dispatcherSubmissions, emptyReferenceDataSource, undefined, undefined, adminDatabase, instanceConfig, undefined, repository);
+
+  // The unrestricted NMOU instance is unchanged.
+  await withApiServer(async (baseUrl) => {
+    const owner = { "X-SMB-Dev-Session": await createDevSession(baseUrl, "business_owner") };
+    const { profile } = await (await fetch(`${baseUrl}/api/access/profile`, { headers: owner })).json() as { profile: ServerUserProfile };
+    assert.ok(profile.activeAccess.navigationItems.includes("business.overview"));
+    const admin = { "X-SMB-Dev-Session": await createDevSession(baseUrl, "admin") };
+    assert.equal((await (await fetch(`${baseUrl}/api/navigation-order`, { headers: admin })).json() as { navigationOrder: string[] }).navigationOrder.length, 24);
+    assert.equal((await (await fetch(`${baseUrl}/api/admin/database`, { headers: admin })).json() as { tables: unknown[] }).tables.length, 1);
+  }, dispatcherSubmissions, emptyReferenceDataSource, undefined, undefined, adminDatabase, config, undefined, repository);
+});

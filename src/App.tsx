@@ -8,10 +8,13 @@ import { RailwayWagonAccessPicker } from "./RailwayWagonAccessPicker";
 import { ManagedTable } from "./ManagedTable";
 import { TableHeader, TableCell, AriaTableCell } from "./TableCell";
 import {
+  createContext,
   lazy,
+  useContext,
   useId,
   useEffect,
   useLayoutEffect,
+  useMemo,
   useReducer,
   useRef,
   useState,
@@ -586,6 +589,25 @@ function applyNavigationLabels(
   });
 }
 
+/**
+ * Задача 147: разделы этого экземпляра сайта. Сервер отдаёт порядок меню только из
+ * них, поэтому списки разделов в админке строятся по ответу сервера, а не по полному
+ * каталогу кода. Пока порядок не загружен, действует полный каталог: сервер всё
+ * равно отклоняет раздел, которого в экземпляре нет.
+ */
+const InstanceNavigationContext = createContext<ReadonlySet<AccountNavigationItem> | undefined>(undefined);
+
+function useWorkingNavigationItems(): readonly NavigationItem[] {
+  const available = useContext(InstanceNavigationContext);
+
+  return useMemo(
+    () => available === undefined
+      ? nonAdminNavigationItems
+      : nonAdminNavigationItems.filter(({ id }) => available.has(id)),
+    [available],
+  );
+}
+
 function buildVisibleNavigationItems(
   allowedNavigationItems: readonly AccountNavigationItem[],
   navigationOrder: readonly AccountNavigationItem[],
@@ -762,6 +784,7 @@ export default function App() {
   const [navigationOrder, setNavigationOrder] =
     useState<AccountNavigationItem[]>([...defaultNavigationOrder]);
   const [navigationLabels, setNavigationLabels] = useState<NavigationLabels>({});
+  const instanceNavigationItems = useMemo(() => new Set(navigationOrder), [navigationOrder]);
   const [navigationOrderLoadState, setNavigationOrderLoadState] =
     useState<NavigationOrderLoadState>({ status: "loading" });
   const [navigationOrderRequestVersion, setNavigationOrderRequestVersion] =
@@ -2116,6 +2139,7 @@ export default function App() {
   };
 
   return (
+    <InstanceNavigationContext.Provider value={instanceNavigationItems}>
     <TableLayoutProvider key={visibleProfile.activeAccess.accountId} canConfigure={hasCapability(concretePreviewProfile ?? profile, "platform.manage_table_layouts")}>
     <main
       className={`ops-shell ${
@@ -2289,6 +2313,7 @@ export default function App() {
       </section>
     </main>
     </TableLayoutProvider>
+    </InstanceNavigationContext.Provider>
   );
 }
 
@@ -9466,6 +9491,7 @@ function AdminAccountPreviewWorkspace({
   navigationLabels: NavigationLabels;
   onSelectAccountView: (account: AdminAccountSummary) => void;
 }) {
+  const workingNavigationItems = useWorkingNavigationItems();
   const [activeSection, setActiveSection] =
     useState<AdminAccountPreviewSection>("types");
   const [accountsState, setAccountsState] = useState<AdminAccountsLoadState>({
@@ -9611,7 +9637,7 @@ function AdminAccountPreviewWorkspace({
           <div className="admin-account-switcher" aria-label="Вкладки">
             {/* Права реестров поручений — не пункты меню: их просмотр и создание видны в «Поручениях». */}
             {applyNavigationLabels(
-              nonAdminNavigationItems,
+              workingNavigationItems,
               navigationLabels,
             ).filter((navigationItem) => !isAssignmentRegistryNavigationItem(navigationItem.id)).map((navigationItem) => (
               <AdminAccountPreviewButton
@@ -10049,10 +10075,13 @@ function AdminDatabaseWorkspace({
           onSynchronized={onProductionSnapshotSynchronized}
         />
       ) : null}
-      <AdminDispatcherImportPanel
-        onShowToast={onShowToast}
-        onImported={() => setRefreshVersion((version) => version + 1)}
-      />
+      {/* Импорт пишет в диспетчерские записи: без их раздела в этом экземпляре сервер его не отдаёт. */}
+      {tablesState.status === "ready" && !tables.some(({ name }) => name === "dispatcher_submissions") ? null : (
+        <AdminDispatcherImportPanel
+          onShowToast={onShowToast}
+          onImported={() => setRefreshVersion((version) => version + 1)}
+        />
+      )}
       <div className="admin-db-layout">
         <div className="admin-db-sidebar" aria-label="Разделы БД">
           {tablesState.status === "loading" ? (
@@ -11763,10 +11792,22 @@ function AdminAccountsWorkspace({
   const [protectingUserId, setProtectingUserId] = useState<string>();
   const [isPositionNavigationAccessModalOpen, setIsPositionNavigationAccessModalOpen] =
     useState(false);
+  const workingNavigationItems = useWorkingNavigationItems();
   const [selectedPositionNavigationItem, setSelectedPositionNavigationItem] =
     useState<AccountNavigationItem>(
-      nonAdminNavigationItems[0]?.id ?? "business.overview",
+      workingNavigationItems[0]?.id ?? "business.overview",
     );
+  // Стартовые вкладки новой должности — только те, что есть в этом экземпляре.
+  const readDefaultPositionNavigationItems = () => emptyAdminPositionForm.navigationItems.filter(
+    (item) => workingNavigationItems.some(({ id }) => id === item),
+  );
+  // Каталог экземпляра приходит с сервера позже первого рендера: выбранный раздел должен в нём быть.
+  useEffect(() => {
+    const first = workingNavigationItems[0]?.id;
+    if (first !== undefined && !workingNavigationItems.some(({ id }) => id === selectedPositionNavigationItem)) {
+      setSelectedPositionNavigationItem(first);
+    }
+  }, [selectedPositionNavigationItem, workingNavigationItems]);
   const [positionNavigationAccessStatus, setPositionNavigationAccessStatus] =
     useState("");
   const [isSavingPositionNavigationAccess, setIsSavingPositionNavigationAccess] =
@@ -11945,7 +11986,7 @@ function AdminAccountsWorkspace({
     setPositionForm(position === undefined
       ? {
           ...emptyAdminPositionForm,
-          navigationItems: [...emptyAdminPositionForm.navigationItems],
+          navigationItems: readDefaultPositionNavigationItems(),
         }
       : {
           id: position.id,
@@ -13282,7 +13323,7 @@ function AdminAccountsWorkspace({
                         ...(source === undefined
                           ? {
                               ...emptyAdminPositionForm,
-                              navigationItems: [...emptyAdminPositionForm.navigationItems],
+                              navigationItems: readDefaultPositionNavigationItems(),
                               displayName: current.displayName,
                             }
                           : {
@@ -13311,7 +13352,7 @@ function AdminAccountsWorkspace({
               <fieldset className="admin-account-navigation-fieldset">
                 <legend>Рабочие вкладки</legend>
                 <div className="admin-account-navigation-grid">
-                  {applyNavigationLabels(nonAdminNavigationItems, navigationLabels)
+                  {applyNavigationLabels(workingNavigationItems, navigationLabels)
                     .map((item) => {
                       const hasTab = positionForm.navigationItems.includes(item.id);
                       return (
@@ -13346,6 +13387,8 @@ function AdminAccountsWorkspace({
                         </div>
                       );
                     })}
+                  {/* Блок «Посетители» есть только там, где есть «Обзор» или «Диспетчерская». */}
+                  {workingNavigationItems.some(({ id }) => id === "business.overview" || id === "business.dispatcher") ? (
                   <div className="admin-account-navigation-row">
                     <label className="admin-account-navigation-option">
                       <input
@@ -13365,6 +13408,7 @@ function AdminAccountsWorkspace({
                       </span>
                     </label>
                   </div>
+                  ) : null}
                 </div>
               </fieldset>
               {canAssignAdminNavigation ? (
@@ -13477,7 +13521,7 @@ function AdminAccountsWorkspace({
                   }}
                 >
                   {applyNavigationLabels(
-                    nonAdminNavigationItems,
+                    workingNavigationItems,
                     navigationLabels,
                   ).map((item) => (
                     <option key={item.id} value={item.id}>

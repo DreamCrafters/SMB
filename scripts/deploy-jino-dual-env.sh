@@ -190,10 +190,15 @@ deploy_environment() {
   local public_dir="$6"
   # NMOU data steps (the wagon fleet ledger) belong only to NMOU deployments.
   local nmou_data="$7"
+  local server_env="$app_dir/server/.env"
 
   log "$label" "Deploying $domain from branch $DEPLOY_BRANCH."
   require_dir "$app_dir"
   validate_environment_files "$mode" "$app_dir"
+  if [[ "$nmou_data" != "true" ]]; then
+    # Without the section list the instance would open every NMOU section.
+    require_env_key "$server_env" "SMB_INSTANCE_NAVIGATION"
+  fi
   guard_public_dir "$public_dir"
   prepare_git_checkout "$app_dir"
   install_dependencies

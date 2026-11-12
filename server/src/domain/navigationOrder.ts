@@ -40,10 +40,11 @@ export type NavigationLabels = Partial<Record<AccountNavigationItem, string>>;
 
 export const navigationLabelMaxLength = 60;
 
-export function validateNavigationSettings(value: unknown):
+/** `catalog` — the sections of this instance (задача 147); by default every section of the code base. */
+export function validateNavigationSettings(value: unknown, catalog: readonly AccountNavigationItem[] = accountNavigationItems):
   | { ok: true; value: { navigationOrder: AccountNavigationItem[]; navigationLabels: NavigationLabels } }
   | { ok: false; errors: string[] } {
-  const order = validateNavigationOrder(value);
+  const order = validateNavigationOrder(value, catalog);
 
   if (!order.ok) return order;
 
@@ -59,7 +60,7 @@ export function validateNavigationSettings(value: unknown):
   const labels: NavigationLabels = {};
 
   for (const [item, label] of Object.entries(rawLabels ?? {})) {
-    if (!isAccountNavigationItem(item)) {
+    if (!isAccountNavigationItem(item) || !catalog.includes(item)) {
       return { ok: false, errors: ["Название задано для неизвестной вкладки."] };
     }
 
@@ -109,7 +110,7 @@ function isPlainRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-export function validateNavigationOrder(value: unknown):
+export function validateNavigationOrder(value: unknown, catalog: readonly AccountNavigationItem[] = accountNavigationItems):
   | { ok: true; value: AccountNavigationItem[] }
   | { ok: false; errors: string[] } {
   if (
@@ -123,8 +124,8 @@ export function validateNavigationOrder(value: unknown):
 
   const order = value.navigationOrder;
   if (
-    order.length !== accountNavigationItems.length ||
-    !order.every(isAccountNavigationItem) ||
+    order.length !== catalog.length ||
+    !order.every((item) => isAccountNavigationItem(item) && catalog.includes(item)) ||
     new Set(order).size !== order.length
   ) {
     return {

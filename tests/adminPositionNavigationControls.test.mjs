@@ -476,6 +476,64 @@ test("position form grants the director registry as view only and changes it onl
   }
 });
 
+test("the position form lists only the sections the server reports for this instance (задача 147)", async () => {
+  const dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>', { url: "http://127.0.0.1:5173/" });
+  dom.window.matchMedia = () => ({ matches: false, media: "", onchange: null, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {}, dispatchEvent() { return false; } });
+  dom.window.requestAnimationFrame = (callback) => setTimeout(() => callback(Date.now()), 0);
+  dom.window.cancelAnimationFrame = (frameId) => clearTimeout(frameId);
+  const previousGlobals = captureDomGlobals();
+  const previousFetch = globalThis.fetch;
+  const previousRemoteApiUrl = process.env.VITE_SMB_REMOTE_API_URL;
+  process.env.VITE_SMB_REMOTE_API_URL = "http://127.0.0.1:5173";
+  installDomGlobals(dom.window);
+  const React = await import("react");
+  const { createRoot } = await import("react-dom/client");
+  const vite = await getVite();
+  // The instance of another organization: assignments, settings and the administrative sections.
+  const instanceOrder = ["business.assignments", "business.director_assignments", "business.board_assignments", "business.collegium_assignments",
+    "business.settings", "admin.account_preview", "admin.accounts", "admin.navigation", "admin.user_actions", "admin.database"];
+  let root;
+
+  try {
+    globalThis.fetch = async (input, init = {}) => {
+      const url = new URL(String(input), "http://127.0.0.1:5173/");
+      const method = init.method ?? "GET";
+      if (url.pathname === "/api/navigation-order") return jsonResponse({ navigationOrder: instanceOrder });
+      if (url.pathname === "/api/access/profile") return jsonResponse({ profile: buildDelegatedProfile() });
+      if (url.pathname === "/api/admin/accounts" && method === "GET") return jsonResponse({ accounts: [], canManageProtectedAccounts: false });
+      if (url.pathname === "/api/admin/positions" && method === "GET") {
+        return jsonResponse({ positions: [buildAdministratorPosition()], canAssignAdminNavigation: false, canManageProtectedPositions: false });
+      }
+      if (url.pathname === "/api/audit/events" && method === "POST") return jsonResponse({ ok: true });
+      throw new Error(`Unexpected request: ${method} ${url.pathname}`);
+    };
+
+    const { default: App } = await vite.ssrLoadModule("/src/App.tsx");
+    const rootElement = dom.window.document.getElementById("root");
+    root = createRoot(rootElement);
+    await React.act(async () => root.render(React.createElement(App)));
+    await waitFor(React, () => rootElement.querySelector(".admin-accounts-table tbody tr") !== null);
+    await React.act(async () => rootElement.querySelector('button[role="tab"][aria-controls="admin-accounts-panel-positions"]')?.click());
+    await waitFor(React, () => rootElement.querySelector(".admin-positions-table tbody tr") !== null);
+    await React.act(async () => Array.from(rootElement.querySelectorAll("button")).find((button) => button.textContent?.trim() === "Новая должность").click());
+    const dialog = rootElement.querySelector('[role="dialog"]');
+    const options = Array.from(dialog.querySelectorAll('.admin-account-navigation-option input[type="checkbox"]'));
+    assert.deepEqual(
+      options.map((input) => input.closest("label")?.textContent?.trim().replace(/ \(.*$/u, "")),
+      ["Поручения", "Поручения генерального директора", "Поручения Совета директоров", "Поручения Коллегии", "Настройки"],
+    );
+    assert.doesNotMatch(dialog.textContent, /Лаборатория|ЖД Вагоны|Огнеупорный цех|Диспетчерская|Обзор|Склад 1С|Производство|План выработки/u);
+    assert.deepEqual(options.filter((input) => input.checked).map((input) => input.closest("label")?.textContent?.trim().replace(/ \(.*$/u, "")), ["Настройки"]);
+  } finally {
+    if (root) await React.act(async () => root.unmount());
+    globalThis.fetch = previousFetch;
+    if (previousRemoteApiUrl === undefined) delete process.env.VITE_SMB_REMOTE_API_URL;
+    else process.env.VITE_SMB_REMOTE_API_URL = previousRemoteApiUrl;
+    dom.window.close();
+    restoreDomGlobals(previousGlobals);
+  }
+});
+
 test("tab access matrix saves multiple railway roles and keeps them when enabling all", async () => {
   const dom = new JSDOM('<div id="root"></div>', { url: "http://127.0.0.1:5173/" });
   dom.window.matchMedia = () => ({

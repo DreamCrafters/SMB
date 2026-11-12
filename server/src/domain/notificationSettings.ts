@@ -1,4 +1,5 @@
-import type { AccountPosition } from "./auth.js";
+import type { AccountNavigationItem, AccountPosition } from "./auth.js";
+import { hasInstanceNavigationItem, isInstanceRestricted, type InstanceNavigation } from "./instanceAccess.js";
 
 export const notificationTypes = [
   { id: "incidents", label: "Инциденты" },
@@ -16,6 +17,34 @@ export const notificationTypes = [
 ] as const;
 
 export type NotificationType = (typeof notificationTypes)[number]["id"];
+
+/**
+ * Sections that send each message type. An instance of another organization (задача 147)
+ * offers a type only when one of its sections is present; `sales` and `shipments` have no
+ * section yet and stay with the unrestricted NMOU instance.
+ */
+const notificationTypeSections: Record<NotificationType, readonly AccountNavigationItem[]> = {
+  incidents: ["business.dispatcher_form", "business.dispatcher", "business.overview"],
+  visitors: ["business.dispatcher_form", "business.dispatcher", "business.overview"],
+  equipment_reports: ["business.dispatcher_form", "business.dispatcher", "business.overview"],
+  production_reports: ["business.dispatcher_form", "business.dispatcher", "business.overview"],
+  sales: [],
+  shipments: [],
+  laboratory_samples: ["business.laboratory_results", "business.laboratory_review"],
+  laboratory_analyses: ["business.laboratory_results", "business.laboratory_review"],
+  board_assignments: ["business.board_assignments", "business.assignments"],
+  general_director_assignments: ["business.director_assignments", "business.assignments"],
+  collegium_assignments: ["business.collegium_assignments", "business.assignments"],
+  collegium_initiatives: ["business.collegium_initiatives"],
+};
+
+export function isInstanceNotificationType(instance: InstanceNavigation, type: NotificationType) {
+  return !isInstanceRestricted(instance) || hasInstanceNavigationItem(instance, notificationTypeSections[type]);
+}
+
+export function readInstanceNotificationTypes(instance: InstanceNavigation) {
+  return notificationTypes.filter(({ id }) => isInstanceNotificationType(instance, id));
+}
 
 export const boardAssignmentNotificationType: NotificationType =
   "board_assignments";
@@ -178,10 +207,12 @@ export function buildGeneralDirectorLoginNotifications({
   position,
   today,
   overdueAssignments,
+  boardMeetingReminderEnabled = true,
 }: {
   position: AccountPosition;
   today: string;
   overdueAssignments: readonly OverdueBoardAssignment[];
+  boardMeetingReminderEnabled?: boolean;
 }): LoginNotification[] {
   if (position !== "general_director") {
     return [];
@@ -191,6 +222,7 @@ export function buildGeneralDirectorLoginNotifications({
   const boardMeetingReminder = buildGeneralDirectorBoardMeetingReminder({
     position,
     today,
+    enabled: boardMeetingReminderEnabled,
   });
 
   if (boardMeetingReminder !== undefined) {
@@ -215,11 +247,14 @@ export function buildGeneralDirectorLoginNotifications({
 export function buildGeneralDirectorBoardMeetingReminder({
   position,
   today,
+  enabled = true,
 }: {
   position: AccountPosition;
   today: string;
+  /** The board meeting on the 15th is NMOU's own schedule; another organization's instance switches it off. */
+  enabled?: boolean;
 }) {
-  if (position !== "general_director") {
+  if (!enabled || position !== "general_director") {
     return undefined;
   }
 

@@ -56,6 +56,16 @@ import {
   validateAdminNavigationItems,
   type NavigationAccessLevel,
 } from "../domain/accountAccessConfiguration.js";
+import { createInstanceAccountsView, createInstanceNavigationOrderView } from "../repositories/instanceViews.js";
+import {
+  applyInstanceProfile,
+  type InstanceNavigation,
+  filterInstanceNavigation,
+  hasInstanceNavigationItem,
+  isInstanceApiPath,
+  isInstanceNavigationItem,
+  isInstanceRestricted,
+} from "../domain/instanceAccess.js";
 import {
   accountPreviewHeader,
   applyAccountPreviewAccess,
@@ -210,6 +220,7 @@ import {
   buildGeneralDirectorLoginNotifications,
   isNotificationType,
   notificationTypes,
+  isInstanceNotificationType,
   validateAdminNotificationSettingRequest,
   validateNotificationContactsRequest,
   validateOwnNotificationEmailRequest,
@@ -647,6 +658,9 @@ export function createApiServer({
   productionSnapshot,
   now = () => new Date(),
 }: AppDependencies) {
+  // Задача 147: every handler below sees positions and accounts through the instance catalog.
+  if (accounts !== undefined) accounts = createInstanceAccountsView(accounts, config.instance?.navigation);
+  if (navigationOrder !== undefined) navigationOrder = createInstanceNavigationOrderView(navigationOrder, config.instance?.navigation);
   const devSessions = new Map<string, DevAccessSession>();
   const deliveredDevLoginNotificationSessions = new Set<string>();
   const readProductionReportTables = createProductionReportTablesCache();
@@ -665,6 +679,12 @@ export function createApiServer({
 
       if (req.method === "GET" && url.pathname === "/health") {
         sendJson(res, 200, { ok: true });
+        return;
+      }
+
+      // Задача 147: the API of a module this instance does not have answers as a missing address.
+      if (!isInstanceApiPath(config.instance?.navigation, url.pathname)) {
+        sendJson(res, 404, { error: { code: "not_found", message: "Такого раздела нет в этом экземпляре." } });
         return;
       }
 
@@ -2399,7 +2419,9 @@ async function handleNotificationSettingsRequest({
     const today = buildIncidentOverviewPeriod(now()).today;
     const overdueAssignments =
       access.profile.activeAccess.position === "general_director" &&
-      boardAssignments !== undefined
+      boardAssignments !== undefined &&
+      // The address belongs to the platform; the board register is read only where the instance has it.
+      hasInstanceNavigationItem(config.instance?.navigation, ["business.board_assignments", "business.assignments"])
         ? (await boardAssignments.list({}, { activeOn: today, assignedTo: access.profile.userId })).filter(
             (assignment) => isBoardAssignmentOverdueOn(assignment, today),
           )
@@ -2408,6 +2430,7 @@ async function handleNotificationSettingsRequest({
       position: access.profile.activeAccess.position,
       today,
       overdueAssignments,
+      boardMeetingReminderEnabled: !isInstanceRestricted(config.instance?.navigation),
     });
     const overdueMessage = notifications.find(
       ({ title }) => title === "Просрочено поручение",
@@ -2526,7 +2549,7 @@ async function handleNotificationSettingsRequest({
       return;
     }
     const type = decodeURIComponent(ownSettingMatch[1] ?? "");
-    if (!isNotificationType(type)) {
+    if (!isNotificationType(type) || !isInstanceNotificationType(config.instance?.navigation, type)) {
       sendJson(res, 404, {
         error: { code: "not_found", message: "Рассылка не найдена." },
       });
@@ -2686,7 +2709,7 @@ async function handleNotificationSettingsRequest({
     }
     const position = decodeURIComponent(adminSettingMatch[1] ?? "");
     const type = decodeURIComponent(adminSettingMatch[2] ?? "");
-    if (!isNotificationType(type)) {
+    if (!isNotificationType(type) || !isInstanceNotificationType(config.instance?.navigation, type)) {
       sendJson(res, 404, {
         error: { code: "not_found", message: "Рассылка не найдена." },
       });
@@ -2759,7 +2782,7 @@ async function handleNotificationSettingsRequest({
     }
     const userId = decodeURIComponent(adminChannelsMatch[1] ?? "");
     const type = decodeURIComponent(adminChannelsMatch[2] ?? "");
-    if (!isNotificationType(type)) {
+    if (!isNotificationType(type) || !isInstanceNotificationType(config.instance?.navigation, type)) {
       sendJson(res, 404, {
         error: { code: "not_found", message: "Рассылка не найдена." },
       });
@@ -3233,6 +3256,7 @@ async function handleBoardAssignmentsRequest({
       const boardMeetingReminder = buildGeneralDirectorBoardMeetingReminder({
         position: access.profile.activeAccess.position,
         today,
+        enabled: !isInstanceRestricted(config.instance?.navigation),
       });
       // «Поручения мне» asks only for assignments to execute, even when the
       // position may also read the whole register.
@@ -8956,7 +8980,7 @@ async function handleAuditEventRequest({
   }
 
   if (!canProfileViewAuditScreen(
-    await withCollegiumRoleNavigation(access.profile, collegiumInitiatives),
+    applyInstanceProfile(config.instance?.navigation, await withCollegiumRoleNavigation(access.profile, collegiumInitiatives)),
     screen,
   )) {
     sendJson(res, 403, {
@@ -12061,7 +12085,7 @@ async function handleNavigationOrderRequest({
       res,
       200,
       navigationOrder === undefined
-        ? { navigationOrder: [...defaultNavigationOrder], navigationLabels: {} }
+        ? { navigationOrder: filterInstanceNavigation(config.instance?.navigation, defaultNavigationOrder), navigationLabels: {} }
         : await navigationOrder.read(),
     );
     return;
@@ -12095,7 +12119,10 @@ async function handleNavigationOrderRequest({
     return;
   }
 
-  const validation = validateNavigationSettings(await readJsonBody(req));
+  const validation = validateNavigationSettings(
+    await readJsonBody(req),
+    filterInstanceNavigation(config.instance?.navigation, defaultNavigationOrder),
+  );
   if (!validation.ok) {
     sendJson(res, 400, {
       error: {
@@ -12262,7 +12289,7 @@ async function handleAdminDatabaseRequest({
 
     try {
       sendJson(res, 200, {
-        tables: await adminDatabase.listTables(),
+        tables: (await adminDatabase.listTables()).filter(({ name }) => isInstanceDatabaseTable(config.instance?.navigation, name)),
       });
     } catch (error) {
       sendAdminDatabaseError(res, error);
@@ -12273,7 +12300,7 @@ async function handleAdminDatabaseRequest({
 
   const route = readAdminDatabaseRowsRoute(url);
 
-  if (route === undefined) {
+  if (route === undefined || !isInstanceDatabaseTable(config.instance?.navigation, route.tableName)) {
     sendJson(res, 404, {
       error: {
         code: "not_found",
@@ -13223,7 +13250,7 @@ async function handleAdminAccountsRequest({
     }
 
     if (req.method === "POST") {
-      const validation = validateCreatePositionRequest(await readJsonBody(req));
+      const validation = validateCreatePositionRequest(await readJsonBody(req), config.instance?.navigation);
       if (!validation.ok) {
         sendJson(res, 400, { error: { code: "invalid_response", message: validation.errors.join(" ") } });
         return;
@@ -13353,6 +13380,7 @@ async function handleAdminAccountsRequest({
     }
     const validation = validatePositionNavigationAccessRequest(
       await readJsonBody(req),
+      config.instance?.navigation,
     );
     if (!validation.ok) {
       sendJson(res, 400, {
@@ -13518,7 +13546,7 @@ async function handleAdminAccountsRequest({
       sendJson(res, 200, { ok: true });
       return;
     }
-    const validation = validateUpdatePositionRequest(await readJsonBody(req));
+    const validation = validateUpdatePositionRequest(await readJsonBody(req), config.instance?.navigation);
     if (!validation.ok) {
       sendJson(res, 400, { error: { code: "invalid_response", message: validation.errors.join(" ") } });
       return;
@@ -13911,7 +13939,7 @@ function validateCreateAccountRequest(
   };
 }
 
-function validateCreatePositionRequest(input: unknown):
+function validateCreatePositionRequest(input: unknown, instance?: InstanceNavigation):
   | { ok: true; value: {
       displayName: string;
       navigationItems: AccountNavigationItem[];
@@ -13983,7 +14011,9 @@ function validateCreatePositionRequest(input: unknown):
   }
   if (
     !requestedNavigationItems.every(isAccountNavigationItem) ||
-    !validatePositionNavigationItems(navigationItems)
+    !validatePositionNavigationItems(navigationItems) ||
+    // A section absent from this instance cannot be granted, whatever the client sends.
+    !navigationItems.every((item) => isInstanceNavigationItem(instance, item))
   ) {
     errors.push("Выберите только доступные рабочие вкладки.");
   }
@@ -14114,10 +14144,10 @@ function sendProtectedPositionMutationDenied(res: ServerResponse) {
   });
 }
 
-function validateUpdatePositionRequest(input: unknown):
+function validateUpdatePositionRequest(input: unknown, instance?: InstanceNavigation):
   | { ok: true; value: { displayName: string; navigationItems: AccountNavigationItem[]; capabilities: AccountCapability[] } }
   | { ok: false; errors: string[] } {
-  const validation = validateCreatePositionRequest(input);
+  const validation = validateCreatePositionRequest(input, instance);
   if (!validation.ok) {
     return validation;
   }
@@ -14171,7 +14201,7 @@ function validatePositionOrderRequest(input: unknown):
   };
 }
 
-function validatePositionNavigationAccessRequest(input: unknown):
+function validatePositionNavigationAccessRequest(input: unknown, instance?: InstanceNavigation):
   | {
       ok: true;
       value: {
@@ -14230,6 +14260,9 @@ function validatePositionNavigationAccessRequest(input: unknown):
       !isNavigationAccessLevel(navigationItem, input.accessLevel))
   ) {
     errors.push("Выберите уровень доступа, доступный этой вкладке.");
+  }
+  if (isAccountNavigationItem(navigationItem) && !isInstanceNavigationItem(instance, navigationItem)) {
+    errors.push("Такого раздела нет в этом экземпляре.");
   }
   if (
     errors.length > 0 ||
@@ -14463,6 +14496,12 @@ function sendAdminAccountsError(res: ServerResponse, error: unknown) {
         error instanceof Error ? error.message : "Admin accounts request failed.",
     },
   });
+}
+
+/** Dispatcher records belong to the dispatcher sections; an instance without them has no such table in «БД». */
+function isInstanceDatabaseTable(instance: InstanceNavigation, tableName: string) {
+  return tableName !== "dispatcher_submissions" ||
+    hasInstanceNavigationItem(instance, ["business.dispatcher_form", "business.dispatcher", "business.overview"]);
 }
 
 function readAdminDatabaseRowsRoute(url: URL) {
@@ -15400,7 +15439,7 @@ async function handleAuthLogin(
   res.setHeader("set-cookie", buildAuthCookie(config, login.session));
   sendJson(res, 200, {
     ok: true,
-    profile: login.session.profile,
+    profile: applyInstanceProfile(config.instance?.navigation, login.session.profile),
   });
 }
 
@@ -15478,7 +15517,11 @@ async function handleAccessProfile(
   sendJson(res, 200, {
     profile: access === undefined
       ? null
-      : await withCollegiumRoleNavigation(access.profile, dependencies.collegiumInitiatives),
+      // The derived section of a temporary role does not appear where the module is absent.
+      : applyInstanceProfile(
+          dependencies.config.instance?.navigation,
+          await withCollegiumRoleNavigation(access.profile, dependencies.collegiumInitiatives),
+        ),
   });
 }
 
@@ -15833,7 +15876,9 @@ async function readRequestAccess(
     return undefined;
   }
 
-  return applyAccountPreview(req, access, accounts, config.devAccessEnabled);
+  // A preview target is built from stored positions and accounts: it passes the same instance gate.
+  const previewed = await applyAccountPreview(req, access, accounts, config.devAccessEnabled);
+  return { ...previewed, profile: applyInstanceProfile(config.instance?.navigation, previewed.profile) };
 }
 
 async function readSignedInAccess(
@@ -15847,7 +15892,7 @@ async function readSignedInAccess(
 
     if (session !== undefined) {
       return {
-        profile: session.profile,
+        profile: applyInstanceProfile(config.instance?.navigation, session.profile),
         source: "auth",
         sessionId: session.sessionId,
       };
@@ -15874,10 +15919,10 @@ async function readSignedInAccess(
   }
 
   return {
-    profile: buildDevProfile(
+    profile: applyInstanceProfile(config.instance?.navigation, buildDevProfile(
       devSession.option,
       devSession.createdAt,
-    ) as ServerUserProfile,
+    ) as ServerUserProfile),
     source: "dev",
     sessionId: devSessionId,
   };

@@ -54,6 +54,8 @@ import { createWarehouse1cRepository } from "./repositories/warehouse1cRepositor
 import { createRailwayWagonsRepository } from "./repositories/railwayWagonsRepository.js";
 import { createRailwayReferenceRepository } from "./repositories/railwayReferenceRepository.js";
 import { createNotificationSettingsRepository } from "./repositories/notificationSettingsRepository.js";
+import { readInstanceNotificationTypes } from "./domain/notificationSettings.js";
+import { hasInstanceNavigationItem } from "./domain/instanceAccess.js";
 import { createNavigationOrderRepository } from "./repositories/navigationOrderRepository.js";
 import { createDispatcherSpreadsheetImportService } from "./integrations/dispatcherSpreadsheetImport.js";
 
@@ -128,7 +130,7 @@ const collegiumInitiatives = createCollegiumInitiativesService({
   transaction: database.transaction,
   audit: createAuditRepository(pool),
 });
-const notificationSettings = createNotificationSettingsRepository(pool);
+const notificationSettings = createNotificationSettingsRepository(pool, readInstanceNotificationTypes(config.instance?.navigation));
 const server = createApiServer({
   config,
   emailNotificationService: emailNotifications,
@@ -203,15 +205,20 @@ server.listen(config.port, "0.0.0.0", () => {
   console.log(`SMB Monitor API listening on http://127.0.0.1:${config.port}`);
 });
 
+// Задача 147: a background process runs only where the instance has the section it serves.
+const instanceNavigation = config.instance?.navigation;
 const reminderStops: Array<() => Promise<void>> = config.directorAssignmentRemindersEnabled
-  ? [directorAssignmentsRepository, collegiumAssignmentsRepository].map(repository => startDirectorAssignmentReminders(createDirectorAssignmentReminderRunner({
+  ? [
+      ...(hasInstanceNavigationItem(instanceNavigation, ["business.director_assignments", "business.assignments"]) ? [directorAssignmentsRepository] : []),
+      ...(hasInstanceNavigationItem(instanceNavigation, ["business.collegium_assignments", "business.assignments"]) ? [collegiumAssignmentsRepository] : []),
+    ].map(repository => startDirectorAssignmentReminders(createDirectorAssignmentReminderRunner({
       repository,
       notificationSettings,
       ...(config.emailNotifications.enabled ? { sendEmail: (recipient, subject, text) => emailNotifications.sendTextNotification!([recipient], subject, text) } : {}),
       ...(config.maxNotifications.enabled ? { sendMax: (recipient, _subject, text, signal) => maxNotifications.sendTextNotification!([recipient], text, signal) } : {}),
     })))
   : [];
-if (config.collegiumRemindersEnabled) {
+if (config.collegiumRemindersEnabled && hasInstanceNavigationItem(instanceNavigation, ["business.collegium_initiatives"])) {
   reminderStops.push(startCollegiumReminders(createCollegiumReminderRunner({
     repository: createCollegiumInitiativesRepository(pool),
     assignments: collegiumAssignmentsRepository,

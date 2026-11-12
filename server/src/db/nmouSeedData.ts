@@ -1,4 +1,6 @@
 import type { RowDataPacket } from "mysql2/promise";
+import { isAccountNavigationItem } from "../domain/auth.js";
+import { filterInstanceNavigation, type InstanceNavigation } from "../domain/instanceAccess.js";
 
 /**
  * Задача 147: early migrations imported NMOU business data — board protocol №369 with its
@@ -67,6 +69,45 @@ export async function clearNmouSeedData(database: Queryable): Promise<NmouSeedCo
     if (counts[section.key] > 0) await database.query(`delete from ${section.from} where ${section.where}`, [...section.params]);
   }
   return counts;
+}
+
+type PositionRow = RowDataPacket & {
+  id: string;
+  display_name: string;
+  account_type: string;
+  navigation_items: unknown;
+  admin_navigation_items: unknown;
+};
+
+function readItems(value: unknown): string[] {
+  const parsed: unknown = typeof value === "string" ? JSON.parse(value) : value;
+  return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === "string") : [];
+}
+
+/**
+ * Positions the migrations create for NMOU (laboratory assistant, dispatcher, economist…) that
+ * have no section left in this instance. Positions with administrative sections and the
+ * system administrator stay; an unrestricted instance has no such positions at all.
+ */
+export async function listAbsentSeedPositions(database: Queryable, instance: InstanceNavigation) {
+  if (instance === undefined) return [];
+  const [rows] = await database.query(
+    "select id, display_name, account_type, navigation_items, admin_navigation_items from account_positions order by sort_order, id",
+  ) as [PositionRow[]];
+  return rows
+    // Administrative sections always pass the instance filter, so any of them keeps the position.
+    .filter((row) => row.account_type !== "admin" && readItems(row.admin_navigation_items).length === 0 &&
+      filterInstanceNavigation(instance, readItems(row.navigation_items).filter(isAccountNavigationItem)).length === 0)
+    .map((row) => ({ id: row.id, displayName: row.display_name }));
+}
+
+/** Runs after the account guard of `clearNmouSeedData`, in the same transaction: no account holds these positions. */
+export async function clearAbsentSeedPositions(database: Queryable, instance: InstanceNavigation) {
+  const positions = await listAbsentSeedPositions(database, instance);
+  for (const position of positions) {
+    await database.query("delete from account_positions where id = ?", [position.id]);
+  }
+  return positions.map(({ displayName }) => displayName);
 }
 
 export function formatNmouSeedCounts(counts: NmouSeedCounts) {

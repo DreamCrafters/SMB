@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { clearNmouSeedData, countNmouSeedData, formatNmouSeedCounts, NmouSeedCleanupRefusedError } from "./nmouSeedData.js";
+import { clearAbsentSeedPositions, clearNmouSeedData, countNmouSeedData, formatNmouSeedCounts, listAbsentSeedPositions, NmouSeedCleanupRefusedError } from "./nmouSeedData.js";
 
 function fakeDatabase({ otherAccounts = 0, seed = 11 } = {}) {
   const queries: Array<{ sql: string; params: unknown[] }> = [];
@@ -51,4 +51,29 @@ test("an already clean instance deletes nothing", async () => {
   assert.deepEqual(await clearNmouSeedData(database), { boardAssignmentDocuments: 0, boardAssignments: 0, productBrands: 0, rawMaterials: 0, auditEvents: 0 });
   assert.equal(database.queries.some((query) => query.sql.startsWith("delete")), false);
   assert.equal((await countNmouSeedData(database)).boardAssignments, 0);
+});
+
+test("positions that keep no section of the instance are removed with the seed data", async () => {
+  const rows = [
+    { id: "administrator", display_name: "Администратор", account_type: "admin", navigation_items: '["admin.accounts"]', admin_navigation_items: "[]" },
+    { id: "laboratory_assistant", display_name: "Лаборант", account_type: "business_owner", navigation_items: '["business.laboratory_results"]', admin_navigation_items: "[]" },
+    { id: "worker", display_name: "Работник", account_type: "worker", navigation_items: "[]", admin_navigation_items: "[]" },
+    { id: "board_chair", display_name: "Председатель", account_type: "business_owner", navigation_items: '["business.overview","business.board_assignments"]', admin_navigation_items: "[]" },
+    { id: "delegate", display_name: "Делегат", account_type: "business_owner", navigation_items: ["business.overview", "admin.accounts"], admin_navigation_items: ["admin.accounts"] },
+    // An administrative section listed without the separate grant still keeps the position.
+    { id: "legacy-admin", display_name: "Старый админ", account_type: "business_owner", navigation_items: ["business.overview", "admin.database"], admin_navigation_items: [] },
+  ];
+  const deleted: unknown[] = [];
+  const database = { async query(sql: string, params: unknown[] = []) {
+    if (sql.startsWith("select")) return [rows, []];
+    deleted.push(params[0]);
+    return [{}, []];
+  } };
+  const instance = ["business.board_assignments", "business.settings"] as const;
+  assert.deepEqual((await listAbsentSeedPositions(database, instance)).map(({ id }) => id), ["laboratory_assistant", "worker"]);
+  assert.deepEqual(await clearAbsentSeedPositions(database, instance), ["Лаборант", "Работник"]);
+  assert.deepEqual(deleted, ["laboratory_assistant", "worker"]);
+  // The unrestricted NMOU instance never loses a position.
+  assert.deepEqual(await clearAbsentSeedPositions(database, undefined), []);
+  assert.equal(deleted.length, 2);
 });

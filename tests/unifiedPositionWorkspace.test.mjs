@@ -45,7 +45,7 @@ test("position form edits working tabs while admin rights are managed separately
   // Список рабочих вкладок должности учитывает переименование разделов.
   assert.match(
     appSource,
-    /applyNavigationLabels\(nonAdminNavigationItems, navigationLabels\)\s*\.map\(\(item\) => \{/u,
+    /applyNavigationLabels\(workingNavigationItems, navigationLabels\)\s*\.map\(\(item\) => \{/u,
   );
   // Каждая вкладка выдаётся отдельно; роли настраиваются рядом с ней.
   assert.doesNotMatch(

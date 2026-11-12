@@ -1,5 +1,7 @@
 import { resolve } from "node:path";
 import { config as loadDotenv } from "dotenv";
+import type { AccountNavigationItem } from "../domain/auth.js";
+import { hasInstanceNavigationItem, readInstanceNavigation, type InstanceNavigation } from "../domain/instanceAccess.js";
 
 const serverEnvFile = process.env.SMB_SERVER_ENV_FILE?.trim();
 
@@ -11,6 +13,8 @@ loadDotenv({
 });
 
 export type ServerConfig = {
+  /** Задача 147: working sections of this instance; absent — every section (the NMOU instance). */
+  instance?: { navigation: InstanceNavigation };
   appEnv: SmbAppEnv;
   directorAssignmentRemindersEnabled: boolean;
   collegiumRemindersEnabled: boolean;
@@ -103,6 +107,17 @@ export type MaxNotificationConfig = {
   caCertFile?: string;
 };
 
+/** Sections whose forms and journals read the reference workbook. */
+const googleSheetsReferenceSections: AccountNavigationItem[] = [
+  "business.dispatcher_form",
+  "business.dispatcher",
+  "business.overview",
+  "business.work",
+  "business.laboratory_results",
+  "business.laboratory_review",
+  "business.refractory_shop",
+];
+
 const defaultGoogleSheetsReferenceUrl =
   "https://docs.google.com/spreadsheets/d/1JYz_03AW4j9VXNfdNSBFfdFyxq0Dun_0QnYGvVesGyg/edit?gid=981703922#gid=981703922";
 const defaultResponsibleColumn = "Ответственный за регистрацию";
@@ -141,8 +156,10 @@ const defaultMaxSubjectPrefix = "НМОУ Вектор";
 export function readServerConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
   const appEnv = readAppEnv(env.SMB_APP_ENV);
   const databaseUrl = readRequired(env, "DATABASE_URL");
+  const instanceNavigation = readInstanceNavigation(env.SMB_INSTANCE_NAVIGATION);
 
   return {
+    instance: { navigation: instanceNavigation },
     appEnv,
     directorAssignmentRemindersEnabled: env.DIRECTOR_ASSIGNMENT_REMINDERS_ENABLED === undefined ? appEnv === "production" : env.DIRECTOR_ASSIGNMENT_REMINDERS_ENABLED === "true",
     // A test copy of production holds real contacts: reminders stay off there unless enabled explicitly.
@@ -163,7 +180,9 @@ export function readServerConfig(env: NodeJS.ProcessEnv = process.env): ServerCo
       ttlHours: readSessionTtlHours(env.SESSION_TTL_HOURS),
     },
     googleSheetsReference: {
-      enabled: env.GOOGLE_SHEETS_REFERENCE_ENABLED?.trim().toLowerCase() !== "false",
+      // The default workbook is NMOU's: an instance without any section that reads it never contacts it.
+      enabled: env.GOOGLE_SHEETS_REFERENCE_ENABLED?.trim().toLowerCase() !== "false" &&
+        hasInstanceNavigationItem(instanceNavigation, googleSheetsReferenceSections),
       url:
         readOptional(env.GOOGLE_SHEETS_REFERENCE_URL) ??
         defaultGoogleSheetsReferenceUrl,

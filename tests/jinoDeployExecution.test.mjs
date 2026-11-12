@@ -55,7 +55,7 @@ esac
   const demetraApp = path.join(root, "demetra", "app");
   mkdirSync(path.join(demetraApp, "server"), { recursive: true });
   writeFileSync(path.join(demetraApp, ".env.production"), "VITE_SMB_APP_ENV=production\nVITE_SMB_REMOTE_API_URL=https://example.invalid\nVITE_SMB_PRODUCT_NAME=Вектор Деметра\n");
-  writeFileSync(path.join(demetraApp, "server/.env"), `SMB_APP_ENV=production\nDATABASE_URL=fixture\nCORS_ORIGIN=fixture\nSESSION_COOKIE_NAME=fixture\nDEV_ACCESS_ENABLED=${overrides.FIXTURE_DEMETRA_DEV_ACCESS ?? "false"}\n`);
+  writeFileSync(path.join(demetraApp, "server/.env"), `SMB_APP_ENV=production\nDATABASE_URL=fixture\nCORS_ORIGIN=fixture\nSESSION_COOKIE_NAME=fixture\nDEV_ACCESS_ENABLED=${overrides.FIXTURE_DEMETRA_DEV_ACCESS ?? "false"}\n${overrides.FIXTURE_DEMETRA_NO_SECTIONS === "true" ? "" : "SMB_INSTANCE_NAVIGATION=business.assignments,business.settings\n"}`);
   const log = path.join(root, "commands.jsonl");
   const result = spawnSync("bash", [script], {
     encoding: "utf8", timeout: 20000,
@@ -155,4 +155,11 @@ test("demetra refuses an env with dev access before touching its database", (t) 
   assert.match(result.stderr, /DEV_ACCESS_ENABLED=false/u);
   assert.equal(result.calls.length, 0);
   assert.equal(existsSync(path.join(result.root, "demetra", ".smb-deploy-state")), false);
+});
+
+test("demetra refuses an env without its section list: every NMOU section would open", (t) => {
+  const result = deploy(t, { SMB_DEPLOY_TARGET: "demetra", FIXTURE_DEMETRA_NO_SECTIONS: "true" });
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /SMB_INSTANCE_NAVIGATION/u);
+  assert.equal(result.calls.length, 0);
 });

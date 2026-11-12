@@ -5,7 +5,7 @@ import type {
 } from "mysql2/promise";
 import type { DatabasePool } from "../db/pool.js";
 import {
-  notificationTypes,
+  notificationTypes as allNotificationTypes,
   type LoginNotificationDeliveryKey,
   type NotificationType,
 } from "../domain/notificationSettings.js";
@@ -223,6 +223,8 @@ const userSelect = `
 
 export function createNotificationSettingsRepository(
   pool: DatabasePool,
+  /** Message types this instance offers (задача 147); the others are neither listed nor configurable. */
+  notificationTypes: ReadonlyArray<(typeof allNotificationTypes)[number]> = allNotificationTypes,
 ): NotificationSettingsRepository {
   async function listPositions() {
     const [positionRows] = await pool.query<PositionRow[]>(`

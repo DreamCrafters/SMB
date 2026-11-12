@@ -106,8 +106,10 @@ function readNavigationOrder(value: unknown) {
   const order = value.navigationOrder;
   const catalog = new Set<AccountNavigationItem>(accountNavigationItems);
 
+  // Экземпляр сайта отдаёт порядок только своих разделов (задача 147), поэтому
+  // список может быть короче каталога кода, но не пустым и без повторов.
   if (
-    order.length !== accountNavigationItems.length ||
+    order.length === 0 ||
     !order.every(
       (item): item is AccountNavigationItem =>
         typeof item === "string" && catalog.has(item as AccountNavigationItem),
