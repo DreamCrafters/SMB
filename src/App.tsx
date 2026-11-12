@@ -2464,7 +2464,7 @@ function AuthScreen({
         <div className="auth-copy">
           <p className="eyebrow"></p>
           <h1 id="auth-title">
-            {mode === "production" ? "Вход в НМОУ Вектор" : shellCopy.authTitle}
+            {mode === "production" ? `Вход в ${shellCopy.productName}` : shellCopy.authTitle}
           </h1>
           <p>
             {mode === "production"

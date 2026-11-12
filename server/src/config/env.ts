@@ -60,6 +60,11 @@ export type SessionConfig = {
 };
 
 export type GoogleSheetsReferenceConfig = {
+  /**
+   * Задача 147: `false` stops every read of the reference workbook. The default URL is the
+   * NMOU workbook, so another organization's instance switches the source off explicitly.
+   */
+  enabled?: boolean;
   url: string;
   responsibleColumn: string;
   locationColumn: string;
@@ -158,6 +163,7 @@ export function readServerConfig(env: NodeJS.ProcessEnv = process.env): ServerCo
       ttlHours: readSessionTtlHours(env.SESSION_TTL_HOURS),
     },
     googleSheetsReference: {
+      enabled: env.GOOGLE_SHEETS_REFERENCE_ENABLED?.trim().toLowerCase() !== "false",
       url:
         readOptional(env.GOOGLE_SHEETS_REFERENCE_URL) ??
         defaultGoogleSheetsReferenceUrl,

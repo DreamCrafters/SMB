@@ -48,6 +48,13 @@ test("production snapshot stays disabled unless explicitly configured", () => {
   assert.deepEqual(config.productionSnapshot, { enabled: false });
 });
 
+test("another organization switches the NMOU reference workbook off explicitly (задача 147)", () => {
+  const base = { DATABASE_URL: "mysql://user:secret@127.0.0.1:3306/smb" };
+  assert.equal(readServerConfig(base).googleSheetsReference.enabled, true);
+  assert.equal(readServerConfig({ ...base, GOOGLE_SHEETS_REFERENCE_ENABLED: "true" }).googleSheetsReference.enabled, true);
+  assert.equal(readServerConfig({ ...base, GOOGLE_SHEETS_REFERENCE_ENABLED: " FALSE " }).googleSheetsReference.enabled, false);
+});
+
 test("google sheets reference uses the OC recipient column names by default", () => {
   const config = readServerConfig(baseEnv);
 

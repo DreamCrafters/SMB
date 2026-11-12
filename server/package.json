@@ -13,6 +13,7 @@
     "db:migrate": "tsx src/db/migrate.ts",
     "director:import": "tsx src/db/importDirectorAssignments.ts",
     "wagons:import": "tsx src/db/importRefractoryWagonFleet.ts",
+    "instance:clear-nmou-seed": "tsx src/db/clearNmouSeedData.ts",
     "auth:create-user": "tsx src/db/createAuthUser.ts",
     "auth:recover-root": "tsx src/db/recoverRootPassword.ts"
   },

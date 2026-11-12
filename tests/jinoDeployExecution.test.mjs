@@ -51,6 +51,11 @@ esac
     writeFileSync(path.join(app, `.env.${mode}`), `VITE_SMB_APP_ENV=${mode}\nVITE_SMB_REMOTE_API_URL=https://example.invalid\n`);
     writeFileSync(path.join(app, "server/.env"), `SMB_APP_ENV=${mode}\nDATABASE_URL=fixture\nCORS_ORIGIN=fixture\nSESSION_COOKIE_NAME=fixture\nDEV_ACCESS_ENABLED=false\nPRODUCTION_SNAPSHOT_ENABLED=true\nPRODUCTION_DATABASE_URL=fixture\nPRODUCTION_SNAPSHOT_TARGET_DATABASE=fixture\n`);
   }
+  // Задача 147: another organization runs the production build from its own checkout and env.
+  const demetraApp = path.join(root, "demetra", "app");
+  mkdirSync(path.join(demetraApp, "server"), { recursive: true });
+  writeFileSync(path.join(demetraApp, ".env.production"), "VITE_SMB_APP_ENV=production\nVITE_SMB_REMOTE_API_URL=https://example.invalid\nVITE_SMB_PRODUCT_NAME=Вектор Деметра\n");
+  writeFileSync(path.join(demetraApp, "server/.env"), `SMB_APP_ENV=production\nDATABASE_URL=fixture\nCORS_ORIGIN=fixture\nSESSION_COOKIE_NAME=fixture\nDEV_ACCESS_ENABLED=${overrides.FIXTURE_DEMETRA_DEV_ACCESS ?? "false"}\n`);
   const log = path.join(root, "commands.jsonl");
   const result = spawnSync("bash", [script], {
     encoding: "utf8", timeout: 20000,
@@ -59,6 +64,7 @@ esac
       SMB_NPM_REGISTRY: "", SMB_PROD_ROOT: path.join(root, "production"), SMB_TEST_ROOT: path.join(root, "test"),
       SMB_PROD_APP_DIR: path.join(root, "production/app"), SMB_TEST_APP_DIR: path.join(root, "test/app"),
       SMB_PROD_PUBLIC_DIR: path.join(root, "production/public_html"), SMB_TEST_PUBLIC_DIR: path.join(root, "test/public_html"),
+      SMB_DEMETRA_ROOT: path.join(root, "demetra"), SMB_DEMETRA_APP_DIR: demetraApp, SMB_DEMETRA_PUBLIC_DIR: path.join(root, "demetra/public_html"),
       FIXTURE_LOG: log, ...overrides },
   });
   const calls = existsSync(log) ? readFileSync(log, "utf8").trim().split("\n").map(JSON.parse) : [];
@@ -127,4 +133,26 @@ test("explicitly disabled tests still build both backend artifacts", (t) => {
   assert.equal(result.status, 0, result.stderr);
   assert.equal(result.calls.filter((c) => c.args === "run test:jino").length, 0);
   assert.equal(result.calls.filter((c) => c.args === "--workspace server run build").length, 2);
+});
+
+test("demetra deploys another organization in production mode without NMOU data steps (задача 147)", (t) => {
+  const result = deploy(t, { SMB_DEPLOY_TARGET: "demetra" });
+  assert.equal(result.status, 0, result.stderr);
+  const args = result.calls.filter((c) => c.mode === "demetra").map((c) => c.args);
+  for (const step of ["run typecheck", "run test:jino", "--workspace server run db:migrate", "run build:web:production"]) {
+    assert.ok(args.includes(step), step);
+  }
+  assert.equal(result.calls.some((c) => c.args.includes("wagons:import")), false);
+  assert.equal(result.calls.some((c) => c.mode === "test" || c.mode === "production"), false);
+  assert.match(result.stdout, /Skipping the NMOU wagon fleet ledger/u);
+  assert.match(readFileSync(path.join(result.root, "demetra", ".smb-deploy-state"), "utf8"), /environment=production/u);
+  assert.equal(readFileSync(path.join(result.root, "demetra", "public_html", ".htaccess"), "utf8"), "fixture");
+});
+
+test("demetra refuses an env with dev access before touching its database", (t) => {
+  const result = deploy(t, { SMB_DEPLOY_TARGET: "demetra", FIXTURE_DEMETRA_DEV_ACCESS: "true" });
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /DEV_ACCESS_ENABLED=false/u);
+  assert.equal(result.calls.length, 0);
+  assert.equal(existsSync(path.join(result.root, "demetra", ".smb-deploy-state")), false);
 });

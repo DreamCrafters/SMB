@@ -15,15 +15,20 @@ TESTS_BUILT_BACKEND="false"
 
 PROD_DOMAIN="${SMB_PROD_DOMAIN:-smb.aonmou.ru}"
 TEST_DOMAIN="${SMB_TEST_DOMAIN:-test.smb.aonmou.ru}"
+# Another organization (задача 147): same code, own checkout, env and database.
+DEMETRA_DOMAIN="${SMB_DEMETRA_DOMAIN:-demetra.aonmou.ru}"
 
 PROD_ROOT="${SMB_PROD_ROOT:-$HOME/domains/$PROD_DOMAIN}"
 TEST_ROOT="${SMB_TEST_ROOT:-$HOME/domains/$TEST_DOMAIN}"
+DEMETRA_ROOT="${SMB_DEMETRA_ROOT:-$HOME/domains/$DEMETRA_DOMAIN}"
 
 PROD_APP_DIR="${SMB_PROD_APP_DIR:-$PROD_ROOT/app}"
 TEST_APP_DIR="${SMB_TEST_APP_DIR:-$TEST_ROOT/app}"
+DEMETRA_APP_DIR="${SMB_DEMETRA_APP_DIR:-$DEMETRA_ROOT/app}"
 
 PROD_PUBLIC_DIR="${SMB_PROD_PUBLIC_DIR:-$PROD_ROOT/public_html}"
 TEST_PUBLIC_DIR="${SMB_TEST_PUBLIC_DIR:-$TEST_ROOT/public_html}"
+DEMETRA_PUBLIC_DIR="${SMB_DEMETRA_PUBLIC_DIR:-$DEMETRA_ROOT/public_html}"
 
 log() {
   printf '\n[%s] %s\n' "$1" "$2"
@@ -183,6 +188,8 @@ deploy_environment() {
   local root_dir="$4"
   local app_dir="$5"
   local public_dir="$6"
+  # NMOU data steps (the wagon fleet ledger) belong only to NMOU deployments.
+  local nmou_data="$7"
 
   log "$label" "Deploying $domain from branch $DEPLOY_BRANCH."
   require_dir "$app_dir"
@@ -195,8 +202,12 @@ deploy_environment() {
   run_optional_tests
 
   SMB_SERVER_ENV_FILE="$app_dir/server/.env" npm --workspace server run db:migrate
-  # Ведомость учёта вагонов: уже применённая в этой БД пропускается целиком.
-  SMB_SERVER_ENV_FILE="$app_dir/server/.env" npm --workspace server run wagons:import -- --apply
+  if [[ "$nmou_data" == "true" ]]; then
+    # Ведомость учёта вагонов НМОУ: уже применённая в этой БД пропускается целиком.
+    SMB_SERVER_ENV_FILE="$app_dir/server/.env" npm --workspace server run wagons:import -- --apply
+  else
+    log "$label" "Skipping the NMOU wagon fleet ledger: $domain serves another organization."
+  fi
   if [[ "$TESTS_BUILT_BACKEND" == "true" ]]; then
     log "build" "Using backend build produced by the successful tests in $label."
   else
@@ -219,16 +230,19 @@ deploy_environment() {
 
 case "$DEPLOY_TARGET" in
   test)
-    deploy_environment "test" "test" "$TEST_DOMAIN" "$TEST_ROOT" "$TEST_APP_DIR" "$TEST_PUBLIC_DIR"
+    deploy_environment "test" "test" "$TEST_DOMAIN" "$TEST_ROOT" "$TEST_APP_DIR" "$TEST_PUBLIC_DIR" "true"
     ;;
   production)
-    deploy_environment "production" "production" "$PROD_DOMAIN" "$PROD_ROOT" "$PROD_APP_DIR" "$PROD_PUBLIC_DIR"
+    deploy_environment "production" "production" "$PROD_DOMAIN" "$PROD_ROOT" "$PROD_APP_DIR" "$PROD_PUBLIC_DIR" "true"
     ;;
   dual)
-    deploy_environment "test" "test" "$TEST_DOMAIN" "$TEST_ROOT" "$TEST_APP_DIR" "$TEST_PUBLIC_DIR"
-    deploy_environment "production" "production" "$PROD_DOMAIN" "$PROD_ROOT" "$PROD_APP_DIR" "$PROD_PUBLIC_DIR"
+    deploy_environment "test" "test" "$TEST_DOMAIN" "$TEST_ROOT" "$TEST_APP_DIR" "$TEST_PUBLIC_DIR" "true"
+    deploy_environment "production" "production" "$PROD_DOMAIN" "$PROD_ROOT" "$PROD_APP_DIR" "$PROD_PUBLIC_DIR" "true"
+    ;;
+  demetra)
+    deploy_environment "demetra" "production" "$DEMETRA_DOMAIN" "$DEMETRA_ROOT" "$DEMETRA_APP_DIR" "$DEMETRA_PUBLIC_DIR" "false"
     ;;
   *)
-    die "Unknown SMB_DEPLOY_TARGET: $DEPLOY_TARGET (expected test, production, or dual)"
+    die "Unknown SMB_DEPLOY_TARGET: $DEPLOY_TARGET (expected test, production, dual, or demetra)"
     ;;
 esac

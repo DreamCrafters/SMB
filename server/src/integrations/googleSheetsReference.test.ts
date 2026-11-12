@@ -809,3 +809,20 @@ for (const { name, create, csv } of concurrentReferenceCases) {
     assert.equal(fetchCount, 2);
   });
 }
+
+test("a switched-off reference source never contacts the workbook (задача 147)", async () => {
+  const config = { ...concurrentReferenceConfig, enabled: false };
+  let requests = 0;
+  const fetchImpl = (async () => { requests += 1; return new Response("Ответственный,Место\nСотрудник,Цех\n"); }) as typeof fetch;
+  const dispatcher = await createGoogleSheetsReferenceDataSource(config, fetchImpl).read();
+  assert.deepEqual(dispatcher.incidentLocationOptions, []);
+  assert.deepEqual(dispatcher.incidentResponsibleOptions, []);
+  // Laboratory and banks have no meaningful empty reference: they report the switched-off source.
+  await assert.rejects(createGoogleSheetsLaboratoryReferenceDataSource(config, fetchImpl).read(), /GOOGLE_SHEETS_REFERENCE_ENABLED=false/u);
+  await assert.rejects(createGoogleSheetsBankVolumeReferenceDataSource(config, fetchImpl).read(), /GOOGLE_SHEETS_REFERENCE_ENABLED=false/u);
+  await assert.rejects(readGoogleSheetsWorkbook(config, config.url, ["Справочник"], fetchImpl), /GOOGLE_SHEETS_REFERENCE_ENABLED=false/u);
+  assert.equal(requests, 0);
+  // The default stays on: NMOU deployments keep reading their workbook.
+  assert.deepEqual((await createGoogleSheetsReferenceDataSource(concurrentReferenceConfig, fetchImpl).read()).incidentResponsibleOptions, ["Сотрудник"]);
+  assert.equal(requests, 1);
+});

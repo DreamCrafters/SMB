@@ -1,4 +1,5 @@
 import { assignmentInboxSourceOptions, directorAssignmentAccessOptions } from "../server/src/contracts/directorAssignments.js";
+import { readClientProductName } from "./services/appEnvironment.js";
 import {
   collegiumInitiativeAccessOptions,
   collegiumInitiativesNavigationItem,
@@ -95,7 +96,7 @@ export const navigationAccessLevels: Partial<Record<AccountNavigationItem, {
 };
 
 export const shellCopy = {
-  productName: "НМОУ Вектор",
+  productName: readClientProductName(),
   visualDirection: "Industrial Finance Operations",
   authTitle: "Выбор доступа",
   authLead: "Выберите должность для проверки интерфейса.",

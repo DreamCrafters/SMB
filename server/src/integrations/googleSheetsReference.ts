@@ -162,6 +162,7 @@ export function createGoogleSheetsReferenceDataSource(
 
   return {
     read: shareConcurrentRead(async () => {
+      if (config.enabled === false) return emptyReferenceData;
       const readStartedAt = now();
 
       if (cachedData !== undefined && readStartedAt < cacheExpiresAt) {
@@ -292,6 +293,10 @@ export async function readGoogleSheetsWorkbook(
   fetchImpl: FetchLike = fetch,
   dependencies: GoogleSheetsReferenceDependencies = {},
 ): Promise<GoogleSheetsWorkbook> {
+  // Covers the history import as well: a switched-off instance never contacts the workbook.
+  if (config.enabled === false) {
+    throw new Error("Справочники Google Sheets отключены в этом экземпляре (GOOGLE_SHEETS_REFERENCE_ENABLED=false).");
+  }
   const parsedUrl = new URL(sourceUrl);
   const spreadsheetId = readSpreadsheetId(parsedUrl);
 
