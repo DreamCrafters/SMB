@@ -1,9 +1,10 @@
 import { ManagedTable } from "./ManagedTable";
 import { TableHeader, TableCell } from "./TableCell";
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import type {
-  RefractoryWagonFleetRecord,
-  RefractoryWagonRecord,
+import {
+  refractoryWagonConditionValues,
+  type RefractoryWagonFleetRecord,
+  type RefractoryWagonRecord,
 } from "./contracts/refractoryWagons";
 import { LoadingIndicator } from "./LoadingIndicator";
 import { requestRefractoryWagons, submitRefractoryWagon } from "./services/refractoryWagons";
@@ -17,6 +18,7 @@ import type { ShowToast } from "./services/toastStack";
  * Дата на борту, дата кап. и загрузка — снимок ведомости `Учёт вагонов`.
  * `readOnly` — руководительский раздел `Производство` (задача 145): та же
  * таблица без регистрации вагона; сервер открывает ему только чтение.
+ * Поиск и список состояний (задача 149) отбирают уже загруженные строки.
  */
 export function RefractoryWagonCatalog({
   onShowToast,
@@ -35,6 +37,8 @@ export function RefractoryWagonCatalog({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formMessage, setFormMessage] = useState("");
   const [hasFormError, setHasFormError] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [conditionFilter, setConditionFilter] = useState(allConditionsFilter);
   const hasSuccessfulMutation = useRef(false);
 
   useEffect(() => {
@@ -106,10 +110,35 @@ export function RefractoryWagonCatalog({
     );
   }
 
-  const sortedWagons = summarizeWagonsByNumber(wagons).sort((first, second) =>
-    first.number.localeCompare(second.number, "ru", { numeric: true })
-  );
   const fleetByNumber = new Map(fleet.map((record) => [record.number, record]));
+  const catalogRows = summarizeWagonsByNumber(wagons)
+    .sort((first, second) =>
+      first.number.localeCompare(second.number, "ru", { numeric: true })
+    )
+    .map((wagon): WagonCatalogRow => {
+      const fleetRecord = fleetByNumber.get(wagon.number);
+      return {
+        ...wagon,
+        onBoardDate: fleetRecord?.onBoardDate == null
+          ? null
+          : formatDate(fleetRecord.onBoardDate),
+        capitalRepairPeriod: fleetRecord?.capitalRepairPeriod ?? null,
+        load: fleetRecord?.load ?? null,
+      };
+    });
+  const conditionOptions = buildConditionFilterOptions(catalogRows);
+  // Состояние, которого после обновления каталога уже нет, не должно прятать
+  // всю таблицу невидимым для пользователя отбором.
+  const activeConditionFilter = conditionOptions.some(
+      (option) => option.value === conditionFilter,
+    )
+    ? conditionFilter
+    : allConditionsFilter;
+  const visibleRows = filterCatalogRows(
+    catalogRows,
+    searchQuery,
+    activeConditionFilter,
+  );
   const fleetAsOfDate = fleet.map((record) => record.asOfDate).sort().at(-1);
 
   return (
@@ -151,55 +180,159 @@ export function RefractoryWagonCatalog({
         <LoadingIndicator label="Загружаем каталог вагонов…" variant="panel" />
       ) : loadState === "error" ? (
         <p className="form-status form-status-error">{message}</p>
-      ) : sortedWagons.length === 0 ? (
+      ) : catalogRows.length === 0 ? (
         <p className="laboratory-empty-note">В каталоге пока нет вагонов.</p>
       ) : (
         <>
-          {fleetAsOfDate === undefined ? null : (
-            <p className="laboratory-empty-note">
-              Дата на борту, дата кап. и загрузка — по учёту на{" "}
-              {formatDate(fleetAsOfDate)}.
-            </p>
-          )}
-          <div className="refractory-table-wrap history-table-scroll">
-            <ManagedTable tableId="refractory.catalog" className="refractory-input-table refractory-wagon-catalog-table">
-              <thead>
-                <tr>
-                  <TableHeader>Номер вагона</TableHeader>
-                  <TableHeader>Дата на борту</TableHeader>
-                  <TableHeader>Дата кап.</TableHeader>
-                  <TableHeader>Загрузка</TableHeader>
-                  <TableHeader>Счётчик обжига</TableHeader>
-                  <TableHeader>Текущее состояние</TableHeader>
-                </tr>
-              </thead>
-              <tbody>
-                {sortedWagons.map((wagon) => {
-                  const fleetRecord = fleetByNumber.get(wagon.number);
-                  return (
-                    <tr key={wagon.number}>
-                      <TableCell>{wagon.number}</TableCell>
-                      <TableCell>{formatDate(fleetRecord?.onBoardDate ?? null)}</TableCell>
-                      <TableCell>{fleetRecord?.capitalRepairPeriod ?? "—"}</TableCell>
-                      <TableCell>{fleetRecord?.load ?? "—"}</TableCell>
-                      <TableCell>{wagon.firingCount}</TableCell>
-                      <TableCell>{wagon.currentCondition ?? "—"}</TableCell>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </ManagedTable>
+          <div className="laboratory-filters refractory-wagon-catalog-filters">
+            <label>
+              <span>Поиск</span>
+              <input
+                maxLength={120}
+                placeholder="Номер, дата, загрузка, состояние"
+                type="search"
+                value={searchQuery}
+                onChange={(event) => setSearchQuery(event.currentTarget.value)}
+              />
+            </label>
+            <label>
+              <span>Текущее состояние</span>
+              <select
+                value={activeConditionFilter}
+                onChange={(event) =>
+                  setConditionFilter(event.currentTarget.value)}
+              >
+                <option value={allConditionsFilter}>Все</option>
+                {conditionOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
           </div>
+          <p className="laboratory-empty-note" aria-live="polite">
+            {visibleRows.length === 0
+              ? "Нет вагонов по выбранным условиям."
+              : `Показано вагонов: ${visibleRows.length} из ${catalogRows.length}.`}
+          </p>
+          {visibleRows.length === 0 ? null : (
+            <>
+              {fleetAsOfDate === undefined ? null : (
+                <p className="laboratory-empty-note">
+                  Дата на борту, дата кап. и загрузка — по учёту на{" "}
+                  {formatDate(fleetAsOfDate)}.
+                </p>
+              )}
+              <div className="refractory-table-wrap history-table-scroll">
+                <ManagedTable tableId="refractory.catalog" className="refractory-input-table refractory-wagon-catalog-table">
+                  <thead>
+                    <tr>
+                      <TableHeader>Номер вагона</TableHeader>
+                      <TableHeader>Дата на борту</TableHeader>
+                      <TableHeader>Дата кап.</TableHeader>
+                      <TableHeader>Загрузка</TableHeader>
+                      <TableHeader>Счётчик обжига</TableHeader>
+                      <TableHeader>Текущее состояние</TableHeader>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {visibleRows.map((row) => (
+                      <tr key={row.number}>
+                        <TableCell>{row.number}</TableCell>
+                        <TableCell>{row.onBoardDate ?? "—"}</TableCell>
+                        <TableCell>{row.capitalRepairPeriod ?? "—"}</TableCell>
+                        <TableCell>{row.load ?? "—"}</TableCell>
+                        <TableCell>{row.firingCount}</TableCell>
+                        <TableCell>{row.currentCondition ?? "—"}</TableCell>
+                      </tr>
+                    ))}
+                  </tbody>
+                </ManagedTable>
+              </div>
+            </>
+          )}
         </>
       )}
     </section>
   );
 }
 
-function formatDate(value: string | null) {
-  if (value === null) return "—";
+function formatDate(value: string) {
   const [year, month, day] = value.split("-");
   return `${day}.${month}.${year}`;
+}
+
+const allConditionsFilter = "";
+const missingConditionFilter = "none";
+/** Префикс отделяет состояние из данных от служебных значений списка. */
+const conditionFilterPrefix = "value:";
+
+/** Строка каталога в том виде, в каком её показывает и ищет таблица. */
+type WagonCatalogRow = WagonCatalogSummary & {
+  onBoardDate: string | null;
+  capitalRepairPeriod: string | null;
+  load: string | null;
+};
+
+/**
+ * Список состояний: вердикты осмотра из контракта, затем иные значения,
+ * встретившиеся в данных, и вагоны без состояния.
+ */
+function buildConditionFilterOptions(rows: readonly WagonCatalogRow[]) {
+  const knownConditions: readonly string[] = refractoryWagonConditionValues;
+  const otherConditions = [...new Set(
+    rows.flatMap((row) =>
+      row.currentCondition === null ||
+        knownConditions.includes(row.currentCondition)
+        ? []
+        : [row.currentCondition]
+    ),
+  )].sort((first, second) => first.localeCompare(second, "ru"));
+
+  return [
+    ...[...knownConditions, ...otherConditions].map((condition) => ({
+      value: `${conditionFilterPrefix}${condition}`,
+      label: condition,
+    })),
+    { value: missingConditionFilter, label: "Не указано" },
+  ];
+}
+
+/** Поиск идёт по показанному содержимому строки; прочерки пустых ячеек не ищутся. */
+function filterCatalogRows(
+  rows: readonly WagonCatalogRow[],
+  searchQuery: string,
+  conditionFilter: string,
+) {
+  const query = normalizeSearchText(searchQuery);
+
+  return rows.filter((row) => {
+    if (
+      conditionFilter === missingConditionFilter
+        ? row.currentCondition !== null
+        : conditionFilter !== allConditionsFilter &&
+          `${conditionFilterPrefix}${row.currentCondition ?? ""}` !==
+            conditionFilter
+    ) {
+      return false;
+    }
+
+    return query === "" || [
+      row.number,
+      row.onBoardDate,
+      row.capitalRepairPeriod,
+      row.load,
+      String(row.firingCount),
+      row.currentCondition,
+    ].some((value) =>
+      value !== null && normalizeSearchText(value).includes(query)
+    );
+  });
+}
+
+function normalizeSearchText(value: string) {
+  return value.trim().replace(/\s+/gu, " ").toLocaleLowerCase("ru-RU");
 }
 
 type WagonCatalogSummary = {

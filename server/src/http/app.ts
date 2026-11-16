@@ -100,6 +100,7 @@ import {
   buildProductionMonthOverview,
   buildProductionReportTableTotals,
   createProductionReportTablesCache,
+  readProductionCalendarMonth,
   type ProductionReportDateRange,
 } from "../domain/productionReportTables.js";
 import {
@@ -1930,15 +1931,19 @@ export function createApiServer({
           const productionSubmissions = await listAllProductionSubmissions(
             dispatcherSubmissions,
           );
+          const feedDate = now();
           const productionPlanMonths = Array.from(
-            new Set(
-              productionSubmissions.flatMap((submission) => {
+            new Set([
+              ...productionSubmissions.flatMap((submission) => {
                 const month = readProductionSubmissionMonth(
                   submission.payload,
                 );
                 return month === undefined ? [] : [month];
               }),
-            ),
+              // Задача 150: план текущего месяца показывается в шапке таблиц
+              // выработки и до первого отчёта за этот месяц.
+              readProductionCalendarMonth(feedDate),
+            ]),
           );
           const productionPlanValues = productionPlans === undefined
             ? []
@@ -1957,7 +1962,8 @@ export function createApiServer({
           );
           const productionMonthOverview = buildProductionMonthOverview(
             productionReportTables,
-            now(),
+            productionPlanValues,
+            feedDate,
           );
           const submissions = await dispatcherSubmissions.listLatest(filters.value);
           const summary = await dispatcherSubmissions.readSummary(filters.value);

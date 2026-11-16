@@ -109,16 +109,25 @@ export type ProductionReportDateRange = {
 export type ProductionMonthOverview = {
   month: string;
   totalFact: number;
-  forming: ProductionOverviewValue;
-  sorting: ProductionOverviewValue;
-  unformed: ProductionOverviewValue;
-  chamotte: ProductionOverviewValue;
+  forming: ProductionCategoryOverviewValue;
+  sorting: ProductionCategoryOverviewValue;
+  unformed: ProductionCategoryOverviewValue;
+  chamotte: ProductionCategoryOverviewValue;
   granulation: ProductionOverviewValue;
 };
 
 type ProductionOverviewValue = {
   monthFact: number;
   todayFact: number;
+};
+
+/**
+ * Задача 150: план категории на весь текущий месяц, как его ввёл экономист.
+ * В отличие от `monthPlan` строки таблицы это не накопление на дату отчёта;
+ * `null` — план на этот месяц не задан.
+ */
+type ProductionCategoryOverviewValue = ProductionOverviewValue & {
+  monthlyPlan: number | null;
 };
 
 export type ProductionMonthToDateValue = {
@@ -314,14 +323,22 @@ function readLatestProductionRow<Row extends ProductionReportBaseRow>(
 
 export function buildProductionMonthOverview(
   tables: ProductionReportTables,
+  plans: readonly ProductionPlan[] = [],
   currentDate = new Date(),
 ): ProductionMonthOverview {
   const today = formatMoscowProductionCalendarDate(currentDate);
   const month = today.slice(0, 7);
-  const forming = buildCategoryOverviewValue(tables.forming, month, today);
-  const sorting = buildCategoryOverviewValue(tables.sorting, month, today);
-  const unformed = buildCategoryOverviewValue(tables.unformed, month, today);
-  const chamotte = buildCategoryOverviewValue(tables.chamotte, month, today);
+  const schedules = plans.find((plan) => plan.month === month)?.schedules;
+  const buildCategoryValue = (
+    category: ProductionCategory,
+  ): ProductionCategoryOverviewValue => ({
+    ...buildCategoryOverviewValue(tables[category], month, today),
+    monthlyPlan: schedules?.[category]?.monthlyPlan ?? null,
+  });
+  const forming = buildCategoryValue("forming");
+  const sorting = buildCategoryValue("sorting");
+  const unformed = buildCategoryValue("unformed");
+  const chamotte = buildCategoryValue("chamotte");
   const granulation = buildGranulationOverviewValue(
     tables.granulation,
     month,
@@ -338,6 +355,14 @@ export function buildProductionMonthOverview(
     chamotte,
     granulation,
   };
+}
+
+/**
+ * Месяц производственного календаря по московскому времени. Нужен и там, где
+ * план текущего месяца читают до появления первого отчёта за него.
+ */
+export function readProductionCalendarMonth(currentDate = new Date()) {
+  return formatMoscowProductionCalendarDate(currentDate).slice(0, 7);
 }
 
 function formatMoscowProductionCalendarDate(value: Date) {

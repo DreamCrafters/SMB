@@ -2562,6 +2562,12 @@ p {
   text-transform: none;
 }
 
+/* Задача 150: план категории на весь текущий месяц под названием колонки. */
+.production-dashboard-month-plan {
+  color: var(--text);
+  text-transform: none;
+}
+
 .dispatcher-feed-row-incidents {
   grid-template-columns: minmax(120px, 0.55fr) minmax(100px, 0.45fr) minmax(150px, 0.7fr) minmax(150px, 0.7fr) minmax(420px, 1.8fr);
 }
@@ -8388,6 +8394,15 @@ p {
 .refractory-wagon-catalog-table {
   min-width: 480px;
   table-layout: fixed;
+}
+
+/* Задача 149: поиск и список состояний над таблицей каталога. */
+.refractory-wagon-catalog-filters {
+  max-width: 660px;
+}
+
+.refractory-wagon-form + .refractory-wagon-catalog-filters {
+  margin-top: var(--density-4);
 }
 
 /**

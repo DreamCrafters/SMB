@@ -533,6 +533,121 @@ test("sorting dashboard filters report rows by product brand", async () => {
   }
 });
 
+test("brand dashboards show the current-month plan in the header", async () => {
+  const dom = new JSDOM(
+    "<!doctype html><html><body><div id=\"root\"></div></body></html>",
+    { url: "http://127.0.0.1:5173/" },
+  );
+  const previousGlobals = captureDomGlobals();
+  installDomGlobals(dom.window);
+
+  const React = await import("react");
+  const { createRoot } = await import("react-dom/client");
+  try {
+    const { ProductionReportSummaryTable } = await vite.ssrLoadModule(
+      "/src/App.tsx",
+    );
+    const rootElement = dom.window.document.getElementById("root");
+    const root = createRoot(rootElement);
+    const buildRow = (reportId, brand) => ({
+      reportId,
+      reportDate: "2026-11-12",
+      receivedAt: "2026-11-12T18:00:00.000Z",
+      facts: [{ brand, value: 5, monthValue: 5 }],
+      dayPlan: 98,
+      dayFact: 5,
+      monthPlan: 784,
+      monthFact: 5,
+      deviation: -779,
+    });
+    const render = (section, monthOverview) => React.act(async () => {
+      root.render(React.createElement(ProductionReportSummaryTable, {
+        form: undefined,
+        submissions: [],
+        bankContents: [],
+        section,
+        onSectionChange() {},
+        monthOverview,
+        tables: {
+          forming: [buildRow("forming-1", "МКР-1")],
+          sorting: [buildRow("sorting-1", "ШБ-5")],
+          unformed: [buildRow("unformed-1", "Бетон БТ-1")],
+          chamotte: [buildRow("chamotte-1", "ШГР-28")],
+          jars: [],
+          granulation: [],
+        },
+        totals: emptyProductionTableTotals(),
+      }));
+    });
+    const readMonthPlanHeader = () => Array.from(
+      rootElement.querySelectorAll(".production-dashboard-headings-row th"),
+    ).find((header) => header.textContent.startsWith("Месяц, план"));
+    const monthOverview = {
+      month: "2026-11",
+      totalFact: 20,
+      forming: { monthFact: 5, todayFact: 5, monthlyPlan: 2940.5 },
+      sorting: { monthFact: 5, todayFact: 5, monthlyPlan: 1800 },
+      unformed: { monthFact: 5, todayFact: 5, monthlyPlan: null },
+      // Локальный тестовый режим планов не знает и поле не присылает.
+      chamotte: { monthFact: 5, todayFact: 5 },
+      granulation: { monthFact: 0, todayFact: 0 },
+    };
+
+    await render("forming", monthOverview);
+    assert.equal(
+      readMonthPlanHeader().querySelector(".production-dashboard-month-plan")
+        ?.textContent.replace(/\s/gu, " "),
+      "на ноябрь: 2 940,5",
+    );
+    // Подпись колонки для «Настроить колонки» остаётся прежней.
+    assert.equal(
+      readMonthPlanHeader().dataset.tableColumnLabel,
+      "Месяц, план",
+    );
+
+    // План категории по маркам не распределяется: при фильтре подписи нет.
+    const brandFilter = rootElement.querySelector(
+      'input[aria-label="Фильтр по марке"]',
+    );
+    await React.act(async () => {
+      setNativeInputValue(brandFilter, "мкр");
+      brandFilter.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+    });
+    assert.equal(
+      rootElement.querySelector(".production-dashboard-month-plan"),
+      null,
+    );
+
+    await render("sorting", monthOverview);
+    assert.equal(
+      rootElement.querySelector(".production-dashboard-month-plan")
+        ?.textContent.replace(/\s/gu, " "),
+      "на ноябрь: 1 800",
+    );
+    await render("unformed", monthOverview);
+    assert.equal(
+      rootElement.querySelector(".production-dashboard-month-plan")?.textContent,
+      "на ноябрь: не задан",
+    );
+    await render("chamotte", monthOverview);
+    assert.equal(
+      rootElement.querySelector(".production-dashboard-month-plan"),
+      null,
+    );
+    await render("sorting", undefined);
+    assert.equal(
+      rootElement.querySelector(".production-dashboard-month-plan"),
+      null,
+    );
+    assert.equal(readMonthPlanHeader().textContent, "Месяц, план");
+
+    await React.act(async () => root.unmount());
+  } finally {
+    dom.window.close();
+    restoreDomGlobals(previousGlobals);
+  }
+});
+
 test("production dashboard totals follow the selected jars and granulation table", async () => {
   const dom = new JSDOM(
     "<!doctype html><html><body><div id=\"root\"></div></body></html>",

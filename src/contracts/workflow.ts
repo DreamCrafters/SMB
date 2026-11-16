@@ -193,16 +193,25 @@ export type ProductionReportTableTotals = {
 export type ProductionMonthOverview = {
   month: string;
   totalFact: number;
-  forming: ProductionOverviewValue;
-  sorting: ProductionOverviewValue;
-  unformed: ProductionOverviewValue;
-  chamotte: ProductionOverviewValue;
+  forming: ProductionCategoryOverviewValue;
+  sorting: ProductionCategoryOverviewValue;
+  unformed: ProductionCategoryOverviewValue;
+  chamotte: ProductionCategoryOverviewValue;
   granulation: ProductionOverviewValue;
 };
 
 export type ProductionOverviewValue = {
   monthFact: number;
   todayFact: number;
+};
+
+/**
+ * Задача 150: `monthlyPlan` — план категории на весь текущий месяц (не
+ * накопление на дату, как `monthPlan` строки). `null` — план не задан;
+ * поля нет в локальном тестовом режиме, где планов экономиста нет вовсе.
+ */
+export type ProductionCategoryOverviewValue = ProductionOverviewValue & {
+  monthlyPlan?: number | null;
 };
 
 export type OpenIncidentSummary = {

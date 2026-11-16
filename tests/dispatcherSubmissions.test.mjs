@@ -833,6 +833,50 @@ test("requestDispatcherFeed reads live history from remote server", async () => 
   assert.equal(request.init.method, "GET");
 });
 
+test("requestDispatcherFeed keeps the current-month production plan and rejects a malformed one", async () => {
+  const buildOverview = (formingPlan) => ({
+    month: "2026-11",
+    totalFact: 12,
+    forming: { monthFact: 12, todayFact: 5, monthlyPlan: formingPlan },
+    sorting: { monthFact: 0, todayFact: 0, monthlyPlan: null },
+    unformed: { monthFact: 0, todayFact: 0 },
+    chamotte: { monthFact: 0, todayFact: 0, monthlyPlan: 0 },
+    granulation: { monthFact: 0, todayFact: 0 },
+  });
+  let overview = buildOverview(2940.5);
+
+  globalThis.fetch = async () => new Response(
+    JSON.stringify({
+      submissions: [],
+      productionReportTables: emptyProductionReportTables,
+      productionReportTableTotals: emptyProductionReportTableTotals,
+      productionMonthOverview: overview,
+      openIncidents: [],
+      bankContents: [],
+      receivedAt: "2026-11-17T00:00:02.000Z",
+      summary: { total: 0, byForm: [] },
+    }),
+    { status: 200, headers: { "content-type": "application/json" } },
+  );
+
+  const result = await requestDispatcherFeed({
+    baseUrl: "https://api.example.test",
+  });
+
+  assert.equal(result.status, "ready");
+  assert.deepEqual(result.productionMonthOverview, overview);
+
+  for (const malformedPlan of ["2940", -1, true]) {
+    overview = buildOverview(malformedPlan);
+    assert.equal(
+      (await requestDispatcherFeed({ baseUrl: "https://api.example.test" }))
+        .status,
+      "error",
+      String(malformedPlan),
+    );
+  }
+});
+
 test("dispatcher feed cache revalidates, preserves objects on 304 and isolates filters and failures", async () => {
   const cache = {};
   const requests = [];

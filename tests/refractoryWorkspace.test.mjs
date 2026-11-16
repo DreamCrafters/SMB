@@ -1060,6 +1060,156 @@ test("refractory workspace opens shift reports and the wagon journal", async () 
   }
 });
 
+test("wagon catalog filters rows by content search and current condition", async () => {
+  const dom = new JSDOM(
+    '<!doctype html><html><body><div id="root"></div></body></html>',
+    { url: "http://127.0.0.1:5173/" },
+  );
+  const previousGlobals = captureDomGlobals();
+  const previousFetch = globalThis.fetch;
+  installDomGlobals(dom.window);
+  const React = await import("react");
+  const { createRoot } = await import("react-dom/client");
+  const vite = await loadViteServer("test");
+
+  try {
+    const { RefractoryWagonCatalog } = await vite.ssrLoadModule(
+      "/src/RefractoryWagonCatalog.tsx",
+    );
+    const buildCycle = (number, postFiringCondition, firingDates = []) => ({
+      id: `wagon-${number}`,
+      number,
+      loadingDate: null,
+      productBrand: null,
+      pressDate: null,
+      pieceCount: null,
+      setter: null,
+      pressOperator: null,
+      rawControlDate: null,
+      firingOperator: null,
+      firingDates,
+      sorter: null,
+      sortingDate: null,
+      postFiringCondition,
+      serviceApprovalDate: null,
+      createdAt: "2026-10-01T08:00:00.000Z",
+    });
+    globalThis.fetch = async () => new Response(
+      JSON.stringify({
+        wagons: [
+          buildCycle("17", "В ремонт", ["2026-10-03", "2026-10-09"]),
+          buildCycle("18А", "Можно эксплуатировать"),
+          buildCycle("21", null),
+          buildCycle("30", "Списан"),
+        ],
+        fleet: [
+          {
+            number: "17",
+            onBoardDate: "2019-04-15",
+            capitalRepairPeriod: "до 12.2024",
+            load: "ША",
+            asOfDate: "2026-10-28",
+          },
+          {
+            number: "21",
+            onBoardDate: null,
+            capitalRepairPeriod: null,
+            load: "ШБ  класс 5",
+            asOfDate: "2026-10-28",
+          },
+        ],
+      }),
+      { status: 200, headers: { "Content-Type": "application/json" } },
+    );
+    const rootElement = dom.window.document.getElementById("root");
+    const root = createRoot(rootElement);
+    const readNumbers = () => Array.from(
+      rootElement.querySelectorAll(
+        ".refractory-wagon-catalog-table tbody tr td:first-child",
+      ),
+    ).map((cell) => cell.textContent);
+    const readStatus = () =>
+      rootElement.querySelector('[aria-live="polite"]')?.textContent;
+
+    await React.act(async () => {
+      root.render(React.createElement(RefractoryWagonCatalog, {
+        onShowToast() {},
+        readOnly: true,
+      }));
+    });
+    await waitFor(React, () =>
+      rootElement.querySelector(".refractory-wagon-catalog-table") !== null);
+
+    const searchInput = rootElement.querySelector('input[type="search"]');
+    const conditionSelect = rootElement.querySelector(
+      ".refractory-wagon-catalog-filters select",
+    );
+    const search = (value) => React.act(async () => {
+      setNativeInputValue(searchInput, value);
+      searchInput.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+    });
+    const selectCondition = (label) => React.act(async () => {
+      const option = Array.from(conditionSelect.options).find(
+        (item) => item.textContent === label,
+      );
+      setNativeSelectValue(conditionSelect, option.value);
+      conditionSelect.dispatchEvent(
+        new dom.window.Event("change", { bubbles: true }),
+      );
+    });
+
+    assert.deepEqual(readNumbers(), ["17", "18А", "21", "30"]);
+    assert.equal(readStatus(), "Показано вагонов: 4 из 4.");
+    // Вердикты осмотра идут первыми, затем иное значение из данных.
+    assert.deepEqual(
+      Array.from(conditionSelect.options).map((option) => option.textContent),
+      ["Все", "Можно эксплуатировать", "В ремонт", "Списан", "Не указано"],
+    );
+
+    // Поиск по содержимому любой колонки без учёта регистра и лишних пробелов.
+    await search("  шб КЛАСС ");
+    assert.deepEqual(readNumbers(), ["21"]);
+    assert.equal(readStatus(), "Показано вагонов: 1 из 4.");
+    await search("15.04.2019");
+    assert.deepEqual(readNumbers(), ["17"]);
+    await search("18а");
+    assert.deepEqual(readNumbers(), ["18А"]);
+    await search("ремонт");
+    assert.deepEqual(readNumbers(), ["17"]);
+    // Прочерк пустой ячейки содержимым не считается.
+    await search("—");
+    assert.deepEqual(readNumbers(), []);
+    assert.equal(readStatus(), "Нет вагонов по выбранным условиям.");
+    assert.equal(
+      rootElement.querySelector(".refractory-wagon-catalog-table"),
+      null,
+    );
+
+    await search("");
+    await selectCondition("В ремонт");
+    assert.deepEqual(readNumbers(), ["17"]);
+    await selectCondition("Списан");
+    assert.deepEqual(readNumbers(), ["30"]);
+    await selectCondition("Не указано");
+    assert.deepEqual(readNumbers(), ["21"]);
+
+    // Поиск и состояние действуют вместе.
+    await selectCondition("Можно эксплуатировать");
+    await search("17");
+    assert.deepEqual(readNumbers(), []);
+    await search("18");
+    assert.deepEqual(readNumbers(), ["18А"]);
+    await selectCondition("Все");
+    assert.deepEqual(readNumbers(), ["18А"]);
+
+    await React.act(async () => root.unmount());
+  } finally {
+    globalThis.fetch = previousFetch;
+    dom.window.close();
+    restoreDomGlobals(previousGlobals);
+  }
+});
+
 test("refractory wagon save preserves rows loaded while the request is pending", () =>
   runRefractoryWagonSaveRace("load-first"));
 

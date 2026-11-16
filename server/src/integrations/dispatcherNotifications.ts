@@ -205,11 +205,13 @@ export function buildDispatcherNotificationText(
 
         /**
          * Задача 104: марка и факт одной строки уходят одной строкой рассылки.
-         * Доработка задачи 104 добавила сюда неформованную продукцию; шамот
-         * по-прежнему выводится отдельными полями.
+         * Доработка задачи 104 добавила сюда неформованную продукцию, а
+         * задача 151 — шамот: теперь так выводятся все четыре категории.
          */
         const match =
-          /^(forming|sorting|unformed)(Brand|Fact)([1-9]\d?)$/u.exec(key);
+          /^(forming|sorting|unformed|chamotte)(Brand|Fact)([1-9]\d?)$/u.exec(
+            key,
+          );
 
         if (match !== null && Number(match[3]) <= 50) {
           const brand = readPayloadValue(submission, `${match[1]}Brand${match[3]}`);

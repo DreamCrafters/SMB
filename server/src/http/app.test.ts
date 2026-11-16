@@ -10539,6 +10539,112 @@ test("dispatcher daily plan excludes the selected-day fact from the live deviati
   }
 });
 
+test("dispatcher feed returns the full plan of the current month before its first report", async () => {
+  const profile = buildProductionProfile("business_owner");
+  const repository: DispatcherSubmissionsRepository = {
+    ...dispatcherSubmissions,
+    async listLatest(filters) {
+      return filters?.formId === "production"
+        ? [{
+            id: "production-2026-07-31",
+            formId: "production" as const,
+            formTitle: "Выработка",
+            payload: {
+              reportDate: "31.07.2026",
+              formingBrand1: "ША-8",
+              formingFact1: "8",
+            },
+            summary: "Выработка за 31.07.2026",
+            status: "received" as const,
+            submittedByAccountId: "dispatcher-access-id",
+            submittedAt: "2026-07-31T18:00:00.000Z",
+            receivedAt: "2026-07-31T18:00:01.000Z",
+          }]
+        : [];
+    },
+  };
+  const requestedMonths: string[] = [];
+  const augustRevision: ProductionPlanRevision = {
+    revisionId: "revision-august",
+    month: "2026-08",
+    schedules: {
+      forming: {
+        monthlyPlan: 900,
+        workingDayCount: 1,
+        dailyPlans: [{ date: "2026-08-03", value: 900 }],
+      },
+    },
+    createdByUserId: "economist-user-id",
+    createdAt: "2026-08-01T08:00:00.000Z",
+  };
+  const productionPlans: ProductionPlansRepository = {
+    async readLatest(month) {
+      requestedMonths.push(month);
+      return month === augustRevision.month ? augustRevision : undefined;
+    },
+    async readLatestForUpdate() {
+      throw new Error("not used");
+    },
+    async saveRevision() {
+      throw new Error("not used");
+    },
+  };
+  const server = createApiServer({
+    config: productionConfig,
+    dispatcherSubmissions: repository,
+    authService: buildAuthService({ profile }),
+    productionPlans,
+    referenceDataSource: emptyReferenceDataSource,
+    audit: {
+      async record() {},
+      async listReport() {
+        throw new Error("not used");
+      },
+    },
+    databaseTransaction: {
+      async run(operation) {
+        return operation();
+      },
+    },
+    // Вечер 31 июля по UTC — уже 1 августа по Москве: отчётов за август нет.
+    now: () => new Date("2026-07-31T22:30:00.000Z"),
+  });
+
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const address = server.address() as AddressInfo;
+
+  try {
+    const response = await fetch(
+      `http://127.0.0.1:${address.port}/api/dispatcher/submissions`,
+      {
+        headers: {
+          Cookie: `${productionConfig.session.cookieName}=prod-session`,
+        },
+      },
+    );
+    const payload = await response.json();
+
+    assert.equal(response.status, 200);
+    assert.deepEqual(requestedMonths, ["2026-07", "2026-08"]);
+    assert.deepEqual(
+      isRecord(payload) ? payload.productionMonthOverview : undefined,
+      {
+        month: "2026-08",
+        totalFact: 0,
+        forming: { monthFact: 0, todayFact: 0, monthlyPlan: 900 },
+        sorting: { monthFact: 0, todayFact: 0, monthlyPlan: null },
+        unformed: { monthFact: 0, todayFact: 0, monthlyPlan: null },
+        chamotte: { monthFact: 0, todayFact: 0, monthlyPlan: null },
+        granulation: { monthFact: 0, todayFact: 0 },
+      },
+    );
+  } finally {
+    server.close();
+    await once(server, "close");
+  }
+});
+
 test("product brand journal is the managed source for the journal and every brand selector", async () => {
   const profile: ServerUserProfile = {
     ...buildProductionProfile("business_owner"),

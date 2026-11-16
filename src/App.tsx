@@ -68,6 +68,7 @@ import {
   type ProductionJarMeasurementRow,
   type ProductionJarMeasurementTotals,
   type ProductionMetricRow,
+  type ProductionMonthOverview,
   type ProductionMonthToDateValue,
   type ProductionReportBaseRow,
   type ProductionReportTableTotals,
@@ -7926,6 +7927,7 @@ export function DispatcherFeedPanel({
           form={productionForm}
           tables={productionTables}
           totals={productionTableTotals}
+          monthOverview={dispatcherFeed.productionMonthOverview ?? undefined}
           bankContents={bankContents}
           submissions={submissions}
           section={filters.productionSection}
@@ -8098,6 +8100,7 @@ export function ProductionReportSummaryTable({
   form,
   tables,
   totals,
+  monthOverview,
   bankContents,
   submissions,
   section: requestedSection,
@@ -8106,6 +8109,7 @@ export function ProductionReportSummaryTable({
   form: DispatcherFormDefinition | undefined;
   tables: ProductionReportTables;
   totals: ProductionReportTableTotals;
+  monthOverview?: ProductionMonthOverview;
   bankContents: readonly DispatcherProductionBankContent[];
   submissions: DispatcherSubmission[];
   section?: ProductionReportSection;
@@ -8256,6 +8260,14 @@ export function ProductionReportSummaryTable({
                 ? buildProductionBrandCategoryTotals(filteredSortingRows)
               : totals[section]
           }
+          currentMonthPlan={
+            // План категории по маркам не распределяется, поэтому при
+            // фильтре по марке его в шапке нет, как и в строках.
+            (section === "forming" && formingBrandQuery.trim() !== "") ||
+            (section === "sorting" && sortingBrandQuery.trim() !== "")
+              ? undefined
+              : readProductionCurrentMonthPlan(monthOverview, section)
+          }
           formAvailable={form !== undefined}
           onOpen={setDetailReportId}
         />
@@ -8290,14 +8302,48 @@ export function ProductionReportSummaryTable({
   );
 }
 
+type ProductionCurrentMonthPlan = {
+  month: string;
+  value: number | null;
+};
+
+/**
+ * Задача 150: план категории на весь текущий месяц для шапки таблицы.
+ * Сервер отдаёт `null`, когда экономист план не задал; без поля (локальный
+ * тестовый режим) подписи нет вовсе.
+ */
+function readProductionCurrentMonthPlan(
+  overview: ProductionMonthOverview | undefined,
+  category: ProductionCategory,
+): ProductionCurrentMonthPlan | undefined {
+  const value = overview?.[category].monthlyPlan;
+
+  return overview === undefined || value === undefined
+    ? undefined
+    : { month: overview.month, value };
+}
+
+function formatProductionCurrentMonthPlan(plan: ProductionCurrentMonthPlan) {
+  const { month } = readProductionPlanMonthParts(plan.month);
+  const monthName = productionPlanMonthLabels[month - 1].toLocaleLowerCase(
+    "ru-RU",
+  );
+
+  return `на ${monthName}: ${
+    plan.value === null ? "не задан" : formatNumber(plan.value)
+  }`;
+}
+
 function ProductionBrandDashboardTable({
   rows,
   totals,
+  currentMonthPlan,
   formAvailable,
   onOpen,
 }: {
   rows: ProductionBrandCategoryRow[];
   totals: ProductionBrandCategoryTotals;
+  currentMonthPlan?: ProductionCurrentMonthPlan;
   formAvailable: boolean;
   onOpen: (reportId: string) => void;
 }) {
@@ -8319,7 +8365,20 @@ function ProductionBrandDashboardTable({
             <TableHeader scope="col">Марка</TableHeader>
             <TableHeader scope="col">Сутки, план</TableHeader>
             <TableHeader scope="col">Сутки, факт</TableHeader>
-            <TableHeader scope="col">Месяц, план</TableHeader>
+            <TableHeader
+              scope="col"
+              data-table-column-label="Месяц, план"
+            >
+              Месяц, план
+              {currentMonthPlan === undefined ? null : (
+                <>
+                  {"\n"}
+                  <span className="production-dashboard-month-plan">
+                    {formatProductionCurrentMonthPlan(currentMonthPlan)}
+                  </span>
+                </>
+              )}
+            </TableHeader>
             <TableHeader scope="col">Месяц, факт</TableHeader>
             <TableHeader scope="col">Разница</TableHeader>
           </tr>

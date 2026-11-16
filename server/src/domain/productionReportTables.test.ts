@@ -306,18 +306,62 @@ test("buildProductionMonthOverview returns month and today values for every over
   assert.deepEqual(
     buildProductionMonthOverview(
       tables,
+      [],
       new Date("2026-07-02T12:00:00.000Z"),
     ),
     {
       month: "2026-07",
       totalFact: 46,
-      forming: { monthFact: 19, todayFact: 11 },
-      sorting: { monthFact: 12, todayFact: 7 },
-      unformed: { monthFact: 7, todayFact: 5 },
-      chamotte: { monthFact: 8, todayFact: 5 },
+      forming: { monthFact: 19, todayFact: 11, monthlyPlan: null },
+      sorting: { monthFact: 12, todayFact: 7, monthlyPlan: null },
+      unformed: { monthFact: 7, todayFact: 5, monthlyPlan: null },
+      chamotte: { monthFact: 8, todayFact: 5, monthlyPlan: null },
       granulation: { monthFact: 120, todayFact: 70 },
     },
   );
+});
+
+test("buildProductionMonthOverview returns the full plan of the current Moscow month", () => {
+  const { sorting: _sorting, ...schedulesWithoutSorting } =
+    productionPlan.schedules;
+  const julyPlan: ProductionPlan = {
+    month: "2026-07",
+    schedules: schedulesWithoutSorting,
+  };
+  const augustPlan: ProductionPlan = {
+    month: "2026-08",
+    schedules: {
+      forming: { monthlyPlan: 900, workingDayCount: 0, dailyPlans: [] },
+    },
+  };
+  const tables = buildProductionReportTables([], [julyPlan, augustPlan]);
+
+  // План есть и без единого отчёта за месяц; категория без плана — `null`.
+  const july = buildProductionMonthOverview(
+    tables,
+    [julyPlan, augustPlan],
+    new Date("2026-07-02T12:00:00.000Z"),
+  );
+  assert.deepEqual(
+    [july.forming, july.sorting, july.unformed, july.chamotte],
+    [
+      { monthFact: 0, todayFact: 0, monthlyPlan: 30 },
+      { monthFact: 0, todayFact: 0, monthlyPlan: null },
+      { monthFact: 0, todayFact: 0, monthlyPlan: 21 },
+      { monthFact: 0, todayFact: 0, monthlyPlan: 12 },
+    ],
+  );
+  assert.equal("monthlyPlan" in july.granulation, false);
+
+  // Вечер 31 июля по UTC — уже август по Москве: берётся план августа.
+  const august = buildProductionMonthOverview(
+    tables,
+    [julyPlan, augustPlan],
+    new Date("2026-07-31T22:30:00.000Z"),
+  );
+  assert.equal(august.month, "2026-08");
+  assert.equal(august.forming.monthlyPlan, 900);
+  assert.equal(august.unformed.monthlyPlan, null);
 });
 
 test("buildProductionMonthOverview starts a new Moscow month with zero values", () => {
@@ -331,15 +375,16 @@ test("buildProductionMonthOverview starts a new Moscow month with zero values", 
   assert.deepEqual(
     buildProductionMonthOverview(
       tables,
+      [],
       new Date("2026-07-31T22:30:00.000Z"),
     ),
     {
       month: "2026-08",
       totalFact: 0,
-      forming: { monthFact: 0, todayFact: 0 },
-      sorting: { monthFact: 0, todayFact: 0 },
-      unformed: { monthFact: 0, todayFact: 0 },
-      chamotte: { monthFact: 0, todayFact: 0 },
+      forming: { monthFact: 0, todayFact: 0, monthlyPlan: null },
+      sorting: { monthFact: 0, todayFact: 0, monthlyPlan: null },
+      unformed: { monthFact: 0, todayFact: 0, monthlyPlan: null },
+      chamotte: { monthFact: 0, todayFact: 0, monthlyPlan: null },
       granulation: { monthFact: 0, todayFact: 0 },
     },
   );
@@ -356,6 +401,7 @@ test("buildProductionMonthOverview uses the Moscow day after UTC evening", () =>
   assert.equal(
     buildProductionMonthOverview(
       tables,
+      [],
       new Date("2026-07-02T22:30:00.000Z"),
     )?.forming.todayFact,
     9,

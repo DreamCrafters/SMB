@@ -1846,10 +1846,10 @@ function isProductionMonthOverview(
     /^\d{4}-\d{2}$/u.test(String(value.month)) &&
     typeof value.totalFact === "number" &&
     Number.isFinite(value.totalFact) &&
-    isProductionOverviewValue(value.forming) &&
-    isProductionOverviewValue(value.sorting) &&
-    isProductionOverviewValue(value.unformed) &&
-    isProductionOverviewValue(value.chamotte) &&
+    isProductionCategoryOverviewValue(value.forming) &&
+    isProductionCategoryOverviewValue(value.sorting) &&
+    isProductionCategoryOverviewValue(value.unformed) &&
+    isProductionCategoryOverviewValue(value.chamotte) &&
     isProductionOverviewValue(value.granulation)
   );
 }
@@ -1860,6 +1860,16 @@ function isProductionOverviewValue(value: unknown) {
     Number.isFinite(value.monthFact) &&
     typeof value.todayFact === "number" &&
     Number.isFinite(value.todayFact);
+}
+
+function isProductionCategoryOverviewValue(value: unknown) {
+  return isProductionOverviewValue(value) &&
+    isRecord(value) &&
+    (value.monthlyPlan === undefined ||
+      value.monthlyPlan === null ||
+      (typeof value.monthlyPlan === "number" &&
+        Number.isFinite(value.monthlyPlan) &&
+        value.monthlyPlan >= 0));
 }
 
 function isProductionReportTables(value: unknown): value is ProductionReportTables {
