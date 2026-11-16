@@ -414,17 +414,21 @@ VITE_SMB_PRODUCT_NAME=Вектор Деметра
 ```text
 SMB_APP_ENV=production
 DEV_ACCESS_ENABLED=false
-PORT=<как в server/.env smb.aonmou.ru>
-RUN_MIGRATIONS_ON_START=<как в server/.env smb.aonmou.ru>
 SESSION_COOKIE_NAME=smb_demetra_session
 CORS_ORIGIN=https://demetra.aonmou.ru
-DATABASE_URL=<новая БД Деметры в том же формате, что у smb.aonmou.ru>
+DATABASE_URL=mysql://<пользователь БД>:<пароль>@localhost:3306/<имя БД>
 EMAIL_NOTIFICATIONS_ENABLED=false
 MAX_NOTIFICATIONS_ENABLED=false
 EMAIL_SUBJECT_PREFIX=Вектор Деметра
 MAX_SUBJECT_PREFIX=Вектор Деметра
+GOOGLE_SHEETS_REFERENCE_ENABLED=false
 SMB_INSTANCE_NAVIGATION=business.assignments,business.director_assignments,business.board_assignments,business.collegium_assignments,business.settings,business.user_actions
 ```
+
+`PORT` и `RUN_MIGRATIONS_ON_START` не нужны: приложение запускает Passenger, миграции
+выполняет выкатка. Символы `@ : / # ?` в пароле БД записывать как `%40 %3A %2F %23 %3F`.
+В SSH-сессии без `.envrc` домена Node нет в `PATH`: перед командами `npm` выполнить
+`export PATH=/opt/alt/alt-nodejs22/root/usr/bin:$PATH` (версия — как в `.envrc`).
 
 `SMB_INSTANCE_NAVIGATION` обязателен: выкатка `demetra` без него останавливается, а
 сервер без него открыл бы все разделы НМОУ. Сейчас в перечне поручения (раздел и три
